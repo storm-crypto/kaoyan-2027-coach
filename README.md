@@ -4,73 +4,78 @@
 
 深度集成 Obsidian，所有学习状态外置到本地 Markdown 文件，跨 AI 工具可恢复。
 
-## 设计原则
+## 跨平台设置
 
-- **档案是唯一事实源**：个人信息、分数、目标全在 `我的学习者档案.md`，SKILL.md 不硬编码
-- **错题驱动**：通过 `/wrong_*` 积累自然填充知识地图，不搞一次性自评填表
-- **轻量归档**：单次错题只落错题本，不触发日志和档案更新；`/progress` 统一收尾
-- **防幻觉**：考频定性描述，禁止编造真题题号，`/mock` 基于已有错题出变式题（错题不足时降级为基于短板和知识地图出题）
-- **题卡去撞车**：新卡先生成 `question_id`，旧题优先按 `question_id` 精确命中，避免同考点同来源互相覆盖
-- **初始化脚本化**：首次 `/load` 通过 `init_vault.py` 统一创建目录和模板，避免模型手搓骨架
+此 skill 使用标准 SKILL.md 格式，兼容 Claude Code、Codex、Gemini CLI、Antigravity、Cursor 等工具。
+
+**一键设置：**
+```bash
+bash setup.sh
+```
+
+**手动设置：**
+```bash
+# 1. 创建 symlink（只需执行一次）
+ln -sf ~/.gemini/antigravity/skills/kaoyan-2027-coach ~/.claude/skills/kaoyan-2027-coach
+ln -sf ~/.gemini/antigravity/skills/kaoyan-2027-coach ~/.codex/skills/kaoyan-2027-coach
+
+# 2. 设置环境变量（加到 ~/.zshrc 或 ~/.bashrc）
+export KAOYAN_OBSIDIAN_ROOT="/path/to/your/obsidian/vault/Kaoyan_2027_Prep"
+```
 
 ## 前置条件
 
-- Python 3.6+（脚本依赖标准库，无需安装第三方包）
-- Obsidian vault 已配置好目录结构（首次 `/load` 会自动创建）
+- Python 3.6+（脚本仅依赖标准库）
+- Obsidian vault（首次 `/load` 自动创建目录结构）
 
 ## 文件结构
 
 ```
 kaoyan-2027-coach/
 ├── SKILL.md                     ← 核心指令与规则
-├── README.md                    ← 本文档
-├── scripts/                     ← 自动化脚本（模型调用，不手动 parse 文件）
-│   ├── init_vault.py            ← 初始化 vault 目录与基础模板
-│   ├── generate_question_id.py  ← 生成稳定题卡主键
+├── setup.sh                     ← 跨平台设置脚本
+├── scripts/                     ← 自动化脚本（输出 JSON，支持环境变量）
+│   ├── frontmatter.py           ← 共享 YAML frontmatter 解析
+│   ├── env_util.py              ← 共享工具函数（环境变量、原子写入、iCloud 检测）
+│   ├── init_vault.py            ← 初始化 vault 目录与模板
+│   ├── generate_question_id.py  ← 生成稳定题卡主键（SHA1）
 │   ├── scan_due_reviews.py      ← 扫描到期错题 + 超期降级
-│   ├── find_card.py             ← 搜索已有错题卡（判断新旧题）
-│   ├── update_card.py           ← 更新错题卡 YAML + 历史记录 + 旧卡重命名
+│   ├── find_card.py             ← 搜索已有错题卡（判断新旧）
+│   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）
 │   └── update_knowledge_map.py  ← 更新知识地图掌握度
-└── templates/
-    ├── 错题追踪卡模板.md         ← 错题卡格式与 tags 规则
-    ├── 学习日志模板.md           ← 日志格式
-    └── 学习者档案与知识地图模板.md ← 档案结构与全科知识地图
+├── templates/
+│   ├── 错题追踪卡模板.md
+│   ├── 学习日志模板.md
+│   └── 学习者档案与知识地图模板.md
+└── tests/                       ← pytest 测试（36 个测试用例）
 ```
 
 ## 指令速查
 
-### 核心（天天用）
-
 | 指令 | 作用 |
 |------|------|
 | `/load` | 恢复学习上下文（首次使用自动建档） |
-| `/wrong_math [题目]` | 数学错题解析 |
-| `/wrong_408 [题目]` | 408 错题解析（加"引导"切苏格拉底模式） |
-| `/wrong_politics [题目]` | 政治选择题解析 |
-| `/wrong_english [题目]` | 英语一错题解析 |
+| `/wrong [科目] [题目]` | 全科错题解析（科目可省略，自动判断） |
 | `/plan_today [时长]` | 今日学习清单 |
 | `/progress [心得]` | 今日收尾 + 归档 |
+| `/review` | 扫描到期错题，逐题复习 |
+| `/test [章节]` | 基于知识地图选题测试 |
+| `/recalibrate [成绩]` | 策略校准 |
+| `/mock [科目] [题量]` | 限时训练 |
 
-### 轻量（随时用，不归档）
+概念解释、知识串联、解题挑错、Anki 卡片生成等直接用自然语言对话，无需专门指令。
 
-| 指令 | 作用 |
-|------|------|
-| `/explain [概念]` | 双轨解释 + 记忆钩子 |
-| `/串联 [知识点]` | 408 跨科关联导图 |
-| `/找茬 [推导]` | 阅卷式挑错打分 |
-| `/anki [知识点]` | 生成 Q/A 卡片 |
-| `/全解` | `/wrong_408` 的加深版 |
+## 设计原则
 
-### 辅助（会写文件）
+- **档案是唯一事实源**：个人信息全在 `我的学习者档案.md`，SKILL.md 不硬编码
+- **错题驱动**：通过 `/wrong` 自然填充知识地图
+- **轻量归档**：单次错题只落错题本，`/progress` 统一收尾
+- **防幻觉**：考频定性描述，禁止编造真题题号
+- **题卡去重**：`question_id`（SHA1）做主键，防止重复
+- **改进版 SRS**：含 ease_factor 的间隔复习算法，上限 90 天
 
-| 指令 | 作用 |
-|------|------|
-| `/review` | 扫描今日到期错题，逐题复习并更新间隔和知识地图 |
-| `/test [章节]` | 基于知识地图选题测试，作答后回写掌握度 |
+## 运行测试
 
-### 按需
-
-| 指令 | 作用 |
-|------|------|
-| `/recalibrate [模考成绩]` | 策略校准 + 目标调整 |
-| `/mock [科目] [题量]` | 限时训练（错题≥5时基于错题变式，不足时基于短板和知识地图出题） |
+```bash
+python3 -m pytest tests/ -v
+```

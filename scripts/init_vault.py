@@ -3,7 +3,8 @@
 
 用法:
   python3 init_vault.py [OBSIDIAN_ROOT]
-  python3 init_vault.py [OBSIDIAN_ROOT] --force
+  python3 init_vault.py --force
+  环境变量 KAOYAN_OBSIDIAN_ROOT 可替代 CLI 参数
 
 默认只创建缺失的目录/文件，不覆盖已有内容；加 --force 时会重写模板文件。
 """
@@ -12,26 +13,22 @@ import json
 import sys
 from pathlib import Path
 
+from env_util import resolve_obsidian_root, resolve_skill_root, atomic_write
+
 
 SUBJECT_FILES = ["数学一.md", "408.md", "政治.md", "英语一.md"]
 ROOT_DIRS = [
-    "知识地图",
-    "学习日志",
-    "错题本",
-    "错题本/数学一",
-    "错题本/408",
-    "错题本/政治",
-    "错题本/英语一",
-    "知识笔记",
-    "知识笔记/408",
-    "复盘报告",
+    "知识地图", "学习日志",
+    "错题本", "错题本/数学一", "错题本/408", "错题本/政治", "错题本/英语一",
+    "知识笔记", "知识笔记/408", "复盘报告",
 ]
 
 
 def load_template_text():
-    template_path = Path(__file__).resolve().parent.parent / "templates" / "学习者档案与知识地图模板.md"
+    skill_root = resolve_skill_root()
+    template_path = skill_root / "templates" / "学习者档案与知识地图模板.md"
     if not template_path.exists():
-        print(f"错误: 模板不存在 {template_path}", file=sys.stderr)
+        print(json.dumps({"error": True, "message": f"模板不存在: {template_path}"}, ensure_ascii=False))
         sys.exit(1)
     return template_path.read_text(encoding="utf-8")
 
@@ -56,7 +53,7 @@ def write_template_file(path, content, force, created_files, overwritten_files, 
         skipped_files.append(str(path))
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    atomic_write(path, content)
     if existed_before:
         overwritten_files.append(str(path))
     else:
@@ -65,11 +62,11 @@ def write_template_file(path, content, force, created_files, overwritten_files, 
 
 def main():
     parser = argparse.ArgumentParser(description="初始化考研 Obsidian vault")
-    parser.add_argument("obsidian_root", help="Obsidian vault 根目录")
+    parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录（可由环境变量替代）")
     parser.add_argument("--force", action="store_true", help="覆盖已有模板文件")
     args = parser.parse_args()
 
-    root = Path(args.obsidian_root)
+    root = resolve_obsidian_root(args.obsidian_root)
     template_text = load_template_text()
 
     created_dirs = []
@@ -93,19 +90,13 @@ def main():
         file_path = root / "知识地图" / filename
         write_template_file(file_path, content, args.force, created_files, overwritten_files, skipped_files)
 
-    print(
-        json.dumps(
-            {
-                "root": str(root),
-                "created_dirs": created_dirs,
-                "created_files": created_files,
-                "overwritten_files": overwritten_files,
-                "skipped_files": skipped_files,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    print(json.dumps({
+        "root": str(root),
+        "created_dirs": created_dirs,
+        "created_files": created_files,
+        "overwritten_files": overwritten_files,
+        "skipped_files": skipped_files,
+    }, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

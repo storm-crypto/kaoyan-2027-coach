@@ -1,0 +1,104 @@
+"""test update_card.py"""
+import json
+from datetime import date, timedelta
+from helpers import run_script
+
+
+def test_status_buhui(sample_card):
+    """不会：interval→1, ease×0.8"""
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card), "--status", "不会", "--comment", "完全忘了"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["interval"] == 1
+    assert float(data["ease_factor"]) == 2.0  # 2.5 * 0.8
+    assert data["next_review"] == (date.today() + timedelta(days=1)).isoformat()
+
+
+def test_status_banhui(sample_card):
+    """半会：interval×1.2(至少+1), ease不变"""
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card), "--status", "半会", "--comment", "有进步"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    # old_interval=4, 4*1.2=4.8→int=4, max(4, 4+1)=5
+    assert data["interval"] == 5
+    assert data["ease_factor"] == "2.50"
+
+
+def test_status_hui(sample_card):
+    """会：interval×ease_factor(上限90), ease+0.1"""
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card), "--status", "会", "--comment", "掌握了"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    # old_interval=4, 4*2.5=10
+    assert data["interval"] == 10
+    assert float(data["ease_factor"]) == 2.6
+
+
+def test_ease_floor(sample_card):
+    """反复不会，ease 不低于 1.3"""
+    for _ in range(5):
+        run_script("update_card.py", [str(sample_card), "--status", "不会"])
+    rc, out, _ = run_script("update_card.py", [str(sample_card), "--status", "不会"])
+    assert rc == 0
+    data = json.loads(out)
+    assert float(data["ease_factor"]) >= 1.3
+
+
+def test_interval_cap(sample_card):
+    """会的 interval 上限为 90 天"""
+    # 先手动把 interval 设高
+    text = sample_card.read_text()
+    text = text.replace("review_interval: 4", "review_interval: 80")
+    sample_card.write_text(text)
+
+    rc, out, _ = run_script("update_card.py", [str(sample_card), "--status", "会"])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["interval"] <= 90
+
+
+def test_qid_backfill(sample_card_no_qid):
+    """回填 question_id 并重命名文件"""
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card_no_qid), "--status", "半会",
+        "--question-id", "qid-aabbccddeeff"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert "renamed_from" in data
+    assert "qid-aabbccddeeff" in data["updated"]
+    # 原文件应该不存在了
+    assert not sample_card_no_qid.exists()
+
+
+def test_qid_conflict(sample_card):
+    """传入不同的 question_id 应报错"""
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card), "--status", "会",
+        "--question-id", "qid-999999999999"
+    ])
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True
+
+
+def test_history_append(sample_card):
+    """历史记录应追加新行"""
+    run_script("update_card.py", [str(sample_card), "--status", "会", "--comment", "搞定"])
+    text = sample_card.read_text()
+    assert f"- {date.today().isoformat()} - 会 - 搞定" in text
+
+
+def test_file_not_found():
+    rc, out, _ = run_script("update_card.py", [
+        "/nonexistent/card.md", "--status", "不会"
+    ])
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True

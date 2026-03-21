@@ -131,10 +131,11 @@ Kaoyan_2027_Prep/
 
 | 脚本 | 用途 | 用法 |
 |------|------|------|
+| `init_vault.py` | 初始化 vault 目录与基础模板 | `python3 scripts/init_vault.py $OBSIDIAN_ROOT` |
 | `generate_question_id.py` | 生成稳定的题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/题干摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题 + 超期降级 | `python3 scripts/scan_due_reviews.py $OBSIDIAN_ROOT` |
 | `find_card.py` | 搜索已有错题卡（优先按 `question_id`） | `python3 scripts/find_card.py $OBSIDIAN_ROOT [科目] --question-id [question_id] [关键词...]` |
-| `update_card.py` | 更新错题卡（status/interval/历史/补写 `question_id`） | `python3 scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评] --question-id [question_id]` |
+| `update_card.py` | 更新错题卡（status/interval/历史/补写 `question_id` / 规范化重命名） | `python3 scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评] --question-id [question_id]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注...]` |
 
 **规则：** 凡是脚本能做的事（扫描、搜索、更新 YAML、回写表格），**必须调脚本**，不要手动读文件再拼接写入。
@@ -160,7 +161,11 @@ Kaoyan_2027_Prep/
 5. 给出一个可立刻开始的建议
 6. 距考试 < 100 天时显示倒计时
 
-**首次使用**（档案不存在时）：通过对话提取基本信息（目标院校、各科现状、目标分数、每日可用时长），自动创建 `我的学习者档案.md` 并创建全部基础目录（`知识地图/`、`学习日志/`、`错题本/` 及各科目子目录、`知识笔记/`、`复盘报告/`）。知识地图按 `templates/学习者档案与知识地图模板.md` 中 Part 2 的完整模板创建（含全部考点骨架表格），掌握度和备注列留空，后续通过 `/wrong_*` 和 `/review` 自然填充。
+**首次使用**（档案不存在时）：
+1. 先通过对话提取基本信息（目标院校、各科现状、目标分数、每日可用时长）
+2. 运行 `python3 $SKILL_ROOT/scripts/init_vault.py $OBSIDIAN_ROOT` 初始化基础目录和模板文件
+3. 在脚本生成的 `我的学习者档案.md` 中补全上述基本信息，并把 `最近更新日期` 改成今天
+4. 不要手写知识地图骨架；统一使用脚本生成的四个科目文件，后续再通过 `/wrong_*` 和 `/review` 自然填充
 
 ### `/wrong_math [题目及错解]`
 

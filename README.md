@@ -11,6 +11,7 @@
 - **轻量归档**：单次错题只落错题本，不触发日志和档案更新；`/progress` 统一收尾
 - **防幻觉**：考频定性描述，禁止编造真题题号，`/mock` 基于已有错题出变式题（错题不足时降级为基于短板和知识地图出题）
 - **题卡去撞车**：新卡先生成 `question_id`，旧题优先按 `question_id` 精确命中，避免同考点同来源互相覆盖
+- **初始化脚本化**：首次 `/load` 通过 `init_vault.py` 统一创建目录和模板，避免模型手搓骨架
 
 ## 前置条件
 
@@ -24,10 +25,11 @@ kaoyan-2027-coach/
 ├── SKILL.md                     ← 核心指令与规则
 ├── README.md                    ← 本文档
 ├── scripts/                     ← 自动化脚本（模型调用，不手动 parse 文件）
+│   ├── init_vault.py            ← 初始化 vault 目录与基础模板
 │   ├── generate_question_id.py  ← 生成稳定题卡主键
 │   ├── scan_due_reviews.py      ← 扫描到期错题 + 超期降级
 │   ├── find_card.py             ← 搜索已有错题卡（判断新旧题）
-│   ├── update_card.py           ← 更新错题卡 YAML + 历史记录
+│   ├── update_card.py           ← 更新错题卡 YAML + 历史记录 + 旧卡重命名
 │   └── update_knowledge_map.py  ← 更新知识地图掌握度
 └── templates/
     ├── 错题追踪卡模板.md         ← 错题卡格式与 tags 规则

@@ -6,11 +6,16 @@
 自动处理:
 - 更新 status, last_review_at, wrong_count, next_review, review_interval
 - 根据 status 调整 review_interval（不会→1, 半会→不变, 会→×2 上限30）
+- 回填 question_id 时，将旧卡重命名为规范文件名
 - 在"### 历史记录"下追加一行
 """
 import sys, argparse
 from datetime import date, timedelta
 from pathlib import Path
+import re
+
+
+QID_SUFFIX_RE = re.compile(r"-qid-[0-9a-f]{12}$")
 
 
 def parse_frontmatter(text):
@@ -56,6 +61,19 @@ def serialize_frontmatter(fm, key_order, body):
                 lines.append(f"{k}: {v}")
     lines.append("---")
     return "\n".join(lines) + body
+
+
+def canonicalize_card_path(card, question_id):
+    """将卡片文件名规范化为追加 question_id 的形式。"""
+    stem = card.stem
+    desired_suffix = f"-{question_id}"
+    if stem.endswith(desired_suffix):
+        return card
+    if QID_SUFFIX_RE.search(stem):
+        new_stem = QID_SUFFIX_RE.sub(desired_suffix, stem)
+    else:
+        new_stem = f"{stem}{desired_suffix}"
+    return card.with_name(new_stem + card.suffix)
 
 
 def main():
@@ -120,7 +138,25 @@ def main():
         body = body.rstrip() + "\n\n### 历史记录" + history_line + "\n"
 
     card.write_text(serialize_frontmatter(fm, key_order, body), encoding="utf-8")
-    print(f"已更新: {card.name} → status={args.status}, interval={new_interval}, next_review={fm['next_review']}")
+    final_card = card
+    renamed_from = None
+    if args.question_id:
+        target_card = canonicalize_card_path(card, args.question_id)
+        if target_card != card:
+            if target_card.exists():
+                print(f"错误: 目标文件已存在 {target_card}", file=sys.stderr)
+                sys.exit(1)
+            card.rename(target_card)
+            renamed_from = card.name
+            final_card = target_card
+
+    message = (
+        f"已更新: {final_card.name} → status={args.status}, "
+        f"interval={new_interval}, next_review={fm['next_review']}"
+    )
+    if renamed_from:
+        message += f"（由 {renamed_from} 迁移）"
+    print(message)
 
 
 if __name__ == "__main__":

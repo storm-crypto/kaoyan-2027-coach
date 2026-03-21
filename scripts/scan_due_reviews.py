@@ -71,10 +71,12 @@ def main():
 
         interval = int(fm.get("review_interval", 1))
 
-        # 超期降级
+        # 超期降级：interval 重置为 1，next_review 设为今天
         if next_review < threshold and interval > 1:
             fm["review_interval"] = "1"
+            fm["next_review"] = today.isoformat()
             interval = 1
+            next_review = today
             body = text[fm_end:]
             md_file.write_text(write_frontmatter(fm, body), encoding="utf-8")
             degraded += 1

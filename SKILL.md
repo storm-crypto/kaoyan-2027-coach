@@ -84,16 +84,19 @@ Kaoyan_2027_Prep/
 **执行规则：**
 - 来源 + 错误思路是必填项，两者至少缺一才触发追问
 - "卡在哪一步"为可选项，永远不追问
-- 旧题复习自动识别：运行 `python3 $SKILL_ROOT/scripts/find_card.py $OBSIDIAN_ROOT [科目] [关键词]`，返回非空则为旧题复习
+- 旧题复习自动识别：运行 `find_card.py`，根据 `verdict` 字段判断（`new`=新题，`found`=旧题，`ambiguous`=多条匹配需用户选择）
 
 ### 错题归档
 
 每次 `/wrong_*` 完成后：
 
-1. 运行 `python3 $SKILL_ROOT/scripts/find_card.py $OBSIDIAN_ROOT [科目] [考点关键词]` 判断新题/旧题
+1. 运行 `python3 $SKILL_ROOT/scripts/find_card.py $OBSIDIAN_ROOT [科目] [考点关键词]` 判断新旧题：
+   - `verdict: "new"` → 新题，新建错题卡
+   - `verdict: "found"` → 旧题复习，更新已有卡片
+   - `verdict: "ambiguous"` → 匹配到多张卡，向用户确认是哪一张
 2. **新题** → 在 `错题本/[科目]/[章节]/` 下新建错题卡（文件名：`[考点关键词]-[来源简称].md`），`next_review` = 明天，`review_interval` = 1
-3. **旧题** → 运行 `python3 $SKILL_ROOT/scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评]` 更新已有卡片
-4. 运行 `python3 $SKILL_ROOT/scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注]` 回写知识地图
+3. **旧题** → 运行 `python3 $SKILL_ROOT/scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评]`
+4. 运行 `python3 $SKILL_ROOT/scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注]`（关键词需精确到叶子考点，如"二重积分"而非"积分"）
 5. **不触发日志和档案更新**——除非用户主动 `/progress`
 
 ### 间隔复习调度

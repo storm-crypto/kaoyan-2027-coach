@@ -45,8 +45,8 @@ kaoyan-2027-coach/
 │   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）
 │   ├── update_knowledge_map.py  ← 更新知识地图掌握度
 │   ├── build_weekly_plan.py     ← 生成周计划
-│   ├── build_weekly_review.py   ← 生成周复盘
-│   └── analyze_mock_exam.py     ← 记录模考并输出分析
+│   ├── build_recap.py           ← 生成周/月复盘
+│   └── analyze_mock_exam.py     ← 记录模考+策略校准
 ├── templates/
 │   ├── 错题追踪卡模板.md
 │   ├── 学习日志模板.md
@@ -67,10 +67,9 @@ kaoyan-2027-coach/
 | `/plan_week [本周总时长]` | 生成本周学习计划 |
 | `/progress [心得]` | 今日收尾 + 归档 |
 | `/review` | 扫描到期错题，逐题复习 |
-| `/week_review` | 汇总本周日志与复习情况 |
-| `/analyze_mock 政治=62 数学一=118 英语一=80 408=95` | 记录模考并生成分析 |
+| `/recap [week\|month]` | 周/月复盘（默认周） |
 | `/test [章节]` | 基于知识地图选题测试 |
-| `/recalibrate [成绩]` | 策略校准 |
+| `/recalibrate 政治=62 ...` | 记录模考+策略校准 |
 | `/mock [科目] [题量]` | 限时训练 |
 
 概念解释、知识串联、解题挑错、Anki 卡片生成等直接用自然语言对话，无需专门指令。
@@ -80,7 +79,7 @@ kaoyan-2027-coach/
 - **档案是唯一事实源**：个人信息全在 `我的学习者档案.md`，SKILL.md 不硬编码
 - **错题驱动**：通过 `/wrong` 自然填充知识地图
 - **轻量归档**：单次错题只落错题本，`/progress` 统一收尾
-- **周循环闭环**：周计划、周复盘、模考分析都有脚本落地，不靠纯提示词硬撑
+- **周/月复盘闭环**：周计划、周/月复盘、模考分析都有脚本落地
 - **防幻觉**：考频定性描述，禁止编造真题题号
 - **题卡去重**：`question_id`（SHA1）做主键，防止重复
 - **改进版 SRS**：含 ease_factor 的间隔复习算法，上限 90 天

@@ -7,12 +7,12 @@ from datetime import date
 from pathlib import Path
 
 from archive_ops import (
-    append_mock_row,
     load_archive_text,
     load_template_markdown,
     parse_mock_rows,
     parse_score_cell,
     parse_subject_targets,
+    upsert_mock_row,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
 
@@ -99,7 +99,11 @@ def main():
     archive_path, archive_text = load_archive_text(obsidian_root)
     targets = parse_subject_targets(archive_text)
     previous_rows = parse_mock_rows(archive_text)
-    previous_row = previous_rows[-1] if previous_rows else None
+    previous_row = None
+    for row in reversed(previous_rows):
+        if row["date"] != exam_day.isoformat():
+            previous_row = row
+            break
 
     total_score = sum(scores[subject] for subject in SUBJECTS)
     previous_total = parse_score_cell(previous_row["总分"]) if previous_row else None
@@ -158,7 +162,7 @@ def main():
         "总分": format_score(total_score),
         "备注": args.note or "阶段模考",
     }
-    atomic_write(archive_path, append_mock_row(archive_text, row))
+    atomic_write(archive_path, upsert_mock_row(archive_text, row))
 
     content = render_report(load_template_markdown("模考分析模板.md"), {
         "exam_date": exam_day.isoformat(),

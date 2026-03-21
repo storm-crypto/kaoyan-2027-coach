@@ -145,7 +145,7 @@ def main():
     checkpoints = "\n".join([
         f"1. 周三前清掉至少 {max(1, min(sum(due_counts.values()), 3))} 道到期复习。",
         f"2. 本周至少完成一次 {ranked_subjects[0]} 的计时训练或专题复盘。",
-        "3. 周末执行一次 `/week_review`，把产出和卡点沉淀下来。",
+        "3. 周末执行一次 `/recap week`，把产出和卡点沉淀下来。",
     ])
 
     content = render_weekly_plan(load_template_markdown("周计划模板.md"), {

@@ -24,3 +24,31 @@ def test_analyze_mock_exam(sample_archive, vault_root):
     report = output_path.read_text(encoding="utf-8")
     assert "总分" in report
     assert "355" in report
+
+
+def test_analyze_mock_exam_same_day_is_upsert(sample_archive, vault_root):
+    run_script("analyze_mock_exam.py", [
+        str(vault_root),
+        "政治=62",
+        "数学一=118",
+        "英语一=80",
+        "408=95",
+        "--date", "2026-03-21",
+        "--note", "初版",
+    ])
+
+    rc, out, _ = run_script("analyze_mock_exam.py", [
+        str(vault_root),
+        "政治=63",
+        "数学一=120",
+        "英语一=80",
+        "408=95",
+        "--date", "2026-03-21",
+        "--note", "修正版",
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["total_delta"] == "+20"
+    archive_text = sample_archive.read_text(encoding="utf-8")
+    assert archive_text.count("| 2026-03-21 |") == 1
+    assert "| 2026-03-21 | 63 | 120 | 80 | 95 | 358 | 修正版 |" in archive_text

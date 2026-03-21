@@ -77,6 +77,10 @@ def parse_score_cell(value):
 
 
 def append_mock_row(text, row):
+    return upsert_mock_row(text, row)
+
+
+def upsert_mock_row(text, row):
     marker = "## 模考成绩追踪"
     section_start = text.find(marker)
     if section_start == -1:
@@ -91,10 +95,25 @@ def append_mock_row(text, row):
         f"| {row['date']} | {row['政治']} | {row['数学一']} | {row['英语一']} | "
         f"{row['408']} | {row['总分']} | {row['备注']} |"
     )
-    if row_line in section:
-        return text
-    section = section + "\n" + row_line + "\n"
-    return text[:section_start] + section + text[next_section:]
+    section_lines = section.splitlines()
+    updated_lines = []
+    replaced = False
+    for line in section_lines:
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+            if len(cells) == 7 and cells[0] == row["date"]:
+                if not replaced:
+                    updated_lines.append(row_line)
+                    replaced = True
+                continue
+        updated_lines.append(line)
+
+    if not replaced:
+        updated_lines.append(row_line)
+
+    updated_section = "\n".join(updated_lines).rstrip("\n") + "\n"
+    return text[:section_start] + updated_section + text[next_section:]
 
 
 def infer_subject_mentions(items):

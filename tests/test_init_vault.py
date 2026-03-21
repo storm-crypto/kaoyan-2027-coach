@@ -43,3 +43,40 @@ def test_env_var(tmp_path):
     assert rc == 0
     data = json.loads(out)
     assert (vault / "我的学习者档案.md").exists()
+
+
+def test_profile_bootstrap_args(tmp_path):
+    vault = tmp_path / "bootstrap_vault"
+    rc, out, _ = run_script("init_vault.py", [
+        str(vault),
+        "--school-major", "浙大计算机",
+        "--target-total", "380",
+        "--exam-date", "2026-12-20",
+        "--daily-hours", "7",
+        "--stage", "强化冲刺期",
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert "目标院校/专业" in data["profile_updated_fields"]
+    content = (vault / "我的学习者档案.md").read_text(encoding="utf-8")
+    assert "浙大计算机" in content
+    assert "380" in content
+    assert "2026-12-20" in content
+    assert "7" in content
+    assert "强化冲刺期" in content
+
+
+def test_profile_bootstrap_only_fills_blanks_without_force(tmp_path):
+    vault = tmp_path / "bootstrap_existing"
+    run_script("init_vault.py", [str(vault), "--school-major", "一志愿A", "--target-total", "360"])
+    rc, out, _ = run_script("init_vault.py", [
+        str(vault),
+        "--school-major", "一志愿B",
+        "--target-total", "380",
+        "--daily-hours", "6",
+    ])
+    assert rc == 0
+    content = (vault / "我的学习者档案.md").read_text(encoding="utf-8")
+    assert "一志愿A" in content
+    assert "380" not in content
+    assert "6" in content

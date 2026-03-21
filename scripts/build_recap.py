@@ -133,6 +133,7 @@ def main():
     today = parse_today(args.today)
     start, end, label, filename = get_date_range(today, args.period)
     period_name = "月" if args.period == "month" else "周"
+    template_name = "月复盘模板.md" if args.period == "month" else "周复盘模板.md"
 
     highlights, blockers, logged_days, total_hours = collect_logs(obsidian_root, start, end)
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
@@ -157,7 +158,7 @@ def main():
     else:
         next_actions.append("保留检查点，及时把新卡点写回错题本或知识地图。")
 
-    content = render_recap(load_template_markdown("周复盘模板.md"), {
+    content = render_recap(load_template_markdown(template_name), {
         "week_label": label,
         "week_range": f"{start.isoformat()} ~ {end.isoformat()}",
         "logged_days": str(logged_days),

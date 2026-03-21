@@ -96,7 +96,7 @@ Kaoyan_2027_Prep/
 
 | 脚本 | 用途 | 用法 |
 |------|------|------|
-| `init_vault.py` | 初始化 vault 目录与模板 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT]` |
+| `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT]` |
 | `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
@@ -118,7 +118,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 3-5 句话总结备考状态，指出 1-3 个优先问题，给一个可立刻开始的建议
 3. 距考试 < 100 天时显示倒计时
 
-**首次使用**（档案不存在）：对话提取基本信息 → 运行 `init_vault.py` → 补全档案 → 后续通过 `/wrong` 自然填充知识地图
+**首次使用**（档案不存在）：
+1. 先提取基础信息：目标院校/专业、目标总分、考试日期、每日可投入时长、当前阶段关键词
+2. 运行 `init_vault.py` 并把这些信息通过 CLI 参数写入档案
+3. 仅在用户没提供的字段上保留空白，禁止手写目录骨架和知识地图表头
+4. 后续通过 `/wrong` 自然填充知识地图
 
 ### `/wrong [科目] [题目及错解]` — 错题解析
 
@@ -167,6 +171,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 运行 `build_weekly_plan.py`，读取档案中的聚焦问题 + 本周到期复习
 2. 输出科目分配、每日节奏和 3 个周内检查点
 3. 周计划写入 `周计划/YYYY-Www.md`
+4. 结尾提醒用户周末执行 `/recap week`
 
 ### `/progress [今天学了什么]` — 今日收尾
 
@@ -194,7 +199,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/recalibrate 政治=62 数学一=118 英语一=80 408=95` — 模考记录+策略校准
 
 1. 运行 `analyze_mock_exam.py` 记录成绩
-2. 将本次成绩追加到 `我的学习者档案.md` 的"模考成绩追踪"
+2. 将本次成绩写入 `我的学习者档案.md` 的"模考成绩追踪"；同一天重复执行时覆盖当日记录，不重复追加
 3. 输出各科相对目标/上次成绩的变化、关键问题和策略调整建议
 4. 写入 `复盘报告/YYYY-MM-DD-模考分析.md`
 

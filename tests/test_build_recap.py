@@ -102,6 +102,9 @@ def test_month_recap(vault_root):
     assert output_path.exists()
     content = output_path.read_text(encoding="utf-8")
     assert "12 小时" in content
+    assert "# 月复盘：2026年03月" in content
+    assert "## 本月概览" in content
+    assert "## 下月建议" in content
 
 
 def test_month_recap_empty(vault_root):

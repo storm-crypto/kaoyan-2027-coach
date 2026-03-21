@@ -33,6 +33,34 @@ def test_no_match(vault_root):
     assert data["verdict"] == "new"
 
 
+def test_qid_miss_does_not_auto_merge(sample_card, vault_root):
+    rc, out, _ = run_script("find_card.py", [
+        str(vault_root), "数学一", "--question-id", "qid-000000000000", "二重积分", "极坐标"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["verdict"] == "new"
+    assert data["search_mode"] == "question_id_miss"
+    assert data["count"] == 0
+    assert len(data["keyword_candidates"]) == 1
+    assert data["needs_question_id_backfill"] is False
+
+
+def test_legacy_fallback_can_still_find_old_card(sample_card, vault_root):
+    rc, out, _ = run_script("find_card.py", [
+        str(vault_root), "数学一",
+        "--question-id", "qid-000000000000",
+        "--legacy-fallback",
+        "二重积分", "极坐标",
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["verdict"] == "found"
+    assert data["search_mode"] == "keywords"
+    assert data["count"] == 1
+    assert data["needs_question_id_backfill"] is True
+
+
 def test_empty_dir(vault_root):
     rc, out, _ = run_script("find_card.py", [
         str(vault_root), "政治", "马原"

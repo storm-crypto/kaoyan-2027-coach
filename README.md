@@ -37,17 +37,24 @@ kaoyan-2027-coach/
 ├── scripts/                     ← 自动化脚本（输出 JSON，支持环境变量）
 │   ├── frontmatter.py           ← 共享 YAML frontmatter 解析
 │   ├── env_util.py              ← 共享工具函数（环境变量、原子写入、iCloud 检测）
+│   ├── archive_ops.py           ← 学习者档案/模板解析辅助
 │   ├── init_vault.py            ← 初始化 vault 目录与模板
 │   ├── generate_question_id.py  ← 生成稳定题卡主键（SHA1）
 │   ├── scan_due_reviews.py      ← 扫描到期错题 + 超期降级
 │   ├── find_card.py             ← 搜索已有错题卡（判断新旧）
 │   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）
-│   └── update_knowledge_map.py  ← 更新知识地图掌握度
+│   ├── update_knowledge_map.py  ← 更新知识地图掌握度
+│   ├── build_weekly_plan.py     ← 生成周计划
+│   ├── build_weekly_review.py   ← 生成周复盘
+│   └── analyze_mock_exam.py     ← 记录模考并输出分析
 ├── templates/
 │   ├── 错题追踪卡模板.md
 │   ├── 学习日志模板.md
-│   └── 学习者档案与知识地图模板.md
-└── tests/                       ← pytest 测试（36 个测试用例）
+│   ├── 学习者档案与知识地图模板.md
+│   ├── 周计划模板.md
+│   ├── 周复盘模板.md
+│   └── 模考分析模板.md
+└── tests/                       ← pytest 测试（41 个测试用例）
 ```
 
 ## 指令速查
@@ -57,8 +64,11 @@ kaoyan-2027-coach/
 | `/load` | 恢复学习上下文（首次使用自动建档） |
 | `/wrong [科目] [题目]` | 全科错题解析（科目可省略，自动判断） |
 | `/plan_today [时长]` | 今日学习清单 |
+| `/plan_week [本周总时长]` | 生成本周学习计划 |
 | `/progress [心得]` | 今日收尾 + 归档 |
 | `/review` | 扫描到期错题，逐题复习 |
+| `/week_review` | 汇总本周日志与复习情况 |
+| `/analyze_mock 政治=62 数学一=118 英语一=80 408=95` | 记录模考并生成分析 |
 | `/test [章节]` | 基于知识地图选题测试 |
 | `/recalibrate [成绩]` | 策略校准 |
 | `/mock [科目] [题量]` | 限时训练 |
@@ -70,6 +80,7 @@ kaoyan-2027-coach/
 - **档案是唯一事实源**：个人信息全在 `我的学习者档案.md`，SKILL.md 不硬编码
 - **错题驱动**：通过 `/wrong` 自然填充知识地图
 - **轻量归档**：单次错题只落错题本，`/progress` 统一收尾
+- **周循环闭环**：周计划、周复盘、模考分析都有脚本落地，不靠纯提示词硬撑
 - **防幻觉**：考频定性描述，禁止编造真题题号
 - **题卡去重**：`question_id`（SHA1）做主键，防止重复
 - **改进版 SRS**：含 ease_factor 的间隔复习算法，上限 90 天

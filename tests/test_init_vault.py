@@ -14,6 +14,7 @@ def test_fresh_init(tmp_path):
     assert (vault / "知识地图" / "数学一.md").exists()
     assert (vault / "知识地图" / "408.md").exists()
     assert (vault / "错题本" / "数学一").is_dir()
+    assert (vault / "周计划").is_dir()
 
 
 def test_idempotent(tmp_path):

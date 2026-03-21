@@ -28,9 +28,10 @@ Kaoyan_2027_Prep/
 ├── 我的学习者档案.md          ← /load 读取
 ├── 知识地图/{数学一,408,政治,英语一}.md  ← 按需读取
 ├── 学习日志/YYYY-MM-DD.md    ← /progress 写入
+├── 周计划/YYYY-Www.md        ← /plan_week 写入
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
 ├── 知识笔记/                 ← 可选
-└── 复盘报告/                 ← /recalibrate 写入
+└── 复盘报告/                 ← /recalibrate /week_review /analyze_mock 写入
 ```
 
 ---
@@ -64,6 +65,11 @@ Kaoyan_2027_Prep/
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
 
+**去重收口规则：**
+- 只要传入了 `question_id`，就先把它当成唯一主键
+- `question_id` 未命中时，默认按 `new` 处理，避免把新题误合并到旧卡
+- 只有迁移旧库时，才允许显式加 `--legacy-fallback` 做关键词兼容命中
+
 ### 间隔复习（改进版 SRS）
 
 由脚本自动处理，含 ease_factor：
@@ -93,9 +99,12 @@ Kaoyan_2027_Prep/
 | `init_vault.py` | 初始化 vault 目录与模板 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT]` |
-| `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...]` |
+| `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
+| `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
+| `build_weekly_review.py` | 生成周复盘 | `python3 scripts/build_weekly_review.py [$OBSIDIAN_ROOT]` |
+| `analyze_mock_exam.py` | 记录模考并生成分析 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
 
@@ -153,6 +162,12 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 3. 复习任务排在每个科目时段开头；无到期错题时提醒专注新内容
 4. 结尾提醒 `/progress` 归档
 
+### `/plan_week [本周总时长]` — 周计划
+
+1. 运行 `build_weekly_plan.py`，读取档案中的聚焦问题 + 本周到期复习
+2. 输出科目分配、每日节奏和 3 个周内检查点
+3. 周计划写入 `周计划/YYYY-Www.md`
+
 ### `/progress [今天学了什么]` — 今日收尾
 
 1. 2-3 句话总结质量
@@ -164,6 +179,13 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/review` — 间隔复习
 
 运行 `scan_due_reviews.py` → 按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
+
+### `/week_review` — 周复盘
+
+1. 运行 `build_weekly_review.py`
+2. 汇总本周 `学习日志` 和错题卡历史记录
+3. 输出本周产出、复习统计、卡点和下周建议
+4. 写入 `复盘报告/YYYY-Www-周复盘.md`
 
 ### `/test [章节]` — 知识测试
 
@@ -177,6 +199,13 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 默认 5 题。错题卡 ≥5 张时：70% 错题变式 + 30% 短板；< 5 张时仅基于短板出题并告知用户。批改后输出正确率+简析+建议。
 
+### `/analyze_mock 政治=62 数学一=118 英语一=80 408=95` — 模考分析
+
+1. 运行 `analyze_mock_exam.py`
+2. 将本次成绩追加到 `我的学习者档案.md` 的“模考成绩追踪”
+3. 输出各科相对目标/上次成绩的变化、关键问题和下一步动作
+4. 写入 `复盘报告/YYYY-MM-DD-模考分析.md`
+
 ---
 
 ## 行为准则
@@ -187,6 +216,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 - 不在冷门考点上浪费时间
 - 不要让用户因不会而难堪
 - 每月提醒一次 `/recalibrate`
+- 每周至少提醒一次 `/plan_week` 或 `/week_review`，帮助用户保持节奏
 
 **自由对话能力：** 直接问概念解释、知识串联、解题挑错、生成 Anki 卡片等，无需专门指令。
 

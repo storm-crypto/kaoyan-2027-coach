@@ -8,11 +8,13 @@
 
 匹配规则：
 - 优先按 frontmatter 的 question_id 精确匹配
-- question_id 未命中时，再按关键词做兼容检索
+- 默认情况下，question_id 未命中时不会自动降级为关键词命中，避免误把新题合并到旧卡
+- 仅在显式传入 --legacy-fallback 时，question_id 未命中后才按关键词做兼容检索
 - 关键词采用 AND 逻辑：文件名或 topic 字段必须同时包含全部关键词
 
 输出: JSON 对象:
   - count, matches, verdict ("new"/"found"/"ambiguous"), search_mode, needs_question_id_backfill
+  - keyword_candidates: 仅在 qid 未命中且存在候选旧卡时返回，供人工确认
 """
 import argparse
 import json
@@ -35,6 +37,11 @@ def main():
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian 根目录（可由环境变量替代）")
     parser.add_argument("subject", help="科目目录名，如 数学一 / 408")
     parser.add_argument("--question-id", dest="question_id", help="优先精确匹配的 question_id")
+    parser.add_argument(
+        "--legacy-fallback",
+        action="store_true",
+        help="question_id 未命中时允许按关键词兼容命中旧卡（仅用于迁移旧库）",
+    )
     args, keywords = parser.parse_known_args()
 
     if any(keyword.startswith("-") for keyword in keywords):
@@ -95,12 +102,16 @@ def main():
         except (OSError, UnicodeDecodeError):
             continue
 
+    keyword_candidates = []
     if question_id_matches:
         matches, search_mode = question_id_matches, "question_id"
+    elif args.question_id and keyword_matches and not args.legacy_fallback:
+        matches, search_mode = [], "question_id_miss"
+        keyword_candidates = keyword_matches
     elif keyword_matches:
         matches, search_mode = keyword_matches, "keywords"
     else:
-        matches, search_mode = [], "none"
+        matches, search_mode = [], ("question_id_miss" if args.question_id else "none")
 
     count = len(matches)
     verdict = "new" if count == 0 else ("found" if count == 1 else "ambiguous")
@@ -110,6 +121,8 @@ def main():
         "search_mode": search_mode,
         "needs_question_id_backfill": bool(args.question_id and search_mode == "keywords"),
     }
+    if keyword_candidates:
+        result["keyword_candidates"] = keyword_candidates
     if icloud_warnings:
         result["icloud_placeholders"] = icloud_warnings
     print(json.dumps(result, ensure_ascii=False, indent=2))

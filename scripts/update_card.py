@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """更新错题卡的 YAML frontmatter 并追加历史记录。
 
-用法: python3 update_card.py [卡片路径] --status [不会/半会/会] [--comment 简评]
+用法: python3 update_card.py [卡片路径] --status [不会/半会/会] [--comment 简评] [--question-id QUESTION_ID]
 
 自动处理:
 - 更新 status, last_review_at, wrong_count, next_review, review_interval
@@ -63,6 +63,7 @@ def main():
     parser.add_argument("card_path", help="错题卡文件路径")
     parser.add_argument("--status", required=True, choices=["不会", "半会", "会"], help="复习结果")
     parser.add_argument("--comment", default="", help="本次复习简评")
+    parser.add_argument("--question-id", help="回填或校验 question_id")
     args = parser.parse_args()
 
     card = Path(args.card_path)
@@ -81,6 +82,19 @@ def main():
     fm["status"] = args.status
     fm["last_review_at"] = today
     fm["wrong_count"] = str(old_count + 1)
+
+    if args.question_id:
+        existing_question_id = fm.get("question_id", "").strip()
+        if existing_question_id and existing_question_id != args.question_id:
+            print(
+                f"错误: question_id 冲突，现有={existing_question_id}，传入={args.question_id}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        fm["question_id"] = args.question_id
+        if "question_id" not in key_order:
+            insert_at = key_order.index("source") + 1 if "source" in key_order else 0
+            key_order.insert(insert_at, "question_id")
 
     # 调整 interval
     if args.status == "不会":

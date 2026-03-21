@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """更新知识地图中指定考点的掌握度和备注。
 
-用法: python3 update_knowledge_map.py [OBSIDIAN_ROOT] [科目] [考点关键词] [掌握度] [备注]
+用法: python3 update_knowledge_map.py [OBSIDIAN_ROOT] [科目] [考点关键词] [掌握度] [备注...]
 例:   python3 update_knowledge_map.py /path/to/root 数学一 二重积分 半会 "极坐标变换不熟"
 
 匹配规则：
@@ -43,7 +43,7 @@ def main():
     subject = sys.argv[2]
     keyword = sys.argv[3]
     mastery = sys.argv[4]
-    note = sys.argv[5] if len(sys.argv) > 5 else ""
+    note = " ".join(sys.argv[5:]).strip()
 
     filename = SUBJECT_MAP.get(subject)
     if not filename:

@@ -84,20 +84,22 @@ Kaoyan_2027_Prep/
 **执行规则：**
 - 来源 + 错误思路是必填项，两者至少缺一才触发追问
 - "卡在哪一步"为可选项，永远不追问
+- 先生成或提取 `question_id`：优先用 `来源 + 题号/套卷题次`；没有明确题号时，用 `来源 + 题干前 80 字/截图 OCR 摘要` 运行 `generate_question_id.py`
 - 旧题复习自动识别：运行 `find_card.py`，根据 `verdict` 字段判断（`new`=新题，`found`=旧题，`ambiguous`=多条匹配需用户选择）
 
 ### 错题归档
 
 每次 `/wrong_*` 完成后：
 
-1. 运行 `python3 $SKILL_ROOT/scripts/find_card.py $OBSIDIAN_ROOT [科目] [考点关键词]` 判断新旧题：
+1. 先运行 `python3 $SKILL_ROOT/scripts/generate_question_id.py [来源] [题号/题干摘要]` 得到 `question_id`
+2. 再运行 `python3 $SKILL_ROOT/scripts/find_card.py $OBSIDIAN_ROOT [科目] --question-id [question_id] [考点关键词]` 判断新旧题：
    - `verdict: "new"` → 新题，新建错题卡
-   - `verdict: "found"` → 旧题复习，更新已有卡片
+   - `verdict: "found"` → 旧题复习，更新已有卡片；若返回 `needs_question_id_backfill: true`，本次更新时顺手回填 `question_id`
    - `verdict: "ambiguous"` → 匹配到多张卡，向用户确认是哪一张
-2. **新题** → 在 `错题本/[科目]/[章节]/` 下新建错题卡（文件名：`[考点关键词]-[来源简称].md`），`next_review` = 明天，`review_interval` = 1
-3. **旧题** → 运行 `python3 $SKILL_ROOT/scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评]`
-4. 运行 `python3 $SKILL_ROOT/scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注]`（关键词需精确到叶子考点，如"二重积分"而非"积分"）
-5. **不触发日志和档案更新**——除非用户主动 `/progress`
+3. **新题** → 在 `错题本/[科目]/[章节]/` 下新建错题卡（文件名：`[考点关键词]-[来源简称]-[question_id].md`），frontmatter 同步写入 `question_id`，`next_review` = 明天，`review_interval` = 1
+4. **旧题** → 运行 `python3 $SKILL_ROOT/scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评] --question-id [question_id]`
+5. 运行 `python3 $SKILL_ROOT/scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注]`（关键词需精确到叶子考点，如"二重积分"而非"积分"）
+6. **不触发日志和档案更新**——除非用户主动 `/progress`
 
 ### 间隔复习调度
 
@@ -129,10 +131,11 @@ Kaoyan_2027_Prep/
 
 | 脚本 | 用途 | 用法 |
 |------|------|------|
+| `generate_question_id.py` | 生成稳定的题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/题干摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题 + 超期降级 | `python3 scripts/scan_due_reviews.py $OBSIDIAN_ROOT` |
-| `find_card.py` | 搜索已有错题卡（判断新旧题） | `python3 scripts/find_card.py $OBSIDIAN_ROOT [科目] [关键词...]` |
-| `update_card.py` | 更新错题卡（status/interval/历史） | `python3 scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评]` |
-| `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注]` |
+| `find_card.py` | 搜索已有错题卡（优先按 `question_id`） | `python3 scripts/find_card.py $OBSIDIAN_ROOT [科目] --question-id [question_id] [关键词...]` |
+| `update_card.py` | 更新错题卡（status/interval/历史/补写 `question_id`） | `python3 scripts/update_card.py [卡片路径] --status [不会/半会/会] --comment [简评] --question-id [question_id]` |
+| `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py $OBSIDIAN_ROOT [科目] [考点关键词] [掌握度] [备注...]` |
 
 **规则：** 凡是脚本能做的事（扫描、搜索、更新 YAML、回写表格），**必须调脚本**，不要手动读文件再拼接写入。
 

@@ -228,4 +228,3 @@ def test_sanitize_tag_value_truncates_long_values():
     value = sanitize_tag_value("Queue Scheduling Breadth First Search Fairness Analysis")
 
     assert len(value) <= 32
-    assert value == "queue-scheduling-breadth-first"

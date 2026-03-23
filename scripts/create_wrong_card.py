@@ -175,7 +175,7 @@ def merge_explicit_options(options_text: str, option_args: Sequence[str]) -> Lis
 
 def extract_option_label(line: str) -> Optional[str]:
     match = LETTER_OPTION_RE.match(line)
-    if match:
+    if match and match.group("text").strip():
         return (match.group("plain") or match.group("paren") or "").upper()
 
     match = BOOLEAN_OPTION_RE.match(line)

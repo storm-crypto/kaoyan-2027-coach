@@ -16,7 +16,7 @@ from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
 from study_ops import iter_review_cards, parse_today
 
-QUESTION_PREVIEW_LINE_LIMIT = 3
+from constants import QUESTION_PREVIEW_LINE_LIMIT
 
 
 def normalize_block(text: str) -> str:

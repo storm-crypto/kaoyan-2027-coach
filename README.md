@@ -50,6 +50,8 @@ kaoyan-2027-coach/
 │   ├── build_recap.py           ← 生成周/月复盘
 │   ├── log_progress.py          ← 写学习日志并按需回写档案
 │   └── analyze_mock_exam.py     ← 记录模考+策略校准
+├── references/
+│   └── math-coaching.md         ← 数学答疑参考，保持 SKILL.md 精简
 ├── templates/
 │   ├── 错题追踪卡模板.md
 │   ├── 今日计划模板.md

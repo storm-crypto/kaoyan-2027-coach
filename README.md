@@ -44,6 +44,7 @@ kaoyan-2027-coach/
 │   ├── find_card.py             ← 搜索已有错题卡（判断新旧）
 │   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）
 │   ├── update_knowledge_map.py  ← 更新知识地图掌握度
+│   ├── load_context.py          ← 读取档案/最新日志/最新报告，生成 /load 上下文
 │   ├── build_daily_plan.py      ← 生成今日计划
 │   ├── build_weekly_plan.py     ← 生成周计划
 │   ├── build_recap.py           ← 生成周/月复盘

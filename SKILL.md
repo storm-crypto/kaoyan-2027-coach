@@ -102,6 +102,7 @@ Kaoyan_2027_Prep/
 | `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
+| `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
@@ -116,9 +117,9 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/load` — 恢复上下文
 
-1. 读取 `我的学习者档案.md` + 最新学习日志 + 最新校准报告（如有）
-2. 3-5 句话总结备考状态，指出 1-3 个优先问题，给一个可立刻开始的建议
-3. 距考试 < 100 天时显示倒计时
+1. 先运行 `load_context.py`，读取 `我的学习者档案.md` + 最新学习日志 + 最新复盘/模考报告（如有）
+2. 按固定 5 个槽位输出：当前阶段、倒计时（<100 天时显示）、优先问题、风险提醒、立刻开始
+3. 缺失信息和异常状态以脚本结果为准，直接提醒，不自行脑补
 
 **首次使用**（档案不存在）：
 1. 先提取基础信息：目标院校/专业、目标总分、考试日期、每日可投入时长、当前阶段关键词

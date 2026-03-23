@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from study_ops import collect_due_cards, count_due_reviews, iter_review_cards
@@ -55,7 +56,8 @@ def test_collect_due_cards_skips_placeholder_and_graduated(vault_root):
 
     due_cards = collect_due_cards(vault_root, date(2026, 3, 23))
 
-    assert [item["filename"] for item in due_cards] == [due_card.stem]
+    assert len(due_cards) == 1
+    assert {item["filename"] for item in due_cards} == {due_card.stem}
 
 
 def test_count_due_reviews_returns_subject_breakdown(vault_root):

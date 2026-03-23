@@ -181,3 +181,27 @@ def test_month_recap_empty(vault_root):
     data = json.loads(out)
     assert data["logged_days"] == 0
     assert data["review_count"] == 0
+
+
+def test_week_recap_supports_legacy_indented_score_heading(vault_root):
+    log_path = vault_root / "学习日志" / "2026-03-16.md"
+    log_path.write_text(textwrap.dedent("""\
+        # Session: 2026-03-16
+
+        ## 今日概览
+        - **主题**: 数学
+        - **时长**: 2
+
+          ## 训练成绩记录
+          | 科目 | 类型 | 来源 | 得分 | 满分 | 完成率 | 备注 |
+          |------|------|------|------|------|--------|------|
+          | 数学一 | 真题 | 2024 数学一真题 | 138 | 150 | 92.0% | legacy heading |
+    """), encoding="utf-8")
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["score_count"] == 1

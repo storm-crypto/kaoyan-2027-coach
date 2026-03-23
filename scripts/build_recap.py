@@ -18,8 +18,14 @@ from archive_ops import extract_list_items, extract_section_block, infer_subject
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from study_ops import PLAN_SUBJECTS, format_hours, parse_today
+
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
-LEGACY_SCORE_SECTION_RE = re.compile(r"^[ \t]*## 训练成绩记录\r?\n(.*?)(?=^[ \t]*## |\Z)", re.M | re.S)
+LEGACY_HEADING_INDENT_LIMIT = 200
+LEGACY_SCORE_SECTION_RE = re.compile(
+    rf"^[ \t]{{0,{LEGACY_HEADING_INDENT_LIMIT}}}## 训练成绩记录\r?\n"
+    rf"(.*?)(?=^[ \t]{{0,{LEGACY_HEADING_INDENT_LIMIT}}}## |\Z)",
+    re.M | re.S,
+)
 
 
 def get_date_range(today, period):

@@ -51,7 +51,8 @@ kaoyan-2027-coach/
 │   ├── log_progress.py          ← 写学习日志并按需回写档案
 │   └── analyze_mock_exam.py     ← 记录模考+策略校准
 ├── references/
-│   └── math-coaching.md         ← 数学答疑参考，保持 SKILL.md 精简
+│   ├── math-coaching.md         ← 数学答疑参考，保持 SKILL.md 精简
+│   └── 408-coaching.md          ← 408 答疑参考，强化概念边界与选项辨析
 ├── templates/
 │   ├── 错题追踪卡模板.md
 │   ├── 今日计划模板.md

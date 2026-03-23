@@ -33,6 +33,8 @@
 说明:
 - 若未显式传入 --options/--option，会尝试从 --question 中自动拆出 A/B/C/D 等选项。
 - 非选择题会在“### 选项（如有）”下写入“无”，保持卡片结构稳定。
+- 新建卡片时必须一次性传入完整解析；脚本会拒绝写出“待补充”占位符。
+- 题干、选项与详解中的数学公式必须使用 $...$ 或 $$...$$ 包裹。
 """
 import argparse
 import json
@@ -55,7 +57,18 @@ LETTER_OPTION_RE = re.compile(
 BOOLEAN_OPTION_RE = re.compile(r"^[ \t]{0,4}(?P<label>正确|错误|True|False)(?:\s*[:：]\s*.*)?$", re.I)
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
+LATEX_SEGMENT_RE = re.compile(r"\$\$.*?\$\$|\$(?!\$).*?(?<!\$)\$", re.S)
 TAG_VALUE_MAX_LENGTH = 32
+PLACEHOLDER_TOKENS = ("待补充", "待补题干")
+UNWRAPPED_MATH_PATTERNS = (
+    re.compile(
+        r"\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|lim|sin|cos|tan|cot|sec|csc|ln|log|exp|"
+        r"cdot|times|leq|geq|neq|infty|left|right|mathrm|text)\b"
+    ),
+    re.compile(r"[A-Za-z0-9\)\]]\s*(?:\^|_)\s*[{(]?[A-Za-z0-9+-]"),
+    re.compile(r"[A-Za-z](?:['′]{0,2})?\([^)\n]+\)\s*(?:[<>]=?|=|≤|≥|≠)\s*[-+*/()A-Za-z0-9]"),
+    re.compile(r"(?<![A-Za-z])[A-Za-z](?:['′]{0,2})?\s*(?:[<>]=?|=|≤|≥|≠)\s*[-+*/()A-Za-z0-9]"),
+)
 
 SUBJECT_MAP = {
     "数学一": "数学一",
@@ -238,12 +251,116 @@ def merge_repeated_lines(values: Sequence[str]) -> List[str]:
     return lines
 
 
+def has_nonempty_text(value: str) -> bool:
+    return bool(split_nonempty_lines(value))
+
+
+def has_nonempty_values(values: Sequence[str]) -> bool:
+    return bool(merge_repeated_lines(values))
+
+
+def validate_required_detail_fields(subject: str, args: argparse.Namespace) -> None:
+    if subject == "数学一":
+        checks = [
+            ("--point-judgment", has_nonempty_text(args.point_judgment)),
+            ("--first-step", has_nonempty_text(args.first_step)),
+            ("--formal-solution", has_nonempty_text(args.formal_solution)),
+            ("--mistake-analysis", has_nonempty_text(args.mistake_analysis)),
+            ("--pitfall", has_nonempty_text(args.pitfall)),
+            ("--next-time", has_nonempty_text(args.next_time)),
+            ("--check-question（至少 1 条）", has_nonempty_values(args.check_question)),
+        ]
+    elif subject == "408":
+        checks = [
+            ("--point-location", has_nonempty_text(args.point_location)),
+            ("--breakthrough", has_nonempty_text(args.breakthrough)),
+            ("--option-analysis", has_nonempty_text(args.option_analysis)),
+            ("--dual-track", has_nonempty_text(args.dual_track)),
+            ("--trap", has_nonempty_text(args.trap)),
+            ("--knowledge-link", has_nonempty_text(args.knowledge_link)),
+            ("--memory-hook", has_nonempty_text(args.memory_hook)),
+            ("--check-question（至少 1 条）", has_nonempty_values(args.check_question)),
+        ]
+    else:
+        checks = [
+            ("--wrong-reason", has_nonempty_text(args.wrong_reason)),
+            ("--solution", has_nonempty_text(args.solution)),
+            ("--pitfall", has_nonempty_text(args.pitfall)),
+        ]
+
+    missing_fields = [label for label, ok in checks if not ok]
+    if missing_fields:
+        json_error(
+            f"{subject} 新建错题卡时必须一次性传入完整解析，缺少: {', '.join(missing_fields)}"
+        )
+
+
+def strip_latex_segments(text: str) -> str:
+    return LATEX_SEGMENT_RE.sub(" ", text)
+
+
+def find_unwrapped_math_excerpt(text: str) -> Optional[str]:
+    for original_line in split_nonempty_lines(text):
+        stripped_line = strip_latex_segments(original_line)
+        for pattern in UNWRAPPED_MATH_PATTERNS:
+            if pattern.search(stripped_line):
+                return original_line.strip()
+    return None
+
+
+def validate_latex_wrapping(args: argparse.Namespace, explicit_options: Sequence[str]) -> None:
+    field_values = [
+        ("--question", [args.question]),
+        ("--option", explicit_options),
+        ("--wrong-reason", [args.wrong_reason]),
+        ("--solution", [args.solution]),
+        ("--pitfall", [args.pitfall]),
+        ("--point-judgment", [args.point_judgment]),
+        ("--first-step", [args.first_step]),
+        ("--formal-solution", [args.formal_solution]),
+        ("--mistake-analysis", [args.mistake_analysis]),
+        ("--next-time", [args.next_time]),
+        ("--point-location", [args.point_location]),
+        ("--breakthrough", [args.breakthrough]),
+        ("--option-analysis", [args.option_analysis]),
+        ("--dual-track", [args.dual_track]),
+        ("--trap", [args.trap]),
+        ("--knowledge-link", [args.knowledge_link]),
+        ("--memory-hook", [args.memory_hook]),
+        ("--check-question", list(args.check_question)),
+    ]
+    violations = []
+    for field_name, values in field_values:
+        for value in values:
+            if not value or not value.strip():
+                continue
+            excerpt = find_unwrapped_math_excerpt(value)
+            if excerpt:
+                violations.append(f"{field_name}: {excerpt}")
+            if len(violations) >= 3:
+                break
+        if len(violations) >= 3:
+            break
+
+    if violations:
+        json_error(
+            "检测到疑似未用 $...$ 包裹的数学公式，请改成 LaTeX 后重试："
+            + "；".join(violations)
+        )
+
+
+def ensure_no_placeholder_tokens(card_text: str) -> None:
+    remaining = [token for token in PLACEHOLDER_TOKENS if token in card_text]
+    if remaining:
+        json_error(f"卡片仍包含未落盘占位符: {', '.join(remaining)}")
+
+
 def build_math_detail_sections(args: argparse.Namespace) -> str:
     return (
         f"### 考点判断\n{render_bullet_block(split_nonempty_lines(args.point_judgment), '待补充')}\n\n"
         f"### 第一步怎么想到\n{render_bullet_block(split_nonempty_lines(args.first_step), '待补充')}\n\n"
-        f"### 规范解法\n{render_bullet_block(split_nonempty_lines(args.formal_solution or args.solution), '待补充')}\n\n"
-        f"### 错因定位\n{render_bullet_block(split_nonempty_lines(args.mistake_analysis or args.wrong_reason), '待补充')}\n\n"
+        f"### 规范解法\n{render_bullet_block(split_nonempty_lines(args.formal_solution), '待补充')}\n\n"
+        f"### 错因定位\n{render_bullet_block(split_nonempty_lines(args.mistake_analysis), '待补充')}\n\n"
         f"### 易错点\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n\n"
         f"### 下次怎么做\n{render_bullet_block(split_nonempty_lines(args.next_time), '待补充')}\n\n"
         f"### 检查你是否真的懂了\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
@@ -254,11 +371,11 @@ def build_408_detail_sections(args: argparse.Namespace) -> str:
     return (
         f"### 考点定位\n{render_bullet_block(split_nonempty_lines(args.point_location), '待补充')}\n\n"
         f"### 题干突破口\n{render_bullet_block(split_nonempty_lines(args.breakthrough), '待补充')}\n\n"
-        f"### 选项逐个辨析\n{render_bullet_block(split_nonempty_lines(args.option_analysis or args.solution), '待补充')}\n\n"
+        f"### 选项逐个辨析\n{render_bullet_block(split_nonempty_lines(args.option_analysis), '待补充')}\n\n"
         f"### 双轨解释\n{render_bullet_block(split_nonempty_lines(args.dual_track), '待补充')}\n\n"
-        f"### 干扰项陷阱\n{render_bullet_block(split_nonempty_lines(args.trap or args.wrong_reason), '待补充')}\n\n"
+        f"### 干扰项陷阱\n{render_bullet_block(split_nonempty_lines(args.trap), '待补充')}\n\n"
         f"### 知识网络串联\n{render_bullet_block(split_nonempty_lines(args.knowledge_link), '待补充')}\n\n"
-        f"### 记忆钩子\n{render_bullet_block(split_nonempty_lines(args.memory_hook or args.pitfall), '待补充')}\n\n"
+        f"### 记忆钩子\n{render_bullet_block(split_nonempty_lines(args.memory_hook), '待补充')}\n\n"
         f"### 检查你是否真的懂了\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
     )
 
@@ -314,6 +431,8 @@ def main() -> None:
     question_lines, option_lines, options_source = split_question_and_options(args.question, explicit_options)
     if not question_lines:
         json_error("题干不能为空；如果题目里包含选项，请至少保留选项前的题干描述")
+    validate_required_detail_fields(subject, args)
+    validate_latex_wrapping(args, explicit_options)
 
     today_obj = parse_today(args.today)
     today = today_obj.isoformat()
@@ -374,7 +493,9 @@ def main() -> None:
         comment=args.comment,
         today=today,
     )
-    atomic_write(output_path, serialize_frontmatter(frontmatter, key_order, body))
+    rendered_card = serialize_frontmatter(frontmatter, key_order, body)
+    ensure_no_placeholder_tokens(rendered_card)
+    atomic_write(output_path, rendered_card)
 
     print(json.dumps({
         "path": str(output_path),

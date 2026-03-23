@@ -11,6 +11,35 @@ from create_wrong_card import sanitize_tag_value
 from helpers import run_script
 
 
+def required_detail_args(subject):
+    if subject == "数学一":
+        return [
+            "--point-judgment", "题型判断清楚，知道先看定理条件。",
+            "--first-step", "先核对题目给出的连续与可导条件。",
+            "--formal-solution", "按定理条件逐项验证，再写出结论。",
+            "--mistake-analysis", "容易把定理条件和结论混在一起。",
+            "--pitfall", "别跳过条件核对这一步。",
+            "--next-time", "下次先判定题型，再决定调用哪个定理。",
+            "--check-question", "如果缺少某个条件，这条解法还成立吗？",
+        ]
+    if subject == "408":
+        return [
+            "--point-location", "题目先看考点归属和核心判断轴。",
+            "--breakthrough", "抓住题干里的限定条件，再判断选项。",
+            "--option-analysis", "逐项解释每个选项为什么对或错。",
+            "--dual-track", "先给正式定义，再给直观理解。",
+            "--trap", "最容易错在把局部结论误当全局结论。",
+            "--knowledge-link", "把这个点挂回同章节的知识网络。",
+            "--memory-hook", "先抓判断轴，再排干扰项。",
+            "--check-question", "删掉一个条件后答案会不会变？",
+        ]
+    return [
+        "--wrong-reason", "核心概念没分清。",
+        "--solution", "回到题干条件，按逻辑链重新判断。",
+        "--pitfall", "注意不要把相近概念混用。",
+    ]
+
+
 def test_create_wrong_card_preserves_all_explicit_options(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
@@ -24,6 +53,7 @@ def test_create_wrong_card_preserves_all_explicit_options(vault_root):
         "--option", "B. 时间片轮转适合交互式系统",
         "--option", "C. SJF 一定不会饥饿",
         "--option", "D. 高响应比优先综合考虑等待时间和服务时间",
+        *required_detail_args("408"),
         "--today", "2026-03-23",
     ])
 
@@ -50,6 +80,7 @@ def test_create_wrong_card_detects_options_inside_question_text(vault_root):
         "--question-id", "qid-112233445566",
         "--question",
         "下列关于二叉树遍历的说法，正确的是：\nA. 先序遍历一定有序\nB. 中序遍历二叉搜索树可得有序序列\nC. 后序遍历总能唯一还原二叉树\nD. 层序遍历不需要队列",
+        *required_detail_args("408"),
         "--today", "2026-03-23",
     ])
 
@@ -75,6 +106,7 @@ def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
         "--source", "王道",
         "--question-id", "qid-5566778899aa",
         "--question", "总线仲裁的核心目标是什么？",
+        *required_detail_args("408"),
         "--today", "2026-03-23",
     ], env_extra={"KAOYAN_OBSIDIAN_ROOT": str(vault_root)})
 
@@ -110,6 +142,7 @@ def test_create_wrong_card_detects_real_options_after_option_like_stem(vault_roo
         "--question-id", "qid-334455667788",
         "--question",
         "A.教授提出的调度观点最符合下列哪一项？\nA. FCFS 总能让平均周转时间最小\nB. 时间片轮转适合交互式系统\nC. SJF 一定不会饥饿\nD. 高响应比优先综合考虑等待时间和服务时间",
+        *required_detail_args("408"),
         "--today", "2026-03-23",
     ])
 
@@ -134,6 +167,7 @@ def test_create_wrong_card_writes_none_for_non_choice_question(vault_root):
         "--source", "900题",
         "--question-id", "qid-f728c5b18974",
         "--question", "设 D 为单位圆与第一象限的交集，求二重积分。",
+        *required_detail_args("数学一"),
         "--today", "2026-03-23",
     ])
 
@@ -222,6 +256,72 @@ def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     assert "### 记忆钩子" in content
     assert "### 检查你是否真的懂了" in content
     assert "交互看响应，吞吐看整体。" in content
+
+
+def test_create_wrong_card_requires_complete_math_details(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "导数应用",
+        "--source", "660题",
+        "--question-id", "qid-0f1e2d3c4b5a",
+        "--question", "已知函数单调，判断极值点存在条件。",
+        "--point-judgment", "先判断题型再找对应工具。",
+        "--first-step", "先回顾极值判定的基本条件。",
+        "--formal-solution", "先列条件，再判断导数符号变化。",
+        "--mistake-analysis", "把必要条件当成充分条件了。",
+        "--pitfall", "不要只看驻点，不看左右符号。",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "--next-time" in data["message"]
+    assert "--check-question" in data["message"]
+
+
+def test_create_wrong_card_rejects_unwrapped_math_formula(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "凹凸性",
+        "--source", "900题",
+        "--question-id", "qid-1234abcd5678",
+        "--question", "若 f''(x) > 0，判断函数图像的凹凸性。",
+        *required_detail_args("数学一"),
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "$...$" in data["message"]
+    assert "--question" in data["message"]
+
+
+def test_create_wrong_card_accepts_wrapped_math_formula(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "凹凸性",
+        "--source", "900题",
+        "--question-id", "qid-8765dcba4321",
+        "--question", "若 $f''(x) > 0$，判断函数图像的凹凸性。",
+        "--point-judgment", "看到 $f''(x) > 0$，先联想到凹凸性判定。",
+        "--first-step", "先回忆二阶导数与凹凸性的对应关系。",
+        "--formal-solution", "由 $f''(x) > 0$ 可知函数在对应区间上是凸的。",
+        "--mistake-analysis", "常见错误是把 $f''(x) > 0$ 和单调性混为一谈。",
+        "--pitfall", "不要把二阶导数判定直接套到一阶导数结论上。",
+        "--next-time", "下次先分清单调性和凹凸性分别看哪一阶导数。",
+        "--check-question", "如果改成 $f''(x) < 0$，图像性质会怎么变？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "$f''(x) > 0$" in content
 
 
 def test_sanitize_tag_value_truncates_long_values():

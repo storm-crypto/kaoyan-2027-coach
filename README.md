@@ -49,6 +49,7 @@ kaoyan-2027-coach/
 │   ├── build_daily_plan.py      ← 生成今日计划
 │   ├── build_weekly_plan.py     ← 生成周计划
 │   ├── build_recap.py           ← 生成周/月复盘
+│   ├── build_knowledge_test.py  ← 生成 /test 知识测试题单
 │   ├── log_progress.py          ← 写学习日志并按需回写档案
 │   └── analyze_mock_exam.py     ← 记录模考+策略校准
 ├── references/
@@ -57,6 +58,7 @@ kaoyan-2027-coach/
 ├── templates/
 │   ├── 错题追踪卡模板.md
 │   ├── 今日计划模板.md
+│   ├── 知识测试模板.md
 │   ├── 学习日志模板.md
 │   ├── 学习者档案与知识地图模板.md
 │   ├── 周计划模板.md
@@ -78,13 +80,13 @@ kaoyan-2027-coach/
 | `/progress [心得]` | 今日收尾 + 归档，可记录单科/模块训练成绩 |
 | `/review` | 扫描到期错题，逐题复习 |
 | `/recap [week\|month]` | 周/月复盘（默认周） |
-| `/test [章节]` | 基于知识地图做对话式抽测（启发式流程） |
+| `/test [章节]` | 基于知识地图生成结构化题单并抽测 |
 | `/recalibrate 政治=62 ...` | 记录模考+策略校准 |
 | `/mock [科目] [题量]` | 对话式限时训练（启发式流程） |
 
 概念解释、知识串联、解题挑错、Anki 卡片生成等直接用自然语言对话，无需专门指令。
 
-说明：`/test` 和 `/mock` 当前仍是对话式流程，不是脚本化、可回归验证的结构化接口。
+说明：`/mock` 当前仍是对话式流程，不是脚本化、可回归验证的结构化接口。
 
 ## 设计原则
 

@@ -114,6 +114,7 @@ Kaoyan_2027_Prep/
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
+| `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 
@@ -219,11 +220,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/test [章节]` — 知识测试
 
-当前为**启发式对话流程**，还没有专用脚本；不要把它当成固定格式、可回归验证的结构化接口。
-
-1. 从对应科目的知识地图里读取"不会/半会"考点，优先围绕用户指定章节选 3-5 题
-2. 逐题判对错后，只调用 `update_knowledge_map.py` 回写，不创建错题卡
-3. 明确告知用户：这是对话式抽测，不保证题型和批改输出完全固定
+1. 先确定科目；用户只给章节时，可以结合上下文推断，但不确定时先确认科目
+2. 运行 `build_knowledge_test.py`，从知识地图里优先抽取"不会/空白"叶子考点，再补"半会"考点，生成 3-5 题题单和判定要点
+3. 按脚本返回的题单逐题发问，优先围绕判断轴、核心方法、易错点和变式理解来测
+4. 逐题判对错后，按脚本里的判定要点将结果归为 `不会 / 半会 / 会`，再调用 `update_knowledge_map.py` 回写
+5. `/test` 只回写知识地图，不创建错题卡
 
 ### `/recalibrate 政治=62 数学一=118 英语一=80 408=95` — 模考记录+策略校准
 

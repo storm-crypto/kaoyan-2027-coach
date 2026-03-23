@@ -44,18 +44,21 @@ kaoyan-2027-coach/
 │   ├── find_card.py             ← 搜索已有错题卡（判断新旧）
 │   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）
 │   ├── update_knowledge_map.py  ← 更新知识地图掌握度
+│   ├── build_daily_plan.py      ← 生成今日计划
 │   ├── build_weekly_plan.py     ← 生成周计划
 │   ├── build_recap.py           ← 生成周/月复盘
+│   ├── log_progress.py          ← 写学习日志并按需回写档案
 │   └── analyze_mock_exam.py     ← 记录模考+策略校准
 ├── templates/
 │   ├── 错题追踪卡模板.md
+│   ├── 今日计划模板.md
 │   ├── 学习日志模板.md
 │   ├── 学习者档案与知识地图模板.md
 │   ├── 周计划模板.md
 │   ├── 周复盘模板.md
 │   ├── 月复盘模板.md
 │   └── 模考分析模板.md
-└── tests/                       ← pytest 测试（47 个测试用例）
+└── tests/                       ← pytest 测试
 ```
 
 ## 指令速查

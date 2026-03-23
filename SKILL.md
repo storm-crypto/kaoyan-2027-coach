@@ -102,8 +102,10 @@ Kaoyan_2027_Prep/
 | `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
+| `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
+| `log_progress.py` | 写学习日志并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
@@ -161,7 +163,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/plan_today [可用时长]` — 今日计划
 
-1. 运行 `scan_due_reviews.py` 获取到期错题
+1. 运行 `build_daily_plan.py` 生成今日计划；脚本内部会读取聚焦问题并筛出到期错题
 2. 到期 > 10 道时取 interval 最小的 10 道
 3. 复习任务排在每个科目时段开头；无到期错题时提醒专注新内容
 4. 结尾提醒 `/progress` 归档
@@ -176,9 +178,9 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/progress [今天学了什么]` — 今日收尾
 
 1. 2-3 句话总结质量
-2. 写入 `学习日志/YYYY-MM-DD.md`（模板见 `templates/学习日志模板.md`）
+2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
 3. 明日建议 1-3 条
-4. 仅当暴露稳定短板时更新档案（短板雷达+错误模式+下一步）
+4. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
 5. 不重写知识地图
 
 ### `/review` — 间隔复习

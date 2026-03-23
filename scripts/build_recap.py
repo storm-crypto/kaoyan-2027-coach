@@ -15,12 +15,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from archive_ops import extract_list_items, extract_section_block, infer_subject_mentions, load_template_markdown
+from constants import LEGACY_HEADING_INDENT_LIMIT
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from study_ops import PLAN_SUBJECTS, format_hours, parse_today
 
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
-LEGACY_HEADING_INDENT_LIMIT = 200
 LEGACY_SCORE_SECTION_RE = re.compile(
     rf"^[ \t]{{0,{LEGACY_HEADING_INDENT_LIMIT}}}## 训练成绩记录\r?\n"
     rf"(.*?)(?=^[ \t]{{0,{LEGACY_HEADING_INDENT_LIMIT}}}## |\Z)",

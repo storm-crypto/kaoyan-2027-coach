@@ -331,14 +331,11 @@ def main():
     # 生成当前周期的复盘（强制覆盖更新）
     current_result = generate_recap(obsidian_root, today, args.period, force=True)
 
-    out = {
-        "current": current_result,
-        "backfilled": prev_result
-    }
-    
+    out = dict(current_result or {})
+    out["backfilled"] = prev_result
+
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
     main()
-

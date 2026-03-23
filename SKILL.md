@@ -1,6 +1,6 @@
 ---
 name: kaoyan-2027-coach
-description: "考研2027全科答疑教练。聚焦错题解析、短板追踪和每日规划，深度集成 Obsidian 学习者档案。"
+description: "考研2027全流程学习教练。支持 Obsidian 学习档案初始化、错题归档与复习、今日/周计划、学习日志、周月复盘、模考分析与策略校准。"
 ---
 
 # 考研 2027 全科答疑教练
@@ -57,6 +57,7 @@ Kaoyan_2027_Prep/
 
 1. 生成 `question_id`（调用 `generate_question_id.py`）
 2. 搜索已有卡片（调用 `find_card.py`）→ verdict 判断新旧：
+   - `question_id` 精确匹配时跨科全库检索，避免因自动判错科目而重复建卡
    - `new` → 新建卡片到 `错题本/[科目]/[章节]/[关键词]-[来源]-[qid].md`
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
@@ -72,7 +73,7 @@ Kaoyan_2027_Prep/
 - `/review` 优先展示卡片中的 `题目/选项`；老卡没有这些区块时，再退化为 `topic`
 
 **去重收口规则：**
-- 只要传入了 `question_id`，就先把它当成唯一主键
+- 只要传入了 `question_id`，就先把它当成唯一主键，并跨科全库检索
 - `question_id` 未命中时，默认按 `new` 处理，避免把新题误合并到旧卡
 - 只有迁移旧库时，才允许显式加 `--legacy-fallback` 做关键词兼容命中
 
@@ -106,7 +107,7 @@ Kaoyan_2027_Prep/
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT]` |
-| `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
+| `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
@@ -218,7 +219,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/test [章节]` — 知识测试
 
-从知识地图"不会/半会"考点中出 3-5 题 → 逐题判对错 → `update_knowledge_map.py` 回写。不创建错题卡。
+当前为**启发式对话流程**，还没有专用脚本；不要把它当成固定格式、可回归验证的结构化接口。
+
+1. 从对应科目的知识地图里读取"不会/半会"考点，优先围绕用户指定章节选 3-5 题
+2. 逐题判对错后，只调用 `update_knowledge_map.py` 回写，不创建错题卡
+3. 明确告知用户：这是对话式抽测，不保证题型和批改输出完全固定
 
 ### `/recalibrate 政治=62 数学一=118 英语一=80 408=95` — 模考记录+策略校准
 
@@ -229,7 +234,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/mock [科目] [题量]` — 限时训练
 
-默认 5 题。错题卡 ≥5 张时：70% 错题变式 + 30% 短板；< 5 张时仅基于短板出题并告知用户。批改后输出正确率+简析+建议。
+当前为**启发式对话流程**，还没有专用脚本；不要承诺固定配比、固定 JSON 或稳定可回放的批改格式。
+
+1. 默认 5 题
+2. 错题卡 ≥5 张时，优先按“错题变式为主、短板补充为辅”出题；< 5 张时仅基于短板出题并告知用户
+3. 批改后输出正确率、简析和下一步建议；如需归档，由用户再决定是否转 `/wrong` 或 `/progress`
 
 ---
 

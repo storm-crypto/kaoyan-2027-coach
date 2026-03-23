@@ -7,9 +7,9 @@
   环境变量 KAOYAN_OBSIDIAN_ROOT 可替代 CLI 参数
 
 匹配规则：
-- 优先按 frontmatter 的 question_id 精确匹配
+- 优先按 frontmatter 的 question_id 精确匹配；该匹配会跨科扫描整个错题本
 - 默认情况下，question_id 未命中时不会自动降级为关键词命中，避免误把新题合并到旧卡
-- 仅在显式传入 --legacy-fallback 时，question_id 未命中后才按关键词做兼容检索
+- 仅在显式传入 --legacy-fallback 时，question_id 未命中后才按当前科目下的关键词做兼容检索
 - 关键词采用 AND 逻辑：文件名或 topic 字段必须同时包含全部关键词
 
 输出: JSON 对象:
@@ -48,7 +48,8 @@ def main():
         parser.error(f"无法识别的参数: {' '.join(keyword for keyword in keywords if keyword.startswith('-'))}")
 
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
-    root = obsidian_root / "错题本" / args.subject
+    root = obsidian_root / "错题本"
+    subject_root = root / args.subject
     keywords = [k.lower() for k in keywords]
     icloud_warnings = []
 
@@ -68,6 +69,12 @@ def main():
             continue
 
         try:
+            try:
+                md_file.relative_to(subject_root)
+                in_subject_scope = True
+            except ValueError:
+                in_subject_scope = False
+
             metadata = None
             if args.question_id:
                 metadata = load_card_metadata(md_file)
@@ -79,7 +86,7 @@ def main():
                     })
                     continue
 
-            if not keywords:
+            if not keywords or not in_subject_scope:
                 continue
 
             name_lower = md_file.stem.lower()

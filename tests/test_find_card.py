@@ -14,6 +14,31 @@ def test_qid_exact_match(sample_card, vault_root):
     assert data["count"] == 1
 
 
+def test_qid_exact_match_searches_across_subjects(vault_root):
+    card = vault_root / "错题本" / "408" / "数据结构" / "栈与队列-王道-qid-a1b2c3d4e5f6.md"
+    card.write_text("""---
+source: 王道
+question_id: qid-a1b2c3d4e5f6
+topic: 栈与队列综合判断
+status: 不会
+next_review: 2026-03-20
+review_interval: 1
+---
+
+#subject/408 #status/不会 #source/王道
+""", encoding="utf-8")
+
+    rc, out, _ = run_script("find_card.py", [
+        str(vault_root), "数学一", "--question-id", "qid-a1b2c3d4e5f6"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["verdict"] == "found"
+    assert data["search_mode"] == "question_id"
+    assert data["count"] == 1
+    assert "错题本/408/" in data["matches"][0]["path"]
+
+
 def test_keyword_match(sample_card, vault_root):
     rc, out, _ = run_script("find_card.py", [
         str(vault_root), "数学一", "二重积分", "极坐标"

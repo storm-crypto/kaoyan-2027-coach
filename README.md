@@ -41,6 +41,7 @@ kaoyan-2027-coach/
 │   ├── init_vault.py            ← 初始化 vault，并可注入首次建档信息
 │   ├── reset_vault.py           ← 重置测试数据，默认保留基础建档信息
 │   ├── generate_question_id.py  ← 生成稳定题卡主键（SHA1）
+│   ├── create_wrong_card.py     ← 新建错题卡（自动保留题干与选择题选项）
 │   ├── scan_due_reviews.py      ← 扫描到期错题 + 超期降级
 │   ├── find_card.py             ← 搜索已有错题卡（判断新旧）
 │   ├── update_card.py           ← 更新错题卡（含改进版 SRS + ease_factor）

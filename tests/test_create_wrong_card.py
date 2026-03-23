@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from archive_ops import extract_heading_block
+from create_wrong_card import sanitize_tag_value
 from helpers import run_script
 
 
@@ -64,6 +65,64 @@ def test_create_wrong_card_detects_options_inside_question_text(vault_root):
     assert "A. 先序遍历一定有序" not in question_block
     assert "A. 先序遍历一定有序" in options_block
     assert "D. 层序遍历不需要队列" in options_block
+
+
+def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        "408",
+        "--chapter", "计算机组成原理",
+        "--topic", "总线仲裁",
+        "--source", "王道",
+        "--question-id", "qid-5566778899aa",
+        "--question", "总线仲裁的核心目标是什么？",
+        "--today", "2026-03-23",
+    ], env_extra={"KAOYAN_OBSIDIAN_ROOT": str(vault_root)})
+
+    assert rc == 0
+    data = json.loads(out)
+    assert Path(data["path"]).is_relative_to(vault_root)
+
+
+def test_create_wrong_card_reports_unknown_subject_instead_of_treating_it_as_root(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        "数学二",
+        "--chapter", "高等数学",
+        "--topic", "导数定义",
+        "--source", "660题",
+        "--question-id", "qid-99aabbccdd11",
+        "--question", "设函数在一点可导，说明其连续。",
+        "--today", "2026-03-23",
+    ], env_extra={"KAOYAN_OBSIDIAN_ROOT": str(vault_root)})
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "未知科目" in data["message"]
+    assert "数学二" in data["message"]
+
+
+def test_create_wrong_card_detects_real_options_after_option_like_stem(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "408",
+        "--chapter", "操作系统",
+        "--topic", "进程调度判断轴",
+        "--source", "王道",
+        "--question-id", "qid-334455667788",
+        "--question",
+        "A.教授提出的调度观点最符合下列哪一项？\nA. FCFS 总能让平均周转时间最小\nB. 时间片轮转适合交互式系统\nC. SJF 一定不会饥饿\nD. 高响应比优先综合考虑等待时间和服务时间",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["options_source"] == "detected"
+    content = Path(data["path"]).read_text(encoding="utf-8")
+    question_block = extract_heading_block(content, "题目", level=3)
+    options_block = extract_heading_block(content, "选项（如有）", level=3)
+    assert "A.教授提出的调度观点最符合下列哪一项？" in question_block
+    assert "A. FCFS 总能让平均周转时间最小" not in question_block
+    assert "A. FCFS 总能让平均周转时间最小" in options_block
+    assert "D. 高响应比优先综合考虑等待时间和服务时间" in options_block
 
 
 def test_create_wrong_card_writes_none_for_non_choice_question(vault_root):
@@ -163,3 +222,10 @@ def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     assert "### 记忆钩子" in content
     assert "### 检查你是否真的懂了" in content
     assert "交互看响应，吞吐看整体。" in content
+
+
+def test_sanitize_tag_value_truncates_long_values():
+    value = sanitize_tag_value("Queue Scheduling Breadth First Search Fairness Analysis")
+
+    assert len(value) <= 32
+    assert value == "queue-scheduling-breadth-first"

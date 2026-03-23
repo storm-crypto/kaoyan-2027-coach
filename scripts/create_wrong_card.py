@@ -40,7 +40,7 @@ import re
 import sys
 from datetime import timedelta
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from constants import SRS_DEFAULT_EASE_FACTOR
 from env_util import atomic_write, json_error, resolve_obsidian_root
@@ -48,9 +48,14 @@ from frontmatter import serialize_frontmatter
 from study_ops import parse_today
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
-OPTION_LINE_RE = re.compile(r"^(?:[A-H][\.．、:：\)]|[（(][A-H][）\)]|正确\b|错误\b|True\b|False\b)", re.I)
+LETTER_OPTION_RE = re.compile(
+    r"^[ \t]{0,4}(?:(?P<plain>[A-D])[\.．、:：\)]|[（(](?P<paren>[A-D])[）\)])(?P<text>.*)$",
+    re.I,
+)
+BOOLEAN_OPTION_RE = re.compile(r"^[ \t]{0,4}(?P<label>正确|错误|True|False)(?:\s*[:：]\s*.*)?$", re.I)
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
+TAG_VALUE_MAX_LENGTH = 32
 
 SUBJECT_MAP = {
     "数学一": "数学一",
@@ -72,7 +77,12 @@ SUBJECT_TAGS = {
 def parse_args() -> Tuple[Path, argparse.Namespace]:
     raw_args = sys.argv[1:]
     obsidian_root_arg = None
-    if raw_args and raw_args[0] not in SUBJECT_MAP and not raw_args[0].startswith("--"):
+    if (
+        raw_args
+        and raw_args[0] not in SUBJECT_MAP
+        and not raw_args[0].startswith("--")
+        and looks_like_obsidian_root_arg(raw_args[0])
+    ):
         obsidian_root_arg = raw_args[0]
         raw_args = raw_args[1:]
 
@@ -101,7 +111,12 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
     parser.add_argument("--trap", default="", help="408详解：干扰项陷阱，可多行")
     parser.add_argument("--knowledge-link", default="", help="408详解：知识网络串联，可多行")
     parser.add_argument("--memory-hook", default="", help="408详解：记忆钩子，可多行")
-    parser.add_argument("--check-question", action="append", default=[], help="理解检查问题，可重复传入")
+    parser.add_argument(
+        "--check-question",
+        action="append",
+        default=[],
+        help="理解检查问题（数学一/408 通用），可重复传入",
+    )
     parser.add_argument("--comment", default="首次归档", help="历史记录中的一句话简评")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     args = parser.parse_args(raw_args)
@@ -110,6 +125,18 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
 
 def split_nonempty_lines(text: str) -> List[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def looks_like_obsidian_root_arg(token: str) -> bool:
+    candidate = Path(token).expanduser()
+    return (
+        candidate.exists()
+        or candidate.is_absolute()
+        or token in {".", ".."}
+        or token.startswith(("~/", "./", "../"))
+        or "/" in token
+        or "\\" in token
+    )
 
 
 def normalize_subject(subject: str) -> str:
@@ -131,6 +158,11 @@ def sanitize_tag_value(text: str) -> str:
     value = INVALID_PATH_CHARS_RE.sub("-", value)
     value = WHITESPACE_RE.sub("-", value)
     value = re.sub(r"-{2,}", "-", value).strip("-")
+    if len(value) > TAG_VALUE_MAX_LENGTH:
+        truncated = value[:TAG_VALUE_MAX_LENGTH].rstrip("-")
+        if "-" in truncated:
+            truncated = truncated.rsplit("-", 1)[0]
+        value = truncated or value[:TAG_VALUE_MAX_LENGTH].strip("-")
     return value or "unknown"
 
 
@@ -141,26 +173,52 @@ def merge_explicit_options(options_text: str, option_args: Sequence[str]) -> Lis
     return lines
 
 
+def extract_option_label(line: str) -> Optional[str]:
+    match = LETTER_OPTION_RE.match(line)
+    if match:
+        return (match.group("plain") or match.group("paren") or "").upper()
+
+    match = BOOLEAN_OPTION_RE.match(line)
+    if not match:
+        return None
+
+    label = match.group("label")
+    if label.lower() == "true" or label == "正确":
+        return "TRUE"
+    return "FALSE"
+
+
+def is_detected_option_block(lines: Sequence[str]) -> bool:
+    if len(lines) < 2:
+        return False
+
+    labels: List[str] = []
+    for line in lines:
+        label = extract_option_label(line)
+        if label is None:
+            return False
+        labels.append(label)
+
+    if all(label in {"A", "B", "C", "D"} for label in labels):
+        return labels == ["A", "B", "C", "D"][:len(labels)]
+
+    if set(labels).issubset({"TRUE", "FALSE"}):
+        return len(labels) == 2 and set(labels) == {"TRUE", "FALSE"}
+
+    return False
+
+
 def split_question_and_options(question_text: str, explicit_options: Sequence[str]) -> Tuple[List[str], List[str], str]:
     question_lines = split_nonempty_lines(question_text)
     if explicit_options:
         return question_lines, list(explicit_options), "explicit"
 
-    first_option_index = None
-    for index, line in enumerate(question_lines):
-        if OPTION_LINE_RE.match(line):
-            first_option_index = index
-            break
+    for index in range(1, len(question_lines)):
+        candidate_lines = question_lines[index:]
+        if is_detected_option_block(candidate_lines):
+            return question_lines[:index], list(candidate_lines), "detected"
 
-    if first_option_index is None:
-        return question_lines, [], "none"
-
-    trailing_lines = question_lines[first_option_index:]
-    option_like_count = sum(1 for line in trailing_lines if OPTION_LINE_RE.match(line))
-    if option_like_count < 2:
-        return question_lines, [], "none"
-
-    return question_lines[:first_option_index], trailing_lines, "detected"
+    return question_lines, [], "none"
 
 
 def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
@@ -228,7 +286,7 @@ def build_card_body(
     question_id: str,
     question_lines: Sequence[str],
     option_lines: Sequence[str],
-    args: argparse.Namespace,
+    detail_sections: str,
     comment: str,
     today: str,
 ) -> str:
@@ -241,7 +299,7 @@ def build_card_body(
         f"## {topic} — {source} — {question_id}\n\n"
         f"### 题目\n{render_bullet_block(question_lines, '待补题干')}\n\n"
         f"### 选项（如有）\n{render_bullet_block(option_lines, '无')}\n\n"
-        f"{build_detail_sections(subject, args)}\n\n"
+        f"{detail_sections}\n\n"
         f"### 历史记录\n- {today} - 不会 - {comment.strip() or '首次归档'}\n"
     )
 
@@ -304,6 +362,7 @@ def main() -> None:
         "ease_factor",
     ]
 
+    detail_sections = build_detail_sections(subject, args)
     body = build_card_body(
         subject=subject,
         topic=args.topic.strip(),
@@ -311,7 +370,7 @@ def main() -> None:
         question_id=args.question_id,
         question_lines=question_lines,
         option_lines=option_lines,
-        args=args,
+        detail_sections=detail_sections,
         comment=args.comment,
         today=today,
     )

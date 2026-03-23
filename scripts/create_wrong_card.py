@@ -14,6 +14,19 @@
       [--wrong-reason 文本]
       [--solution 文本]
       [--pitfall 文本]
+      [--point-judgment 文本]
+      [--first-step 文本]
+      [--formal-solution 文本]
+      [--mistake-analysis 文本]
+      [--next-time 文本]
+      [--point-location 文本]
+      [--breakthrough 文本]
+      [--option-analysis 文本]
+      [--dual-track 文本]
+      [--trap 文本]
+      [--knowledge-link 文本]
+      [--memory-hook 文本]
+      [--check-question 文本]
       [--comment 简评]
       [--today YYYY-MM-DD]
 
@@ -76,6 +89,19 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
     parser.add_argument("--wrong-reason", default="", help="错误原因，可多行")
     parser.add_argument("--solution", default="", help="正确思路/核心结论，可多行")
     parser.add_argument("--pitfall", default="", help="易错点/变式提醒，可多行")
+    parser.add_argument("--point-judgment", default="", help="数学详解：考点判断，可多行")
+    parser.add_argument("--first-step", default="", help="数学详解：第一步怎么想到，可多行")
+    parser.add_argument("--formal-solution", default="", help="数学详解：规范解法，可多行")
+    parser.add_argument("--mistake-analysis", default="", help="数学详解：错因定位，可多行")
+    parser.add_argument("--next-time", default="", help="数学详解：下次怎么做，可多行")
+    parser.add_argument("--point-location", default="", help="408详解：考点定位，可多行")
+    parser.add_argument("--breakthrough", default="", help="408详解：题干突破口，可多行")
+    parser.add_argument("--option-analysis", default="", help="408详解：选项逐个辨析，可多行")
+    parser.add_argument("--dual-track", default="", help="408详解：双轨解释，可多行")
+    parser.add_argument("--trap", default="", help="408详解：干扰项陷阱，可多行")
+    parser.add_argument("--knowledge-link", default="", help="408详解：知识网络串联，可多行")
+    parser.add_argument("--memory-hook", default="", help="408详解：记忆钩子，可多行")
+    parser.add_argument("--check-question", action="append", default=[], help="理解检查问题，可重复传入")
     parser.add_argument("--comment", default="首次归档", help="历史记录中的一句话简评")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     args = parser.parse_args(raw_args)
@@ -142,6 +168,59 @@ def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
     return "\n".join(f"- {line}" for line in items)
 
 
+def render_numbered_block(lines: Sequence[str], fallback: str) -> str:
+    items = list(lines) or [fallback]
+    return "\n".join(f"{index}. {line}" for index, line in enumerate(items, start=1))
+
+
+def merge_repeated_lines(values: Sequence[str]) -> List[str]:
+    lines: List[str] = []
+    for value in values:
+        lines.extend(split_nonempty_lines(value))
+    return lines
+
+
+def build_math_detail_sections(args: argparse.Namespace) -> str:
+    return (
+        f"### 考点判断\n{render_bullet_block(split_nonempty_lines(args.point_judgment), '待补充')}\n\n"
+        f"### 第一步怎么想到\n{render_bullet_block(split_nonempty_lines(args.first_step), '待补充')}\n\n"
+        f"### 规范解法\n{render_bullet_block(split_nonempty_lines(args.formal_solution or args.solution), '待补充')}\n\n"
+        f"### 错因定位\n{render_bullet_block(split_nonempty_lines(args.mistake_analysis or args.wrong_reason), '待补充')}\n\n"
+        f"### 易错点\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n\n"
+        f"### 下次怎么做\n{render_bullet_block(split_nonempty_lines(args.next_time), '待补充')}\n\n"
+        f"### 检查你是否真的懂了\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
+    )
+
+
+def build_408_detail_sections(args: argparse.Namespace) -> str:
+    return (
+        f"### 考点定位\n{render_bullet_block(split_nonempty_lines(args.point_location), '待补充')}\n\n"
+        f"### 题干突破口\n{render_bullet_block(split_nonempty_lines(args.breakthrough), '待补充')}\n\n"
+        f"### 选项逐个辨析\n{render_bullet_block(split_nonempty_lines(args.option_analysis or args.solution), '待补充')}\n\n"
+        f"### 双轨解释\n{render_bullet_block(split_nonempty_lines(args.dual_track), '待补充')}\n\n"
+        f"### 干扰项陷阱\n{render_bullet_block(split_nonempty_lines(args.trap or args.wrong_reason), '待补充')}\n\n"
+        f"### 知识网络串联\n{render_bullet_block(split_nonempty_lines(args.knowledge_link), '待补充')}\n\n"
+        f"### 记忆钩子\n{render_bullet_block(split_nonempty_lines(args.memory_hook or args.pitfall), '待补充')}\n\n"
+        f"### 检查你是否真的懂了\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
+    )
+
+
+def build_generic_detail_sections(args: argparse.Namespace) -> str:
+    return (
+        f"### 错误原因\n{render_bullet_block(split_nonempty_lines(args.wrong_reason), '待补充')}\n\n"
+        f"### 正确思路 / 核心结论\n{render_bullet_block(split_nonempty_lines(args.solution), '待补充')}\n\n"
+        f"### 易错点 / 变式提醒\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n"
+    )
+
+
+def build_detail_sections(subject: str, args: argparse.Namespace) -> str:
+    if subject == "数学一":
+        return build_math_detail_sections(args)
+    if subject == "408":
+        return build_408_detail_sections(args)
+    return build_generic_detail_sections(args)
+
+
 def build_card_body(
     subject: str,
     topic: str,
@@ -149,9 +228,7 @@ def build_card_body(
     question_id: str,
     question_lines: Sequence[str],
     option_lines: Sequence[str],
-    wrong_reason: str,
-    solution: str,
-    pitfall: str,
+    args: argparse.Namespace,
     comment: str,
     today: str,
 ) -> str:
@@ -164,9 +241,7 @@ def build_card_body(
         f"## {topic} — {source} — {question_id}\n\n"
         f"### 题目\n{render_bullet_block(question_lines, '待补题干')}\n\n"
         f"### 选项（如有）\n{render_bullet_block(option_lines, '无')}\n\n"
-        f"### 错误原因\n{render_bullet_block(split_nonempty_lines(wrong_reason), '待补充')}\n\n"
-        f"### 正确思路 / 核心结论\n{render_bullet_block(split_nonempty_lines(solution), '待补充')}\n\n"
-        f"### 易错点 / 变式提醒\n{render_bullet_block(split_nonempty_lines(pitfall), '待补充')}\n\n"
+        f"{build_detail_sections(subject, args)}\n\n"
         f"### 历史记录\n- {today} - 不会 - {comment.strip() or '首次归档'}\n"
     )
 
@@ -236,9 +311,7 @@ def main() -> None:
         question_id=args.question_id,
         question_lines=question_lines,
         option_lines=option_lines,
-        wrong_reason=args.wrong_reason,
-        solution=args.solution,
-        pitfall=args.pitfall,
+        args=args,
         comment=args.comment,
         today=today,
     )

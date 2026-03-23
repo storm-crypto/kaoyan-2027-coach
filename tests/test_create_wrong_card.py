@@ -86,3 +86,80 @@ def test_create_wrong_card_writes_none_for_non_choice_question(vault_root):
     content = card_path.read_text(encoding="utf-8")
     options_block = extract_heading_block(content, "选项（如有）", level=3)
     assert options_block == "- 无"
+    assert "### 考点判断" in content
+    assert "### 第一步怎么想到" in content
+    assert "### 规范解法" in content
+    assert "### 错因定位" in content
+    assert "### 下次怎么做" in content
+
+
+def test_create_wrong_card_renders_math_detailed_sections(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "中值定理",
+        "--source", "660题",
+        "--question-id", "qid-a1b2c3d4e5f6",
+        "--question", "设 f 在区间上连续可导，证明存在一点满足拉格朗日中值定理结论。",
+        "--point-judgment", "证明题；高数中值定理；中频；突破口是先核对定理条件。",
+        "--first-step", "看到连续可导，就先想到拉格朗日中值定理。",
+        "--formal-solution", "先验证闭区间连续、开区间可导，再直接套定理。",
+        "--mistake-analysis", "你把罗尔定理和拉格朗日中值定理的结论混了。",
+        "--pitfall", "别漏掉闭区间连续和开区间可导两个条件。",
+        "--next-time", "以后先核对条件，再决定套哪个中值定理。",
+        "--check-question", "如果缺少可导条件，原方法还成立吗？",
+        "--check-question", "这题第一步为什么先查定理条件？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "### 考点判断" in content
+    assert "证明题；高数中值定理；中频；突破口是先核对定理条件。" in content
+    assert "### 第一步怎么想到" in content
+    assert "看到连续可导，就先想到拉格朗日中值定理。" in content
+    assert "### 规范解法" in content
+    assert "### 错因定位" in content
+    assert "### 易错点" in content
+    assert "### 下次怎么做" in content
+    assert "### 检查你是否真的懂了" in content
+    assert "1. 如果缺少可导条件，原方法还成立吗？" in content
+    assert "2. 这题第一步为什么先查定理条件？" in content
+
+
+def test_create_wrong_card_renders_408_detailed_sections(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "408",
+        "--chapter", "操作系统",
+        "--topic", "进程调度",
+        "--source", "王道",
+        "--question-id", "qid-b1c2d3e4f5a6",
+        "--question", "以下关于进程调度的说法，正确的是：",
+        "--option", "A. FCFS 总能让平均周转时间最小",
+        "--option", "B. 时间片轮转适合交互式系统",
+        "--option", "C. SJF 一定不会饥饿",
+        "--option", "D. 高响应比优先综合考虑等待时间和服务时间",
+        "--point-location", "操作系统；调度策略；中高频；最容易混的是评价指标和适用场景。",
+        "--breakthrough", "先抓住调度算法的适用场景和评价指标。",
+        "--option-analysis", "A 错在把通常情况说成必然。B 对，因为交互式系统重响应。C 错在忽略长作业饥饿。D 对应高响应比优先的判断逻辑。",
+        "--dual-track", "严谨版：时间片轮转强调响应时间。通俗版：大家轮流先上 CPU，谁都别一直等。",
+        "--trap", "最常见的坑是把平均周转时间最优当成所有场景都最优。",
+        "--knowledge-link", "这个点会和响应时间、周转时间、抢占式调度一起考。",
+        "--memory-hook", "交互看响应，吞吐看整体。",
+        "--check-question", "如果题干改成批处理系统，优先判断轴会变吗？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "### 考点定位" in content
+    assert "### 题干突破口" in content
+    assert "### 选项逐个辨析" in content
+    assert "### 双轨解释" in content
+    assert "### 干扰项陷阱" in content
+    assert "### 知识网络串联" in content
+    assert "### 记忆钩子" in content
+    assert "### 检查你是否真的懂了" in content
+    assert "交互看响应，吞吐看整体。" in content

@@ -7,6 +7,7 @@
 """
 import argparse
 import json
+import re
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -16,6 +17,28 @@ from env_util import resolve_obsidian_root, atomic_write, safe_int, is_icloud_pl
 
 def parse_today(value):
     return date.fromisoformat(value) if value else date.today()
+
+
+def extract_section(body, heading):
+    pattern = rf"^\s*### {re.escape(heading)}\n(.*?)(?=^\s*### |\Z)"
+    match = re.search(pattern, body, re.M | re.S)
+    return match.group(1).strip() if match else ""
+
+
+def normalize_block(text):
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    return "\n".join(lines)
+
+
+def build_question_payload(body, topic):
+    question_text = normalize_block(extract_section(body, "题目"))
+    options_text = normalize_block(extract_section(body, "选项（如有）"))
+    preview_source = question_text or topic or "未记录题目"
+    preview = "\n".join(preview_source.splitlines()[:3])
+    return question_text, options_text, preview
 
 
 def main():
@@ -70,13 +93,18 @@ def main():
         if next_review <= today and interval < 90:
             rel = md_file.relative_to(root)
             subject = rel.parts[0] if rel.parts else "未知"
+            topic = fm.get("topic", "")
+            question_text, options_text, question_preview = build_question_payload(body, topic)
             due.append({
                 "path": str(md_file),
                 "subject": subject,
-                "topic": fm.get("topic", ""),
+                "topic": topic,
                 "status": fm.get("status", ""),
                 "review_interval": interval,
                 "filename": md_file.stem,
+                "question_text": question_text,
+                "options_text": options_text,
+                "question_preview": question_preview,
             })
 
     due.sort(key=lambda x: (x["review_interval"], x["subject"]))

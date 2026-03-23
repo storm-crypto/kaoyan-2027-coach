@@ -61,7 +61,8 @@ def main():
     # 更新基础字段
     fm["status"] = args.status
     fm["last_review_at"] = today
-    fm["wrong_count"] = str(old_count + 1)
+    if args.status == "不会":
+        fm["wrong_count"] = str(old_count + 1)
 
     if args.question_id:
         existing_qid = fm.get("question_id", "").strip()

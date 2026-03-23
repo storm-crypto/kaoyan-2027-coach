@@ -268,6 +268,87 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
     return updated, updated_sections
 
 
+def _extract_log_bullets(text, heading):
+    """从已有日志中提取某区块的 bullet 列表项。"""
+    pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, text, re.M | re.S)
+    if not match:
+        return []
+    items = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            items.append(stripped[2:].strip())
+    return items
+
+
+def _extract_log_mastered(text):
+    """从已有日志中提取"今日已掌握"条目，返回 '知识点|信心' 格式列表。"""
+    pattern = r"^## 今日已掌握（含信心等级）\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, text, re.M | re.S)
+    if not match:
+        return []
+    items = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        m = re.match(r"^- (.+?) - 信心：(.+)$", stripped)
+        if m:
+            items.append(f"{m.group(1)}|{m.group(2)}")
+    return items
+
+
+def _extract_log_scores(text):
+    """从已有日志中提取训练成绩表行，返回 '科目|类型|来源|得分|满分|备注' 格式列表。"""
+    pattern = r"^## 训练成绩记录\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, text, re.M | re.S)
+    if not match:
+        return []
+    items = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+        if len(cells) != 7 or cells[0] in {"科目"} or set(cells[0]) == {"-"}:
+            continue
+        items.append(f"{cells[0]}|{cells[1]}|{cells[2]}|{cells[3]}|{cells[4]}|{cells[6]}")
+    return items
+
+
+def _merge_unique(existing, new):
+    """合并两个列表，保持顺序，去除精确重复。"""
+    seen = set(existing)
+    merged = list(existing)
+    for item in new:
+        if item not in seen:
+            seen.add(item)
+            merged.append(item)
+    return merged
+
+
+def merge_with_existing(existing_text, args):
+    """从已有日志中提取内容，与新输入合并，返回合并后的 args 副本。"""
+    import copy
+    merged = copy.copy(args)
+
+    old_learned = _extract_log_bullets(existing_text, "学到了什么")
+    merged.learned = _merge_unique(old_learned, args.learned)
+
+    old_blockers = _extract_log_bullets(existing_text, "卡壳与挣扎")
+    merged.blocker = _merge_unique(old_blockers, args.blocker)
+
+    old_mastered = _extract_log_mastered(existing_text)
+    merged.mastered = _merge_unique(old_mastered, args.mastered)
+
+    old_scores = _extract_log_scores(existing_text)
+    merged.score = _merge_unique(old_scores, args.score)
+
+    old_review = _extract_log_bullets(existing_text, "下次需要复习")
+    merged.review = _merge_unique(old_review, args.review)
+
+    return merged
+
+
 def main():
     args = parse_args()
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
@@ -276,7 +357,18 @@ def main():
     log_dir = Path(obsidian_root) / "学习日志"
     log_dir.mkdir(parents=True, exist_ok=True)
     output_path = log_dir / f"{log_day.isoformat()}.md"
-    atomic_write(output_path, render_log_content(log_day, args))
+
+    merged_args = args
+    merged = False
+    if output_path.exists():
+        try:
+            existing_text = output_path.read_text(encoding="utf-8")
+            merged_args = merge_with_existing(existing_text, args)
+            merged = True
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    atomic_write(output_path, render_log_content(log_day, merged_args))
 
     updated_sections = []
     if args.weakness or args.error_pattern or args.archive_next_step:
@@ -293,9 +385,10 @@ def main():
     print(json.dumps({
         "path": str(output_path),
         "date": log_day.isoformat(),
+        "merged": merged,
         "archive_updated": bool(updated_sections),
         "updated_sections": updated_sections,
-        "score_count": len(args.score),
+        "score_count": len(merged_args.score),
     }, ensure_ascii=False, indent=2))
 
 

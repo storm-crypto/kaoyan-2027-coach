@@ -281,8 +281,8 @@ def main():
         next_actions.append("保留检查点，及时把新卡点写回错题本或知识地图。")
 
     content = render_recap(load_template_markdown(template_name), {
-        "week_label": label,
-        "week_range": f"{start.isoformat()} ~ {end.isoformat()}",
+        "period_label": label,
+        "period_range": f"{start.isoformat()} ~ {end.isoformat()}",
         "logged_days": str(logged_days),
         "total_hours": format_hours(total_hours),
         "active_subjects": active_subjects_text,

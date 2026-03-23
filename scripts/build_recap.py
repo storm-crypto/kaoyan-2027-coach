@@ -240,18 +240,17 @@ def render_recap(template, mapping):
     return content + "\n"
 
 
-def main():
-    parser = argparse.ArgumentParser(description="生成周/月复盘")
-    parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
-    parser.add_argument("--period", choices=["week", "month"], default="week", help="复盘周期（默认 week）")
-    parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
-    args = parser.parse_args()
+def generate_recap(obsidian_root, target_date, period, force=False):
+    start, end, label, filename = get_date_range(target_date, period)
+    report_dir = Path(obsidian_root) / "复盘报告"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    output_path = report_dir / filename
 
-    obsidian_root = resolve_obsidian_root(args.obsidian_root)
-    today = parse_today(args.today)
-    start, end, label, filename = get_date_range(today, args.period)
-    period_name = "月" if args.period == "month" else "周"
-    template_name = "月复盘模板.md" if args.period == "month" else "周复盘模板.md"
+    if output_path.exists() and not force:
+        return None  # 已存在，不重复生成
+
+    period_name = "月" if period == "month" else "周"
+    template_name = "月复盘模板.md" if period == "month" else "周复盘模板.md"
 
     highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
@@ -293,22 +292,53 @@ def main():
         "next_actions": build_bullets(next_actions, f"- 下{period_name}先保证日志和复盘的连续性。"),
     })
 
-    report_dir = Path(obsidian_root) / "复盘报告"
-    report_dir.mkdir(parents=True, exist_ok=True)
-    output_path = report_dir / filename
     atomic_write(output_path, content)
 
-    print(json.dumps({
+    return {
         "path": str(output_path),
-        "period": args.period,
+        "period": period,
         "label": label,
         "date_range": f"{start.isoformat()} ~ {end.isoformat()}",
         "logged_days": logged_days,
         "total_hours": round(total_hours, 2),
         "review_count": total_reviews,
         "score_count": len(score_records),
-    }, ensure_ascii=False, indent=2))
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="生成周/月复盘")
+    parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
+    parser.add_argument("--period", choices=["week", "month"], default="week", help="复盘周期（默认 week）")
+    parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
+    args = parser.parse_args()
+
+    obsidian_root = resolve_obsidian_root(args.obsidian_root)
+    today = parse_today(args.today)
+    
+    # 自动补齐上一周期的复盘（不强制覆盖已有的）
+    if args.period == "month":
+        # 找上个月某一天
+        first_day_of_this_month = today.replace(day=1)
+        prev_target_date = first_day_of_this_month - timedelta(days=1)
+    else:
+        # 找上周某一天
+        monday = today - timedelta(days=today.weekday())
+        prev_target_date = monday - timedelta(days=1)
+        
+    prev_result = generate_recap(obsidian_root, prev_target_date, args.period, force=False)
+    
+    # 生成当前周期的复盘（强制覆盖更新）
+    current_result = generate_recap(obsidian_root, today, args.period, force=True)
+
+    out = {
+        "current": current_result,
+        "backfilled": prev_result
+    }
+    
+    print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
     main()
+

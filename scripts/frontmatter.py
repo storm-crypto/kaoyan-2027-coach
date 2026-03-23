@@ -6,6 +6,7 @@
 - parse_frontmatter_field(text, field) → 轻量提取单个字段
 """
 import re
+import sys
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 
@@ -68,6 +69,9 @@ def parse_frontmatter(text: str) -> Tuple[Frontmatter, str, List[str]]:
             continue
         key, val = line.split(":", 1)
         key, val = key.strip(), val.strip()
+        if key in fm:
+            print(f"warning: duplicated frontmatter key ignored: {key}", file=sys.stderr)
+            continue
         if val.startswith("[") and val.endswith("]"):
             inner = val[1:-1]
             fm[key] = _split_list_items(inner) if inner.strip() else []
@@ -114,13 +118,10 @@ def serialize_frontmatter(fm: Frontmatter, key_order: Sequence[str], body: str) 
 
 def parse_frontmatter_field(text: str, field: str) -> str:
     """快速提取 frontmatter 中某个字段的值（字符串），未找到返回空串。"""
-    fm_text, _ = _extract_frontmatter_block(text)
-    if fm_text is None:
+    fm, _, _ = parse_frontmatter(text)
+    if field not in fm:
         return ""
-    for line in fm_text.splitlines():
-        if ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        if key.strip() == field:
-            return val.strip()
-    return ""
+    value = fm[field]
+    if isinstance(value, list):
+        return _serialize_list(value)
+    return value

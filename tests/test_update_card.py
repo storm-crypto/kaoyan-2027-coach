@@ -67,6 +67,28 @@ def test_interval_cap(sample_card):
     assert data["interval"] <= 90
 
 
+def test_zero_interval_is_treated_as_new_card_baseline(sample_card):
+    text = sample_card.read_text(encoding="utf-8").replace("review_interval: 4", "review_interval: 0")
+    sample_card.write_text(text, encoding="utf-8")
+
+    rc, out, _ = run_script("update_card.py", [str(sample_card), "--status", "会", "--today", TODAY])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["interval"] == 2
+
+
+def test_missing_interval_uses_new_card_baseline(sample_card_no_qid):
+    text = sample_card_no_qid.read_text(encoding="utf-8").replace("review_interval: 1\n", "")
+    sample_card_no_qid.write_text(text, encoding="utf-8")
+
+    rc, out, _ = run_script("update_card.py", [str(sample_card_no_qid), "--status", "半会", "--today", TODAY])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["interval"] == 2
+
+
 def test_qid_backfill(sample_card_no_qid):
     """回填 question_id 并重命名文件"""
     rc, out, _ = run_script("update_card.py", [

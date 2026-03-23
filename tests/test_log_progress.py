@@ -1,5 +1,6 @@
 """test log_progress.py"""
 import json
+from pathlib import Path
 
 from helpers import run_script
 
@@ -55,3 +56,33 @@ def test_log_progress_updates_archive(sample_archive, vault_root):
     assert "二重积分极坐标切换 | 数学一 | 高" in archive_text
     assert "积分上下限混乱 | 数学一 | 4 次 | 2026-03-23" in archive_text
     assert "1. 先把数学二重积分专题打穿" in archive_text
+
+
+def test_log_progress_rejects_invalid_score_format(vault_root):
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-03-23",
+        "--topic", "数学错题收尾",
+        "--score", "数学一|真题|2025 数学一真题|145",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "score 参数格式错误" in data["message"]
+
+
+def test_log_progress_stops_when_existing_log_is_unreadable(vault_root):
+    log_path = vault_root / "学习日志" / "2026-03-23.md"
+    original_bytes = b"\xff\xfe\xfd"
+    log_path.write_bytes(original_bytes)
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-03-23",
+        "--topic", "数学错题收尾",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "已有日志读取失败" in data["message"]
+    assert log_path.read_bytes() == original_bytes

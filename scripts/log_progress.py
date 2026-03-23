@@ -342,8 +342,8 @@ def main():
             existing_text = output_path.read_text(encoding="utf-8")
             merged_args = merge_with_existing(existing_text, args)
             merged = True
-        except (OSError, UnicodeDecodeError):
-            pass
+        except (OSError, UnicodeDecodeError) as exc:
+            json_error(f"已有日志读取失败，已停止写入以避免覆盖: {output_path} ({exc})")
 
     atomic_write(output_path, render_log_content(log_day, merged_args))
 

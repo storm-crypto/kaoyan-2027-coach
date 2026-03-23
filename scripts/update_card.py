@@ -74,6 +74,44 @@ def resolve_card_path(raw_path: str) -> Tuple[Path, Path]:
     return card, wrongbook_root
 
 
+def normalize_existing_interval(raw_value: object) -> int:
+    """将缺失/异常/非正 interval 显式视为新卡的 1 天基线。"""
+    interval = safe_int(raw_value, 0)
+    return interval if interval > 0 else 1
+
+
+def compute_review_schedule(status: str, old_interval: int, old_ease: float) -> Tuple[int, float]:
+    if status == "不会":
+        return 1, max(old_ease * SRS_EASE_PENALTY_FACTOR, SRS_EASE_FLOOR)
+    if status == "半会":
+        return (
+            max(int(old_interval * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), old_interval + 1),
+            old_ease,
+        )
+    return (
+        min(max(int(old_interval * old_ease), 1), SRS_GRADUATED_INTERVAL_DAYS),
+        old_ease + SRS_EASE_REWARD_STEP,
+    )
+
+
+def persist_card_update(card: Path, target_card: Path, serialized: str) -> Tuple[Path, str]:
+    if target_card == card:
+        atomic_write(card, serialized)
+        return card, ""
+
+    renamed_from = card.name
+    card.replace(target_card)
+    try:
+        atomic_write(target_card, serialized)
+    except OSError:
+        try:
+            target_card.replace(card)
+        except OSError:
+            pass
+        raise
+    return target_card, renamed_from
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="更新错题卡")
     parser.add_argument("card_path", help="错题卡文件路径")
@@ -94,7 +132,7 @@ def main() -> None:
 
     today_obj = parse_today(args.today)
     today = today_obj.isoformat()
-    old_interval = safe_int(fm.get("review_interval", 1))
+    old_interval = normalize_existing_interval(fm.get("review_interval"))
     old_count = safe_int(fm.get("wrong_count", 0), 0)
     old_ease = safe_float(fm.get("ease_factor", str(SRS_DEFAULT_EASE_FACTOR)))
 
@@ -120,16 +158,7 @@ def main() -> None:
         if target_card != card and target_card.exists():
             json_error(f"目标文件已存在: {target_card}")
 
-    # SRS 算法：调整 interval 和 ease_factor
-    if args.status == "不会":
-        new_interval = 1
-        new_ease = max(old_ease * SRS_EASE_PENALTY_FACTOR, SRS_EASE_FLOOR)
-    elif args.status == "半会":
-        new_interval = max(int(old_interval * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), old_interval + 1)
-        new_ease = old_ease
-    else:  # 会
-        new_interval = min(int(old_interval * old_ease), SRS_GRADUATED_INTERVAL_DAYS)
-        new_ease = old_ease + SRS_EASE_REWARD_STEP
+    new_interval, new_ease = compute_review_schedule(args.status, old_interval, old_ease)
 
     fm["review_interval"] = str(new_interval)
     fm["ease_factor"] = f"{new_ease:.2f}"
@@ -153,13 +182,10 @@ def main() -> None:
 
     serialized = serialize_frontmatter(fm, key_order, body)
 
-    final_card = card
-    renamed_from = None
-    atomic_write(card, serialized)
-    if target_card != card:
-        card.rename(target_card)
-        renamed_from = card.name
-        final_card = target_card
+    try:
+        final_card, renamed_from = persist_card_update(card, target_card, serialized)
+    except OSError as exc:
+        json_error(f"写入错题卡失败: {exc}")
 
     result = {
         "updated": final_card.name,

@@ -47,3 +47,22 @@ def test_serialize_frontmatter_roundtrip():
     assert parsed == fm
     assert body == "\n正文\n"
     assert key_order == ["source", "question_id", "error_tags"]
+
+
+def test_parse_frontmatter_duplicate_key_keeps_first_and_warns(capsys):
+    text = "---\nsource: 900题\nsource: 660题\nquestion_id: qid-aabbccddeeff\n---\n"
+
+    parsed, _, key_order = parse_frontmatter(text)
+
+    assert parsed["source"] == "900题"
+    assert key_order == ["source", "question_id"]
+    captured = capsys.readouterr()
+    assert "duplicated frontmatter key ignored: source" in captured.err
+
+
+def test_parse_frontmatter_field_reuses_main_parser_for_lists():
+    text = "---\nerror_tags: [极坐标, \"item, with comma\"]\n---\n"
+
+    value = parse_frontmatter_field(text, "error_tags")
+
+    assert value == '[极坐标, "item, with comma"]'

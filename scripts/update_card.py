@@ -14,7 +14,16 @@ from datetime import date, timedelta
 import json
 from pathlib import Path
 import re
+from typing import Tuple
 
+from constants import (
+    SRS_DEFAULT_EASE_FACTOR,
+    SRS_EASE_FLOOR,
+    SRS_EASE_PENALTY_FACTOR,
+    SRS_EASE_REWARD_STEP,
+    SRS_GRADUATED_INTERVAL_DAYS,
+    SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
+)
 from frontmatter import parse_frontmatter, serialize_frontmatter
 from env_util import atomic_write, json_error, safe_int, safe_float
 from study_ops import parse_today
@@ -24,7 +33,7 @@ QID_SUFFIX_RE = re.compile(r"-qid-[0-9a-f]{12}$")
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 
 
-def canonicalize_card_path(card, question_id):
+def canonicalize_card_path(card: Path, question_id: str) -> Path:
     """将卡片文件名规范化为追加 question_id 的形式。"""
     stem = card.stem
     desired_suffix = f"-{question_id}"
@@ -35,7 +44,9 @@ def canonicalize_card_path(card, question_id):
     else:
         new_stem = f"{stem}{desired_suffix}"
     return card.with_name(new_stem + card.suffix)
-def is_within_root(path, root):
+
+
+def is_within_root(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
         return True
@@ -43,7 +54,7 @@ def is_within_root(path, root):
         return False
 
 
-def resolve_card_path(raw_path):
+def resolve_card_path(raw_path: str) -> Tuple[Path, Path]:
     card = Path(raw_path).resolve(strict=True)
     if card.suffix.lower() != ".md":
         json_error(f"只允许更新 Markdown 错题卡: {card}")
@@ -63,7 +74,7 @@ def resolve_card_path(raw_path):
     return card, wrongbook_root
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="更新错题卡")
     parser.add_argument("card_path", help="错题卡文件路径")
     parser.add_argument("--status", required=True, choices=["不会", "半会", "会"], help="复习结果")
@@ -85,7 +96,7 @@ def main():
     today = today_obj.isoformat()
     old_interval = safe_int(fm.get("review_interval", 1))
     old_count = safe_int(fm.get("wrong_count", 0), 0)
-    old_ease = safe_float(fm.get("ease_factor", "2.5"))
+    old_ease = safe_float(fm.get("ease_factor", str(SRS_DEFAULT_EASE_FACTOR)))
 
     # 更新基础字段
     fm["status"] = args.status
@@ -112,13 +123,13 @@ def main():
     # SRS 算法：调整 interval 和 ease_factor
     if args.status == "不会":
         new_interval = 1
-        new_ease = max(old_ease * 0.8, 1.3)
+        new_ease = max(old_ease * SRS_EASE_PENALTY_FACTOR, SRS_EASE_FLOOR)
     elif args.status == "半会":
-        new_interval = max(int(old_interval * 1.2), old_interval + 1)
+        new_interval = max(int(old_interval * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), old_interval + 1)
         new_ease = old_ease
     else:  # 会
-        new_interval = min(int(old_interval * old_ease), 90)
-        new_ease = old_ease + 0.1
+        new_interval = min(int(old_interval * old_ease), SRS_GRADUATED_INTERVAL_DAYS)
+        new_ease = old_ease + SRS_EASE_REWARD_STEP
 
     fm["review_interval"] = str(new_interval)
     fm["ease_factor"] = f"{new_ease:.2f}"

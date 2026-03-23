@@ -6,13 +6,30 @@ import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Dict, List, Optional, Sequence, TypedDict
 
 from archive_ops import extract_list_items, load_archive_text, parse_daily_hours, parse_subject_targets
+from constants import LOAD_COUNTDOWN_WINDOW_DAYS, LOAD_DUE_BACKLOG_WARNING_THRESHOLD
 from env_util import resolve_obsidian_root
 from study_ops import SCORE_SUBJECTS, count_due_reviews, parse_today
 
 
-def parse_exam_date(text):
+class LatestLogInfo(TypedDict):
+    date: date
+    path: str
+    learned: List[str]
+    blockers: List[str]
+    review: List[str]
+
+
+class LatestReportInfo(TypedDict):
+    date: date
+    path: str
+    issues: List[str]
+    next_actions: List[str]
+
+
+def parse_exam_date(text: str) -> Optional[date]:
     match = re.search(r"考试日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", text)
     if not match:
         return None
@@ -22,12 +39,12 @@ def parse_exam_date(text):
         return None
 
 
-def parse_target_total(text):
+def parse_target_total(text: str) -> Optional[float]:
     match = re.search(r"当前目标总分\*\*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text)
     return float(match.group(1)) if match else None
 
 
-def parse_stage(text):
+def parse_stage(text: str) -> str:
     match = re.search(r"当前阶段关键词\*\*[:：]\s*(.+)", text)
     if not match:
         return ""
@@ -37,7 +54,7 @@ def parse_stage(text):
     return value
 
 
-def parse_recent_update(text):
+def parse_recent_update(text: str) -> Optional[date]:
     match = re.search(r"最近更新日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", text)
     if not match:
         return None
@@ -47,9 +64,9 @@ def parse_recent_update(text):
         return None
 
 
-def latest_log_info(obsidian_root):
+def latest_log_info(obsidian_root: Path) -> Optional[LatestLogInfo]:
     log_dir = Path(obsidian_root) / "学习日志"
-    latest = None
+    latest: Optional[LatestLogInfo] = None
     for log_path in log_dir.glob("*.md"):
         try:
             log_day = date.fromisoformat(log_path.stem)
@@ -67,7 +84,7 @@ def latest_log_info(obsidian_root):
     return latest
 
 
-def parse_report_sort_date(filename):
+def parse_report_sort_date(filename: str) -> Optional[date]:
     mock_match = re.match(r"(\d{4}-\d{2}-\d{2})-模考分析\.md$", filename)
     if mock_match:
         return date.fromisoformat(mock_match.group(1))
@@ -89,9 +106,9 @@ def parse_report_sort_date(filename):
     return None
 
 
-def latest_report_info(obsidian_root):
+def latest_report_info(obsidian_root: Path) -> Optional[LatestReportInfo]:
     report_dir = Path(obsidian_root) / "复盘报告"
-    latest = None
+    latest: Optional[LatestReportInfo] = None
     for report_path in report_dir.glob("*.md"):
         sort_day = parse_report_sort_date(report_path.name)
         if sort_day is None:
@@ -115,8 +132,10 @@ def latest_report_info(obsidian_root):
                 "next_actions": next_actions,
             }
     return latest
-def unique_items(items, limit):
-    result = []
+
+
+def unique_items(items: Sequence[str], limit: int) -> List[str]:
+    result: List[str] = []
     for item in items:
         normalized = item.strip()
         if not normalized or normalized in result:
@@ -127,8 +146,22 @@ def unique_items(items, limit):
     return result
 
 
-def build_priorities(focus_items, latest_log, latest_report, due_total, due_counts):
-    candidates = []
+def has_due_backlog(due_total: int) -> bool:
+    return due_total >= LOAD_DUE_BACKLOG_WARNING_THRESHOLD
+
+
+def should_show_countdown(days_until_exam: Optional[int]) -> bool:
+    return days_until_exam is not None and 0 <= days_until_exam < LOAD_COUNTDOWN_WINDOW_DAYS
+
+
+def build_priorities(
+    focus_items: Sequence[str],
+    latest_log: Optional[LatestLogInfo],
+    latest_report: Optional[LatestReportInfo],
+    due_total: int,
+    due_counts: Dict[str, int],
+) -> List[str]:
+    candidates: List[str] = []
     candidates.extend(focus_items[:3])
     if latest_log:
         candidates.extend(latest_log["blockers"][:2])
@@ -140,9 +173,15 @@ def build_priorities(focus_items, latest_log, latest_report, due_total, due_coun
     return unique_items(candidates, 3)
 
 
-def build_risks(latest_log, latest_report, due_total, today, exam_day):
-    risks = []
-    if due_total >= 10:
+def build_risks(
+    latest_log: Optional[LatestLogInfo],
+    latest_report: Optional[LatestReportInfo],
+    due_total: int,
+    today: date,
+    exam_day: Optional[date],
+) -> List[str]:
+    risks: List[str] = []
+    if has_due_backlog(due_total):
         risks.append(f"到期复习已积压 {due_total} 道，今天不先清旧题的话会继续滚大。")
     if latest_log and latest_log["blockers"]:
         risks.append(f"最近一次学习记录里最明显的卡点是：{latest_log['blockers'][0]}")
@@ -150,12 +189,18 @@ def build_risks(latest_log, latest_report, due_total, today, exam_day):
         risks.append(f"最近一次复盘/模考还在提示：{latest_report['issues'][0]}")
     if exam_day is not None:
         days_until = (exam_day - today).days
-        if 0 <= days_until < 100:
+        if should_show_countdown(days_until):
             risks.append(f"距离考试只剩 {days_until} 天，计划和复盘要尽量收口，不适合再发散铺太多新坑。")
     return unique_items(risks, 3)
 
 
-def build_first_step(archive_steps, latest_report, due_total, due_counts, latest_log):
+def build_first_step(
+    archive_steps: Sequence[str],
+    latest_report: Optional[LatestReportInfo],
+    due_total: int,
+    due_counts: Dict[str, int],
+    latest_log: Optional[LatestLogInfo],
+) -> str:
     if due_total:
         top_subject = max(SCORE_SUBJECTS, key=lambda subject: (due_counts.get(subject, 0), subject))
         return f"先用 20-30 分钟清掉 {top_subject} 最早到期的 3-5 道旧题，再进今天主线。"
@@ -168,8 +213,17 @@ def build_first_step(archive_steps, latest_report, due_total, due_counts, latest
     return "先执行一次 `/plan_today`，把今天的第一块完整时间锁给最卡的那个科目。"
 
 
-def build_warnings(today, exam_day, daily_hours, target_total, subject_targets, latest_log, latest_report, due_total):
-    warnings = []
+def build_warnings(
+    today: date,
+    exam_day: Optional[date],
+    daily_hours: Optional[float],
+    target_total: Optional[float],
+    subject_targets: Dict[str, Optional[float]],
+    latest_log: Optional[LatestLogInfo],
+    latest_report: Optional[LatestReportInfo],
+    due_total: int,
+) -> List[str]:
+    warnings: List[str] = []
     if exam_day is None:
         warnings.append("档案里还没有有效的考试日期，倒计时和阶段判断会偏弱。")
     if daily_hours is None:
@@ -186,13 +240,18 @@ def build_warnings(today, exam_day, daily_hours, target_total, subject_targets, 
             warnings.append(f"最近一次学习日志已经是 {days_since_log} 天前，当前状态可能有滞后。")
     if latest_report is None:
         warnings.append("还没有复盘或模考报告，阶段风险主要来自档案和最近日志。")
-    if due_total >= 10:
+    if has_due_backlog(due_total):
         warnings.append(f"到期复习积压 {due_total} 道，建议今天优先止损。")
     return warnings
 
 
-def build_missing_fields(exam_day, daily_hours, target_total, subject_targets):
-    missing = []
+def build_missing_fields(
+    exam_day: Optional[date],
+    daily_hours: Optional[float],
+    target_total: Optional[float],
+    subject_targets: Dict[str, Optional[float]],
+) -> List[str]:
+    missing: List[str] = []
     if exam_day is None:
         missing.append("考试日期")
     if daily_hours is None:
@@ -205,8 +264,13 @@ def build_missing_fields(exam_day, daily_hours, target_total, subject_targets):
     return missing
 
 
-def build_stage_summary(stage, daily_hours, latest_log, recent_update):
-    segments = []
+def build_stage_summary(
+    stage: str,
+    daily_hours: Optional[float],
+    latest_log: Optional[LatestLogInfo],
+    recent_update: Optional[date],
+) -> str:
+    segments: List[str] = []
     segments.append(stage or "当前阶段关键词还没明确写入档案")
     if daily_hours is not None:
         segments.append(f"日均可投入 {daily_hours:g} 小时")
@@ -217,9 +281,19 @@ def build_stage_summary(stage, daily_hours, latest_log, recent_update):
     return "；".join(segments) + "。"
 
 
-def build_markdown(today, stage_summary, days_until_exam, priorities, risks, first_step, warnings, latest_log, latest_report):
+def build_markdown(
+    today: date,
+    stage_summary: str,
+    days_until_exam: Optional[int],
+    priorities: Sequence[str],
+    risks: Sequence[str],
+    first_step: str,
+    warnings: Sequence[str],
+    latest_log: Optional[LatestLogInfo],
+    latest_report: Optional[LatestReportInfo],
+) -> str:
     countdown_line = ""
-    if days_until_exam is not None and 0 <= days_until_exam < 100:
+    if should_show_countdown(days_until_exam):
         countdown_line = f"- **考试倒计时**：{days_until_exam} 天"
 
     lines = [
@@ -255,7 +329,7 @@ def build_markdown(today, stage_summary, days_until_exam, priorities, risks, fir
     return "\n".join(lines) + "\n"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="加载 /load 所需上下文")
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
@@ -292,7 +366,7 @@ def main():
         "today": today.isoformat(),
         "current_stage": stage_summary,
         "days_until_exam": days_until_exam,
-        "show_countdown": bool(days_until_exam is not None and 0 <= days_until_exam < 100),
+        "show_countdown": should_show_countdown(days_until_exam),
         "priorities": priorities,
         "risks": risks,
         "first_step": first_step,

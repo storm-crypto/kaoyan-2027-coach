@@ -2,8 +2,10 @@
 """基于学习者档案和到期错题生成周计划。"""
 import argparse
 import json
+from datetime import date
 from datetime import timedelta
 from pathlib import Path
+from typing import Dict, Mapping, Sequence, Tuple
 
 from archive_ops import (
     extract_list_items,
@@ -12,19 +14,26 @@ from archive_ops import (
     load_template_markdown,
     parse_daily_hours,
 )
-from env_util import atomic_write, json_error, resolve_obsidian_root
+from constants import WEEKLY_PLAN_DUE_WEIGHT, WEEKLY_PLAN_DUE_WEIGHT_CAP, WEEKLY_PLAN_FOCUS_WEIGHT
+from env_util import atomic_write, json_error, resolve_obsidian_root, split_optional_root_and_value
 from study_ops import PLAN_SUBJECTS, count_due_reviews, format_hours, parse_today
 
 
-def iso_week(today):
+def iso_week(today: date) -> Tuple[date, date, str]:
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
     iso_year, iso_week_num, _ = monday.isocalendar()
     return monday, sunday, f"{iso_year}-W{iso_week_num:02d}"
-def allocate_hours(total_hours, focus_counts, due_counts):
-    weights = {}
+
+
+def allocate_hours(total_hours: float, focus_counts: Mapping[str, int], due_counts: Mapping[str, int]) -> Dict[str, float]:
+    weights: Dict[str, float] = {}
     for subject in PLAN_SUBJECTS:
-        weights[subject] = 1.0 + focus_counts.get(subject, 0) * 1.4 + min(due_counts.get(subject, 0), 5) * 0.8
+        weights[subject] = (
+            1.0
+            + focus_counts.get(subject, 0) * WEEKLY_PLAN_FOCUS_WEIGHT
+            + min(due_counts.get(subject, 0), WEEKLY_PLAN_DUE_WEIGHT_CAP) * WEEKLY_PLAN_DUE_WEIGHT
+        )
 
     weight_sum = sum(weights.values()) or float(len(PLAN_SUBJECTS))
     rounded = {
@@ -38,40 +47,32 @@ def allocate_hours(total_hours, focus_counts, due_counts):
     return rounded
 
 
-def subject_goal(subject, focus_items, due_count):
+def subject_goal(subject: str, focus_items: Sequence[str], due_count: int) -> str:
     aliases = {"数学一": "数学", "英语一": "英语"}
+    alias = aliases.get(subject)
     for item in focus_items:
-        if subject in item or aliases.get(subject, "") in item:
+        if subject in item or (alias and alias in item):
             return item
     if due_count:
         return f"清掉 {due_count} 道到期复习，避免旧题积压"
     return "推进本周主线内容"
 
 
-def render_weekly_plan(template, mapping):
+def render_weekly_plan(template: str, mapping: Mapping[str, str]) -> str:
     content = template
     for key, value in mapping.items():
         content = content.replace(f"{{{key}}}", value)
     return content + "\n"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="生成周计划")
     parser.add_argument("arg1", nargs="?", default=None, help="Obsidian vault 根目录或总时长")
     parser.add_argument("arg2", nargs="?", default=None, help="总时长（小时）")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     args = parser.parse_args()
 
-    obsidian_root_arg = args.arg1
-    total_hours_arg = args.arg2
-    if args.arg1:
-        try:
-            float(args.arg1)
-        except ValueError:
-            pass
-        else:
-            obsidian_root_arg = None
-            total_hours_arg = args.arg1
+    obsidian_root_arg, total_hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
 
     obsidian_root = resolve_obsidian_root(obsidian_root_arg)
     _, archive_text = load_archive_text(obsidian_root)

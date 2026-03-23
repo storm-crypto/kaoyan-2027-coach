@@ -8,7 +8,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from env_util import atomic_write, is_icloud_placeholder, json_error, resolve_obsidian_root, resolve_skill_root, safe_float, safe_int
+from env_util import (
+    atomic_write,
+    is_icloud_placeholder,
+    json_error,
+    resolve_obsidian_root,
+    resolve_skill_root,
+    safe_float,
+    safe_int,
+    split_optional_root_and_value,
+)
 
 
 def test_resolve_obsidian_root_prefers_cli(tmp_path, monkeypatch):
@@ -63,3 +72,15 @@ def test_json_error_exits_with_json(capsys):
     captured = capsys.readouterr()
     assert '"error": true' in captured.out.lower()
     assert "boom" in captured.out
+
+
+def test_split_optional_root_and_value_accepts_hours_in_arg1():
+    root_arg, hours_arg = split_optional_root_and_value("4", None)
+    assert root_arg is None
+    assert hours_arg == "4"
+
+
+def test_split_optional_root_and_value_keeps_explicit_root_and_hours():
+    root_arg, hours_arg = split_optional_root_and_value("/tmp/vault", "6")
+    assert root_arg == "/tmp/vault"
+    assert hours_arg == "6"

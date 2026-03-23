@@ -2,9 +2,12 @@
 import os
 import sys
 from pathlib import Path
+from typing import NoReturn, Optional, Tuple
+
+from constants import SRS_DEFAULT_EASE_FACTOR
 
 
-def resolve_obsidian_root(cli_arg=None):
+def resolve_obsidian_root(cli_arg: Optional[str] = None) -> Path:
     """解析 Obsidian vault 根目录。优先级：CLI 参数 > 环境变量 > 报错退出。"""
     if cli_arg:
         return Path(cli_arg)
@@ -15,7 +18,7 @@ def resolve_obsidian_root(cli_arg=None):
     sys.exit(1)
 
 
-def resolve_skill_root(cli_arg=None):
+def resolve_skill_root(cli_arg: Optional[str] = None) -> Path:
     """解析 skill 根目录。优先级：CLI 参数 > 环境变量 > 从 __file__ 推算。"""
     if cli_arg:
         return Path(cli_arg)
@@ -25,14 +28,14 @@ def resolve_skill_root(cli_arg=None):
     return Path(__file__).resolve().parent.parent
 
 
-def atomic_write(path, content, encoding="utf-8"):
+def atomic_write(path: Path, content: str, encoding: str = "utf-8") -> None:
     """原子写入：先写 .tmp 再 rename，防止崩溃时损坏原文件。"""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding=encoding)
     tmp.rename(path)
 
 
-def safe_int(val, default=1):
+def safe_int(val: object, default: int = 1) -> int:
     """安全 int 转换，失败时返回默认值。"""
     try:
         return int(val)
@@ -40,7 +43,7 @@ def safe_int(val, default=1):
         return default
 
 
-def safe_float(val, default=2.5):
+def safe_float(val: object, default: float = SRS_DEFAULT_EASE_FACTOR) -> float:
     """安全 float 转换，失败时返回默认值。"""
     try:
         return float(val)
@@ -48,7 +51,7 @@ def safe_float(val, default=2.5):
         return default
 
 
-def is_icloud_placeholder(path):
+def is_icloud_placeholder(path: Path) -> bool:
     """检测文件是否为 iCloud 占位符（未下载到本地）。
 
     macOS iCloud 占位符的命名规则：foo.md → .foo.md.icloud
@@ -57,7 +60,25 @@ def is_icloud_placeholder(path):
     return placeholder.exists()
 
 
-def json_error(message):
+def split_optional_root_and_value(
+    arg1: Optional[str],
+    arg2: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """兼容“路径或数字”双形态 CLI 参数。"""
+    obsidian_root_arg = arg1
+    value_arg = arg2
+    if arg1:
+        try:
+            float(arg1)
+        except ValueError:
+            pass
+        else:
+            obsidian_root_arg = None
+            value_arg = arg1
+    return obsidian_root_arg, value_arg
+
+
+def json_error(message: str) -> NoReturn:
     """输出 JSON 格式的错误信息到 stdout 并退出。"""
     import json
     print(json.dumps({"error": True, "message": message}, ensure_ascii=False))

@@ -8,14 +8,16 @@
 import argparse
 import json
 from datetime import timedelta
+from typing import Tuple
 
 from archive_ops import extract_heading_block
-from frontmatter import parse_frontmatter, serialize_frontmatter
-from env_util import resolve_obsidian_root, atomic_write, safe_int, is_icloud_placeholder
+from constants import QUESTION_PREVIEW_LINE_LIMIT, SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
+from frontmatter import serialize_frontmatter
+from env_util import atomic_write, resolve_obsidian_root
 from study_ops import iter_review_cards, parse_today
 
 
-def normalize_block(text):
+def normalize_block(text: str) -> str:
     if not text:
         return ""
     lines = [line.strip() for line in text.splitlines()]
@@ -23,15 +25,15 @@ def normalize_block(text):
     return "\n".join(lines)
 
 
-def build_question_payload(body, topic):
+def build_question_payload(body: str, topic: str) -> Tuple[str, str, str]:
     question_text = normalize_block(extract_heading_block(body, "题目", level=3))
     options_text = normalize_block(extract_heading_block(body, "选项（如有）", level=3))
     preview_source = question_text or topic or "未记录题目"
-    preview = "\n".join(preview_source.splitlines()[:3])
+    preview = "\n".join(preview_source.splitlines()[:QUESTION_PREVIEW_LINE_LIMIT])
     return question_text, options_text, preview
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="扫描到期错题")
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
@@ -39,7 +41,7 @@ def main():
 
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     today = parse_today(args.today)
-    threshold = today - timedelta(days=7)
+    threshold = today - timedelta(days=SRS_OVERDUE_DEGRADE_DAYS)
     due = []
     degraded = 0
     icloud_warnings = []
@@ -67,7 +69,7 @@ def main():
             degraded += 1
 
         # 筛选到期且未毕业（interval < 90）
-        if next_review <= today and interval < 90:
+        if next_review <= today and interval < SRS_GRADUATED_INTERVAL_DAYS:
             topic = fm.get("topic", "")
             question_text, options_text, question_preview = build_question_payload(body, topic)
             due.append({

@@ -6,6 +6,7 @@
 - parse_frontmatter_field(text, field) → 轻量提取单个字段
 """
 import re
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 
 FRONTMATTER_RE = re.compile(
@@ -13,8 +14,11 @@ FRONTMATTER_RE = re.compile(
     re.S,
 )
 
+FrontmatterValue = Union[str, List[str]]
+Frontmatter = Dict[str, FrontmatterValue]
 
-def _extract_frontmatter_block(text):
+
+def _extract_frontmatter_block(text: str) -> Tuple[Optional[str], str]:
     """提取 frontmatter 文本和正文，兼容 LF/CRLF。"""
     match = FRONTMATTER_RE.match(text)
     if not match:
@@ -22,7 +26,7 @@ def _extract_frontmatter_block(text):
     return match.group("fm"), match.group("body") or ""
 
 
-def _split_list_items(raw):
+def _split_list_items(raw: str) -> List[str]:
     """拆分 YAML 内联列表，支持引号保护含逗号的项。
 
     例：'极坐标, "item, with comma", 普通项' → ['极坐标', 'item, with comma', '普通项']
@@ -46,7 +50,7 @@ def _split_list_items(raw):
     return items
 
 
-def parse_frontmatter(text):
+def parse_frontmatter(text: str) -> Tuple[Frontmatter, str, List[str]]:
     """解析 --- 包裹的 YAML frontmatter。
 
     返回 (fm_dict, body_str, key_order_list)。
@@ -57,8 +61,8 @@ def parse_frontmatter(text):
     fm_text, body = _extract_frontmatter_block(text)
     if fm_text is None:
         return {}, text, []
-    fm = {}
-    key_order = []
+    fm: Frontmatter = {}
+    key_order: List[str] = []
     for line in fm_text.splitlines():
         if ":" not in line:
             continue
@@ -73,7 +77,7 @@ def parse_frontmatter(text):
     return fm, body, key_order
 
 
-def _serialize_list(items):
+def _serialize_list(items: Sequence[str]) -> str:
     """序列化列表为 YAML 内联格式，含逗号的项用引号保护。"""
     parts = []
     for item in items:
@@ -84,7 +88,7 @@ def _serialize_list(items):
     return f"[{', '.join(parts)}]"
 
 
-def serialize_frontmatter(fm, key_order, body):
+def serialize_frontmatter(fm: Frontmatter, key_order: Sequence[str], body: str) -> str:
     """将 frontmatter dict 序列化为 markdown 文本。
 
     key_order 控制字段输出顺序，不在 key_order 中的新字段追加到末尾。
@@ -108,7 +112,7 @@ def serialize_frontmatter(fm, key_order, body):
     return "\n".join(lines) + body
 
 
-def parse_frontmatter_field(text, field):
+def parse_frontmatter_field(text: str, field: str) -> str:
     """快速提取 frontmatter 中某个字段的值（字符串），未找到返回空串。"""
     fm_text, _ = _extract_frontmatter_block(text)
     if fm_text is None:

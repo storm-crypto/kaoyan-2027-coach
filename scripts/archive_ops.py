@@ -1,11 +1,12 @@
 """学习者档案读写辅助函数。"""
 import re
 from pathlib import Path
+from typing import Dict, List, Mapping, Optional, Pattern, Sequence, Tuple
 
 from env_util import resolve_skill_root
 
 
-def _heading_block_pattern(heading, level):
+def _heading_block_pattern(heading: str, level: int) -> Pattern[str]:
     hashes = "#" * level
     return re.compile(
         rf"(^\s*{re.escape(hashes)} {re.escape(heading)}\r?\n)(.*?)(?=^\s*{re.escape(hashes)} |\Z)",
@@ -13,12 +14,18 @@ def _heading_block_pattern(heading, level):
     )
 
 
-def extract_heading_block(text, heading, level=2):
+def extract_heading_block(text: str, heading: str, level: int = 2) -> str:
     match = _heading_block_pattern(heading, level).search(text)
     return match.group(2).strip("\r\n") if match else ""
 
 
-def replace_heading_block(text, heading, new_body, level=2, required=True):
+def replace_heading_block(
+    text: str,
+    heading: str,
+    new_body: str,
+    level: int = 2,
+    required: bool = True,
+) -> str:
     match = _heading_block_pattern(heading, level).search(text)
     if not match:
         if required:
@@ -33,13 +40,13 @@ def replace_heading_block(text, heading, new_body, level=2, required=True):
     return prefix + normalized_body + suffix.lstrip("\n")
 
 
-def extract_section_block(text, heading):
+def extract_section_block(text: str, heading: str) -> str:
     return extract_heading_block(text, heading, level=2)
 
 
-def extract_list_items(text, heading):
+def extract_list_items(text: str, heading: str) -> List[str]:
     block = extract_heading_block(text, heading, level=2)
-    items = []
+    items: List[str] = []
     for line in block.splitlines():
         stripped = line.strip()
         if stripped.startswith("- "):
@@ -52,16 +59,16 @@ def extract_list_items(text, heading):
     return items
 
 
-def parse_daily_hours(text, default=None):
+def parse_daily_hours(text: str, default: Optional[float] = None) -> Optional[float]:
     match = re.search(r"每日可投入时长\*\*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text)
     if match:
         return float(match.group(1))
     return default
 
 
-def parse_subject_targets(text):
+def parse_subject_targets(text: str) -> Dict[str, Optional[float]]:
     block = extract_section_block(text, "各科当前状态")
-    rows = {}
+    rows: Dict[str, Optional[float]] = {}
     for line in block.splitlines():
         stripped = line.strip()
         if not stripped.startswith("|"):
@@ -75,9 +82,9 @@ def parse_subject_targets(text):
     return rows
 
 
-def parse_mock_rows(text):
+def parse_mock_rows(text: str) -> List[Dict[str, str]]:
     block = extract_section_block(text, "模考成绩追踪")
-    rows = []
+    rows: List[Dict[str, str]] = []
     for line in block.splitlines():
         stripped = line.strip()
         if not stripped.startswith("|"):
@@ -97,16 +104,16 @@ def parse_mock_rows(text):
     return rows
 
 
-def parse_score_cell(value):
+def parse_score_cell(value: str) -> Optional[float]:
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)", value or "")
     return float(match.group(1)) if match else None
 
 
-def append_mock_row(text, row):
+def append_mock_row(text: str, row: Mapping[str, str]) -> str:
     return upsert_mock_row(text, row)
 
 
-def upsert_mock_row(text, row):
+def upsert_mock_row(text: str, row: Mapping[str, str]) -> str:
     marker = "## 模考成绩追踪"
     section_start = text.find(marker)
     if section_start == -1:
@@ -142,7 +149,7 @@ def upsert_mock_row(text, row):
     return text[:section_start] + updated_section + text[next_section:]
 
 
-def infer_subject_mentions(items):
+def infer_subject_mentions(items: Sequence[str]) -> Dict[str, int]:
     mapping = {
         "数学一": ("数学", "高数", "线代", "概率"),
         "408": ("408", "数据结构", "组成原理", "操作系统", "计算机网络"),
@@ -157,14 +164,14 @@ def infer_subject_mentions(items):
     return counts
 
 
-def load_archive_text(obsidian_root):
+def load_archive_text(obsidian_root: Path) -> Tuple[Path, str]:
     archive_path = Path(obsidian_root) / "我的学习者档案.md"
     if not archive_path.exists():
         raise FileNotFoundError(f"档案不存在: {archive_path}")
     return archive_path, archive_path.read_text(encoding="utf-8")
 
 
-def load_template_markdown(template_name):
+def load_template_markdown(template_name: str) -> str:
     template_path = resolve_skill_root() / "templates" / template_name
     text = template_path.read_text(encoding="utf-8")
     match = re.search(r"```markdown\n(.*?)\n```", text, re.S)

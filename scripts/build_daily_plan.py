@@ -3,6 +3,7 @@
 import argparse
 import json
 from collections import Counter
+from typing import List, Mapping, Optional, Sequence, Tuple, TypedDict
 
 from archive_ops import (
     extract_list_items,
@@ -11,29 +12,38 @@ from archive_ops import (
     load_template_markdown,
     parse_daily_hours,
 )
-from env_util import json_error, resolve_obsidian_root
-from study_ops import PLAN_SUBJECTS, collect_due_cards, format_hours, parse_today
+from constants import (
+    DAILY_PLAN_CARD_HOURS,
+    DAILY_PLAN_DUE_LIMIT,
+    DAILY_PLAN_MIN_REVIEW_HOURS,
+    DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS,
+    DAILY_PLAN_PRIMARY_SUBJECT_SHARE,
+    DAILY_PLAN_PROGRESS_WRAPUP_MINUTES,
+    DAILY_PLAN_REVIEW_HOURS_RATIO,
+)
+from env_util import json_error, resolve_obsidian_root, split_optional_root_and_value
+from study_ops import DueCard, PLAN_SUBJECTS, collect_due_cards, format_hours, parse_today
 
 
-def parse_args():
+class PlanTask(TypedDict):
+    type: str
+    subject: str
+    hours: float
+    title: str
+    detail: str
+
+
+def parse_args() -> Tuple[Optional[str], Optional[str], Optional[str]]:
     parser = argparse.ArgumentParser(description="生成今日计划")
     parser.add_argument("arg1", nargs="?", default=None, help="Obsidian vault 根目录或今日可用时长")
     parser.add_argument("arg2", nargs="?", default=None, help="今日可用时长（小时）")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     args = parser.parse_args()
-
-    obsidian_root_arg = args.arg1
-    available_hours_arg = args.arg2
-    if args.arg1:
-        try:
-            float(args.arg1)
-        except ValueError:
-            pass
-        else:
-            obsidian_root_arg = None
-            available_hours_arg = args.arg1
+    obsidian_root_arg, available_hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
     return obsidian_root_arg, available_hours_arg, args.today
-def rank_subjects(focus_counts, due_counts):
+
+
+def rank_subjects(focus_counts: Mapping[str, int], due_counts: Mapping[str, int]) -> List[str]:
     return sorted(
         PLAN_SUBJECTS,
         key=lambda subject: (focus_counts.get(subject, 0) * 2 + due_counts.get(subject, 0), focus_counts.get(subject, 0), due_counts.get(subject, 0)),
@@ -41,8 +51,13 @@ def rank_subjects(focus_counts, due_counts):
     )
 
 
-def build_task_list(available_hours, focus_items, due_cards):
-    selected_due = due_cards[:10]
+def build_task_list(
+    available_hours: float,
+    focus_items: Sequence[str],
+    due_cards: Sequence[DueCard],
+) -> Tuple[List[PlanTask], List[DueCard], List[str]]:
+    selected_due = list(due_cards[:DAILY_PLAN_DUE_LIMIT])
+    selected_due_count = len(selected_due)
     due_counts = Counter(card["subject"] for card in selected_due)
     focus_counts = infer_subject_mentions(focus_items)
     ranked_subjects = rank_subjects(focus_counts, due_counts)
@@ -54,18 +69,18 @@ def build_task_list(available_hours, focus_items, due_cards):
 
     review_hours = 0.0
     if selected_due:
-        review_hours = min(available_hours * 0.4, len(selected_due) * 0.25)
-        if available_hours >= 1.5:
-            review_hours = max(review_hours, 0.5)
+        review_hours = min(available_hours * DAILY_PLAN_REVIEW_HOURS_RATIO, selected_due_count * DAILY_PLAN_CARD_HOURS)
+        if available_hours >= DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS:
+            review_hours = max(review_hours, DAILY_PLAN_MIN_REVIEW_HOURS)
         review_hours = min(review_hours, available_hours)
     deep_work_hours = max(available_hours - review_hours, 0.0)
 
-    tasks = []
+    tasks: List[PlanTask] = []
     for subject in ranked_subjects:
         count = due_counts.get(subject, 0)
         if not count:
             continue
-        subject_review_hours = review_hours * count / len(selected_due)
+        subject_review_hours = review_hours * count / selected_due_count
         tasks.append({
             "type": "review",
             "subject": subject,
@@ -76,7 +91,14 @@ def build_task_list(available_hours, focus_items, due_cards):
 
     major_subjects = ranked_subjects[:2] if available_hours >= 3 else ranked_subjects[:1]
     if deep_work_hours > 0 and major_subjects:
-        split = [deep_work_hours] if len(major_subjects) == 1 else [deep_work_hours * 0.6, deep_work_hours * 0.4]
+        split = (
+            [deep_work_hours]
+            if len(major_subjects) == 1
+            else [
+                deep_work_hours * DAILY_PLAN_PRIMARY_SUBJECT_SHARE,
+                deep_work_hours * (1 - DAILY_PLAN_PRIMARY_SUBJECT_SHARE),
+            ]
+        )
         for subject, hours in zip(major_subjects, split):
             focus_goal = next(
                 (
@@ -105,8 +127,8 @@ def build_task_list(available_hours, focus_items, due_cards):
     return tasks, selected_due, ranked_subjects
 
 
-def render_tasks(tasks):
-    lines = []
+def render_tasks(tasks: Sequence[PlanTask]) -> str:
+    lines: List[str] = []
     for index, task in enumerate(tasks, start=1):
         lines.append(
             f"{index}. [{task['subject']}] {task['title']}（{format_hours(task['hours'])} 小时）"
@@ -115,7 +137,7 @@ def render_tasks(tasks):
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     obsidian_root_arg, available_hours_arg, today_arg = parse_args()
     obsidian_root = resolve_obsidian_root(obsidian_root_arg)
     _, archive_text = load_archive_text(obsidian_root)
@@ -147,7 +169,7 @@ def main():
         "tasks": render_tasks(tasks),
         "closing_notes": "\n".join([
             "- 每个科目时段都先清旧题，再进新内容。",
-            "- 结束前留 10 分钟执行一次 `/progress`，把卡点和收获沉淀下来。",
+            f"- 结束前留 {DAILY_PLAN_PROGRESS_WRAPUP_MINUTES} 分钟执行一次 `/progress`，把卡点和收获沉淀下来。",
         ]),
     }
     for key, value in replacements.items():

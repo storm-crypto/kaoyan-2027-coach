@@ -6,10 +6,13 @@ from typing import Dict, List, Mapping, Optional, Pattern, Sequence, Tuple
 from env_util import resolve_skill_root
 
 
+MARKDOWN_TEMPLATE_RE = re.compile(r"```markdown\r?\n(.*?)\r?\n```", re.S)
+
+
 def _heading_block_pattern(heading: str, level: int) -> Pattern[str]:
     hashes = "#" * level
     return re.compile(
-        rf"(^\s*{re.escape(hashes)} {re.escape(heading)}\r?\n)(.*?)(?=^\s*{re.escape(hashes)} |\Z)",
+        rf"(^[ \t]{{0,3}}{re.escape(hashes)} {re.escape(heading)}\r?\n)(.*?)(?=^[ \t]{{0,3}}{re.escape(hashes)} |\Z)",
         re.M | re.S,
     )
 
@@ -174,5 +177,7 @@ def load_archive_text(obsidian_root: Path) -> Tuple[Path, str]:
 def load_template_markdown(template_name: str) -> str:
     template_path = resolve_skill_root() / "templates" / template_name
     text = template_path.read_text(encoding="utf-8")
-    match = re.search(r"```markdown\n(.*?)\n```", text, re.S)
-    return match.group(1) if match else text
+    match = MARKDOWN_TEMPLATE_RE.search(text)
+    if not match:
+        raise ValueError(f"模板缺少 ```markdown fenced block: {template_path}")
+    return match.group(1)

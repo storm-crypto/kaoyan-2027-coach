@@ -1,8 +1,15 @@
 """test load_context.py"""
 import json
+import sys
 import textwrap
+from pathlib import Path
 
 from helpers import run_script
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+from load_context import latest_log_info
 
 
 def _write_log(vault_root, day, blocker):
@@ -151,3 +158,23 @@ def test_load_context_missing_fields(vault_root):
     assert "数学一目标分" in data["missing_fields"]
     assert any("还没有学习日志" in item for item in data["warnings"])
     assert any("还没有复盘或模考报告" in item for item in data["warnings"])
+
+
+def test_latest_log_info_only_reads_newest_log(vault_root, monkeypatch):
+    _write_log(vault_root, "2026-03-01", "旧卡点")
+    _write_log(vault_root, "2026-03-05", "新卡点")
+    read_names = []
+    original_read_text = Path.read_text
+
+    def counting_read_text(path_obj, *args, **kwargs):
+        if path_obj.parent.name == "学习日志":
+            read_names.append(path_obj.name)
+        return original_read_text(path_obj, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+
+    info = latest_log_info(vault_root)
+
+    assert info is not None
+    assert info["date"].isoformat() == "2026-03-05"
+    assert read_names == ["2026-03-05.md"]

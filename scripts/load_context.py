@@ -66,22 +66,27 @@ def parse_recent_update(text: str) -> Optional[date]:
 
 def latest_log_info(obsidian_root: Path) -> Optional[LatestLogInfo]:
     log_dir = Path(obsidian_root) / "学习日志"
-    latest: Optional[LatestLogInfo] = None
+    latest_day: Optional[date] = None
+    latest_path: Optional[Path] = None
     for log_path in log_dir.glob("*.md"):
         try:
             log_day = date.fromisoformat(log_path.stem)
         except ValueError:
             continue
-        if latest is None or log_day > latest["date"]:
-            text = log_path.read_text(encoding="utf-8")
-            latest = {
-                "date": log_day,
-                "path": str(log_path),
-                "learned": extract_list_items(text, "学到了什么"),
-                "blockers": extract_list_items(text, "卡壳与挣扎"),
-                "review": extract_list_items(text, "下次需要复习"),
-            }
-    return latest
+        if latest_day is None or log_day > latest_day:
+            latest_day = log_day
+            latest_path = log_path
+    if latest_day is None or latest_path is None:
+        return None
+
+    text = latest_path.read_text(encoding="utf-8")
+    return {
+        "date": latest_day,
+        "path": str(latest_path),
+        "learned": extract_list_items(text, "学到了什么"),
+        "blockers": extract_list_items(text, "卡壳与挣扎"),
+        "review": extract_list_items(text, "下次需要复习"),
+    }
 
 
 def parse_report_sort_date(filename: str) -> Optional[date]:
@@ -108,30 +113,35 @@ def parse_report_sort_date(filename: str) -> Optional[date]:
 
 def latest_report_info(obsidian_root: Path) -> Optional[LatestReportInfo]:
     report_dir = Path(obsidian_root) / "复盘报告"
-    latest: Optional[LatestReportInfo] = None
+    latest_day: Optional[date] = None
+    latest_path: Optional[Path] = None
     for report_path in report_dir.glob("*.md"):
         sort_day = parse_report_sort_date(report_path.name)
         if sort_day is None:
             continue
-        if latest is None or sort_day > latest["date"]:
-            text = report_path.read_text(encoding="utf-8")
-            issues = (
-                extract_list_items(text, "关键问题")
-                or extract_list_items(text, "本周卡点")
-                or extract_list_items(text, "本月卡点")
-            )
-            next_actions = (
-                extract_list_items(text, "下一步动作")
-                or extract_list_items(text, "下周建议")
-                or extract_list_items(text, "下月建议")
-            )
-            latest = {
-                "date": sort_day,
-                "path": str(report_path),
-                "issues": issues,
-                "next_actions": next_actions,
-            }
-    return latest
+        if latest_day is None or sort_day > latest_day:
+            latest_day = sort_day
+            latest_path = report_path
+    if latest_day is None or latest_path is None:
+        return None
+
+    text = latest_path.read_text(encoding="utf-8")
+    issues = (
+        extract_list_items(text, "关键问题")
+        or extract_list_items(text, "本周卡点")
+        or extract_list_items(text, "本月卡点")
+    )
+    next_actions = (
+        extract_list_items(text, "下一步动作")
+        or extract_list_items(text, "下周建议")
+        or extract_list_items(text, "下月建议")
+    )
+    return {
+        "date": latest_day,
+        "path": str(latest_path),
+        "issues": issues,
+        "next_actions": next_actions,
+    }
 
 
 def unique_items(items: Sequence[str], limit: int) -> List[str]:

@@ -3,12 +3,15 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from archive_ops import (
     extract_heading_block,
     extract_list_items,
+    load_template_markdown,
     parse_daily_hours,
     parse_mock_rows,
     parse_score_cell,
@@ -41,6 +44,17 @@ def test_extract_heading_block_supports_level_two_and_three():
         - B
     """)
     assert extract_heading_block(card, "题目", level=3) == "- 这是题干"
+
+
+def test_extract_heading_block_ignores_indented_code_block_heading():
+    text = textwrap.dedent("""\
+        ## 正常区块
+        - 条目
+
+            ## 代码块里的伪标题
+            - 不应命中
+    """)
+    assert extract_heading_block(text, "代码块里的伪标题", level=2) == ""
 
 
 def test_replace_heading_block_rewrites_section_body():
@@ -109,3 +123,31 @@ def test_upsert_mock_row_replaces_same_date():
     })
     assert updated.count("2026-03-01") == 1
     assert "342" in updated
+
+
+def test_load_template_markdown_extracts_fenced_markdown(tmp_path, monkeypatch):
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir(parents=True)
+    (template_dir / "demo.md").write_text(textwrap.dedent("""\
+        # 模板说明
+
+        ```markdown
+        # Demo
+        body
+        ```
+    """), encoding="utf-8")
+    monkeypatch.setenv("KAOYAN_SKILL_ROOT", str(tmp_path))
+
+    content = load_template_markdown("demo.md")
+
+    assert content == "# Demo\nbody"
+
+
+def test_load_template_markdown_requires_fenced_markdown(tmp_path, monkeypatch):
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir(parents=True)
+    (template_dir / "broken.md").write_text("# 没有 fenced markdown\n", encoding="utf-8")
+    monkeypatch.setenv("KAOYAN_SKILL_ROOT", str(tmp_path))
+
+    with pytest.raises(ValueError, match="fenced block"):
+        load_template_markdown("broken.md")

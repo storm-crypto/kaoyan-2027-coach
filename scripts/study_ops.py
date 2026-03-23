@@ -16,7 +16,7 @@ class ReviewCard(TypedDict):
     body: str
     key_order: List[str]
     next_review: Optional[date]
-    review_interval: int
+    review_interval: Optional[int]
     icloud_placeholder: bool
 
 
@@ -91,8 +91,8 @@ def iter_review_cards(obsidian_root: Path) -> Iterator[ReviewCard]:
 
 def collect_due_cards(obsidian_root: Path, today: date) -> List[DueCard]:
     due_cards: List[DueCard] = []
-    for item in iter_review_cards(obsidian_root) or []:
-        if item["icloud_placeholder"] or item["next_review"] is None:
+    for item in iter_review_cards(obsidian_root):
+        if item["icloud_placeholder"] or item["next_review"] is None or item["review_interval"] is None:
             continue
         if item["next_review"] <= today and item["review_interval"] < SRS_GRADUATED_INTERVAL_DAYS:
             due_cards.append({

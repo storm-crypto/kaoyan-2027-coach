@@ -51,6 +51,11 @@ def rank_subjects(focus_counts: Mapping[str, int], due_counts: Mapping[str, int]
     )
 
 
+def rank_due_only_subjects(due_counts: Mapping[str, int]) -> List[str]:
+    # 这里故意沿用 PLAN_SUBJECTS 的稳定顺序做并列打破，避免无聚焦问题时被偶然的字典/扫描顺序左右。
+    return sorted(PLAN_SUBJECTS, key=lambda subject: due_counts.get(subject, 0), reverse=True)
+
+
 def build_task_list(
     available_hours: float,
     focus_items: Sequence[str],
@@ -63,9 +68,7 @@ def build_task_list(
     ranked_subjects = rank_subjects(focus_counts, due_counts)
 
     if not any(focus_counts.values()) and selected_due:
-        ranked_subjects = sorted(due_counts, key=lambda subject: (due_counts[subject], subject), reverse=True) + [
-            subject for subject in PLAN_SUBJECTS if subject not in due_counts
-        ]
+        ranked_subjects = rank_due_only_subjects(due_counts)
 
     review_hours = 0.0
     if selected_due:

@@ -11,10 +11,12 @@ from datetime import timedelta
 from typing import Tuple
 
 from archive_ops import extract_heading_block
-from constants import QUESTION_PREVIEW_LINE_LIMIT, SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
+from constants import SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
 from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
 from study_ops import iter_review_cards, parse_today
+
+QUESTION_PREVIEW_LINE_LIMIT = 3
 
 
 def normalize_block(text: str) -> str:
@@ -46,7 +48,7 @@ def main() -> None:
     degraded = 0
     icloud_warnings = []
 
-    for item in iter_review_cards(obsidian_root) or []:
+    for item in iter_review_cards(obsidian_root):
         if item["icloud_placeholder"]:
             icloud_warnings.append(str(item["path"]))
             continue
@@ -56,7 +58,7 @@ def main() -> None:
         key_order = item["key_order"]
         next_review = item["next_review"]
         interval = item["review_interval"]
-        if not fm or next_review is None:
+        if not fm or next_review is None or interval is None:
             continue
 
         # 超期降级：interval 重置为 1，next_review 设为今天

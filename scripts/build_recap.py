@@ -19,6 +19,7 @@ from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from study_ops import PLAN_SUBJECTS, format_hours, parse_today
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
+LEGACY_SCORE_SECTION_RE = re.compile(r"^[ \t]*## 训练成绩记录\r?\n(.*?)(?=^[ \t]*## |\Z)", re.M | re.S)
 
 
 def get_date_range(today, period):
@@ -60,6 +61,9 @@ def format_number(value):
 
 def parse_score_records(text, log_day):
     block = extract_section_block(text, "训练成绩记录")
+    if not block:
+        legacy_match = LEGACY_SCORE_SECTION_RE.search(text)
+        block = legacy_match.group(1).strip("\r\n") if legacy_match else ""
     records = []
     for line in block.splitlines():
         stripped = line.strip()

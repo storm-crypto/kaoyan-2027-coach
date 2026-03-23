@@ -58,3 +58,26 @@ def test_build_daily_plan_caps_due_selection(sample_archive, vault_root):
     data = json.loads(out)
     assert data["due_total"] == 12
     assert data["due_selected"] == 10
+
+
+def test_build_daily_plan_due_only_tiebreak_uses_plan_order(vault_root):
+    archive = vault_root / "我的学习者档案.md"
+    archive.write_text(textwrap.dedent("""\
+        # 我的学习者档案
+
+        ## 基本信息
+        - **每日可投入时长**：4
+
+        ## 最近聚焦问题（只保留 3-5 条）
+    """), encoding="utf-8")
+    _make_due_card(vault_root, "数学一", "math-1.md", "2026-03-23", interval=1)
+    _make_due_card(vault_root, "政治", "politics-1.md", "2026-03-23", interval=1)
+
+    rc, out, _ = run_script("build_daily_plan.py", [
+        str(vault_root), "4", "--today", "2026-03-23"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    review_tasks = [task for task in data["tasks"] if task["type"] == "review"]
+    assert [task["subject"] for task in review_tasks[:2]] == ["数学一", "政治"]

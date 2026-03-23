@@ -1,6 +1,9 @@
 """共享调参常量：SRS、计划分配和上下文阈值。"""
 
+# 计划相关脚本默认按“今天该先学什么”的主攻顺序排优先级。
 PLAN_SUBJECTS = ("数学一", "408", "英语一", "政治")
+
+# 成绩、目标分和模考相关脚本保持正式分数栏位顺序。
 SCORE_SUBJECTS = ("政治", "数学一", "英语一", "408")
 
 SRS_DEFAULT_EASE_FACTOR = 2.5
@@ -25,5 +28,3 @@ WEEKLY_PLAN_DUE_WEIGHT_CAP = 5
 
 LOAD_DUE_BACKLOG_WARNING_THRESHOLD = 10
 LOAD_COUNTDOWN_WINDOW_DAYS = 100
-
-QUESTION_PREVIEW_LINE_LIMIT = 3

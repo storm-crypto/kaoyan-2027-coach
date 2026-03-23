@@ -51,6 +51,7 @@ def main():
 
     text = card.read_text(encoding="utf-8")
     fm, body, key_order = parse_frontmatter(text)
+    target_card = card
 
     today = date.today().isoformat()
     old_interval = safe_int(fm.get("review_interval", 1))
@@ -74,6 +75,12 @@ def main():
         if "question_id" not in key_order:
             insert_at = key_order.index("source") + 1 if "source" in key_order else 0
             key_order.insert(insert_at, "question_id")
+        target_card = canonicalize_card_path(card, args.question_id)
+        if target_card != card and target_card.exists():
+            print(json.dumps({
+                "error": True, "message": f"目标文件已存在: {target_card}"
+            }, ensure_ascii=False))
+            sys.exit(1)
 
     # SRS 算法：调整 interval 和 ease_factor
     if args.status == "不会":
@@ -106,22 +113,17 @@ def main():
     else:
         body = body.rstrip() + "\n\n### 历史记录" + history_line + "\n"
 
-    atomic_write(card, serialize_frontmatter(fm, key_order, body))
+    serialized = serialize_frontmatter(fm, key_order, body)
 
-    # 重命名处理
     final_card = card
     renamed_from = None
-    if args.question_id:
-        target_card = canonicalize_card_path(card, args.question_id)
-        if target_card != card:
-            if target_card.exists():
-                print(json.dumps({
-                    "error": True, "message": f"目标文件已存在: {target_card}"
-                }, ensure_ascii=False))
-                sys.exit(1)
-            card.rename(target_card)
-            renamed_from = card.name
-            final_card = target_card
+    if target_card != card:
+        atomic_write(target_card, serialized)
+        card.unlink()
+        renamed_from = card.name
+        final_card = target_card
+    else:
+        atomic_write(card, serialized)
 
     result = {
         "updated": final_card.name,

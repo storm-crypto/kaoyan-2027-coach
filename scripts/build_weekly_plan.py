@@ -12,7 +12,7 @@ from archive_ops import (
     load_template_markdown,
     parse_daily_hours,
 )
-from env_util import atomic_write, resolve_obsidian_root
+from env_util import atomic_write, json_error, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 
 SUBJECTS = ["数学一", "408", "英语一", "政治"]
@@ -122,7 +122,13 @@ def main():
     focus_counts = infer_subject_mentions(focus_items)
     due_counts = count_due_reviews(obsidian_root, today)
 
-    total_hours = float(total_hours_arg) if total_hours_arg else parse_daily_hours(archive_text) * 7
+    if total_hours_arg:
+        total_hours = float(total_hours_arg)
+    else:
+        daily_hours = parse_daily_hours(archive_text)
+        if daily_hours is None:
+            json_error("缺少每日本周可投入时长：请在档案中补充“每日可投入时长”，或执行 /plan_week 时显式传入本周总时长")
+        total_hours = daily_hours * 7
     allocations = allocate_hours(total_hours, focus_counts, due_counts)
     ranked_subjects = sorted(
         SUBJECTS,

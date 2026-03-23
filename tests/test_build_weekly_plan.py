@@ -45,3 +45,23 @@ def test_build_weekly_plan(sample_archive, vault_root):
     assert "数学一" in content
     assert "408" in content
     assert "24" in content
+
+
+def test_build_weekly_plan_requires_hours_when_missing(vault_root):
+    archive = vault_root / "我的学习者档案.md"
+    archive.write_text(textwrap.dedent("""\
+        # 我的学习者档案
+
+        ## 基本信息
+        - **每日可投入时长**：
+
+        ## 最近聚焦问题（只保留 3-5 条）
+        - 数学微分中值定理
+    """), encoding="utf-8")
+
+    rc, out, _ = run_script("build_weekly_plan.py", [str(vault_root)])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True
+    assert "每日可投入时长" in data["message"]

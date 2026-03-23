@@ -90,6 +90,17 @@ def render_report(template, mapping):
     return content + "\n"
 
 
+def pick_action_subjects(scores, target_gaps):
+    subjects = []
+    for _, subject in sorted(target_gaps):
+        if subject not in subjects:
+            subjects.append(subject)
+    for subject, _ in sorted(scores.items(), key=lambda item: (item[1], SUBJECTS.index(item[0]))):
+        if subject not in subjects:
+            subjects.append(subject)
+    return subjects[:2]
+
+
 def main():
     obsidian_root_arg, args = parse_args()
     obsidian_root = resolve_obsidian_root(obsidian_root_arg)
@@ -121,13 +132,16 @@ def main():
         if target_score is not None:
             target_gaps.append((scores[subject] - target_score, subject))
 
-    target_total = sum(value for value in targets.values() if value is not None) if targets else None
+    all_targets_complete = all(targets.get(subject) is not None for subject in SUBJECTS)
+    target_total = sum(targets[subject] for subject in SUBJECTS) if all_targets_complete else None
     if target_total:
         total_gap = total_score - target_total
         if total_gap >= 0:
             overall_judgement = f"总分达到当前目标线，领先 {format_score(total_gap)} 分。"
         else:
             overall_judgement = f"总分距离当前目标线还差 {format_score(abs(total_gap))} 分。"
+    elif target_gaps:
+        overall_judgement = "各科目标分尚未补全，先以已填写科目的差距和历次趋势来判断。"
     elif previous_total is not None:
         overall_judgement = f"总分较上次 {format_delta(total_score, previous_total)}。"
     else:
@@ -146,10 +160,10 @@ def main():
     if not issues:
         issues.append("整体分数结构稳定，下一步重点转向把优势科目继续做厚。")
 
-    weakest_subjects = [subject for _, subject in sorted(target_gaps)[:2]] or SUBJECTS[:2]
+    action_subjects = pick_action_subjects(scores, target_gaps)
     next_actions = [
-        f"优先复盘 {weakest_subjects[0]}：把这次失分点拆成 2-3 个可执行小专题。",
-        f"给 {weakest_subjects[1]} 留一次计时训练，检验是知识漏洞还是节奏问题。",
+        f"优先复盘 {action_subjects[0]}：把这次失分点拆成 2-3 个可执行小专题。",
+        f"给 {action_subjects[1]} 留一次计时训练，检验是知识漏洞还是节奏问题。",
         "三天内补一次短复盘，确认这次模考暴露的问题有没有被真正消化。",
     ]
 

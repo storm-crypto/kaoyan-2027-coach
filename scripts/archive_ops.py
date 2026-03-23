@@ -26,7 +26,7 @@ def extract_list_items(text, heading):
     return items
 
 
-def parse_daily_hours(text, default=6.0):
+def parse_daily_hours(text, default=None):
     match = re.search(r"每日可投入时长\*\*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text)
     if match:
         return float(match.group(1))

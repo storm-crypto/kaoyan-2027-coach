@@ -1,6 +1,7 @@
 """test update_card.py"""
 import json
 from datetime import date, timedelta
+
 from helpers import run_script
 
 
@@ -86,6 +87,24 @@ def test_qid_conflict(sample_card):
     assert rc == 1
     data = json.loads(out)
     assert data["error"] is True
+
+
+def test_rename_conflict_does_not_mutate_original(sample_card_no_qid, vault_root):
+    """目标规范文件已存在时，原卡不应被半提交改写。"""
+    existing = sample_card_no_qid.with_name("泰勒展开-660题-qid-aabbccddeeff.md")
+    existing.write_text("---\nquestion_id: qid-aabbccddeeff\n---\n", encoding="utf-8")
+    before = sample_card_no_qid.read_text(encoding="utf-8")
+
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card_no_qid), "--status", "半会",
+        "--question-id", "qid-aabbccddeeff"
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True
+    assert "目标文件已存在" in data["message"]
+    assert sample_card_no_qid.read_text(encoding="utf-8") == before
 
 
 def test_history_append(sample_card):

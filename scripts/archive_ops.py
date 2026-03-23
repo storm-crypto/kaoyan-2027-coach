@@ -5,14 +5,40 @@ from pathlib import Path
 from env_util import resolve_skill_root
 
 
+def _heading_block_pattern(heading, level):
+    hashes = "#" * level
+    return re.compile(
+        rf"(^\s*{re.escape(hashes)} {re.escape(heading)}\r?\n)(.*?)(?=^\s*{re.escape(hashes)} |\Z)",
+        re.M | re.S,
+    )
+
+
+def extract_heading_block(text, heading, level=2):
+    match = _heading_block_pattern(heading, level).search(text)
+    return match.group(2).strip("\r\n") if match else ""
+
+
+def replace_heading_block(text, heading, new_body, level=2, required=True):
+    match = _heading_block_pattern(heading, level).search(text)
+    if not match:
+        if required:
+            raise ValueError(f"档案中缺少区块：{heading}")
+        return text
+    prefix = text[:match.start(2)]
+    suffix = text[match.end(2):]
+    normalized_body = new_body.strip("\n") + "\n"
+    next_heading = "\n" + "#" * level + " "
+    if suffix.startswith(next_heading):
+        return prefix + normalized_body + suffix
+    return prefix + normalized_body + suffix.lstrip("\n")
+
+
 def extract_section_block(text, heading):
-    pattern = rf"^\s*## {re.escape(heading)}\n(.*?)(?=^\s*## |\Z)"
-    match = re.search(pattern, text, re.M | re.S)
-    return match.group(1).strip("\n") if match else ""
+    return extract_heading_block(text, heading, level=2)
 
 
 def extract_list_items(text, heading):
-    block = extract_section_block(text, heading)
+    block = extract_heading_block(text, heading, level=2)
     items = []
     for line in block.splitlines():
         stripped = line.strip()

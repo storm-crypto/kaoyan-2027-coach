@@ -6,7 +6,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from archive_ops import load_archive_text
+from archive_ops import extract_heading_block, load_archive_text, replace_heading_block
 from env_util import atomic_write, json_error, resolve_obsidian_root
 
 
@@ -157,29 +157,6 @@ def render_log_content(log_day, args):
         f"- {coach_note}",
         "",
     ])
-
-
-def extract_section_body(text, heading):
-    pattern = rf"(^## {re.escape(heading)}\n)(.*?)(?=^## |\Z)"
-    match = re.search(pattern, text, re.M | re.S)
-    if not match:
-        raise ValueError(f"档案中缺少区块：{heading}")
-    return match.group(2)
-
-
-def replace_section_body(text, heading, new_body):
-    pattern = rf"(^## {re.escape(heading)}\n)(.*?)(?=^## |\Z)"
-    match = re.search(pattern, text, re.M | re.S)
-    if not match:
-        raise ValueError(f"档案中缺少区块：{heading}")
-    prefix = text[:match.start(2)]
-    suffix = text[match.end(2):]
-    normalized_body = new_body.strip("\n") + "\n"
-    if suffix.startswith("\n## "):
-        return prefix + normalized_body + suffix
-    return prefix + normalized_body + suffix.lstrip("\n")
-
-
 def parse_table_rows(section_body, column_count):
     rows = []
     for line in section_body.splitlines():
@@ -230,9 +207,9 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
 
     if weaknesses:
         rows = [parse_row(item, 6, "weakness") for item in weaknesses]
-        existing = parse_table_rows(extract_section_body(updated, "短板雷达"), 6)
+        existing = parse_table_rows(extract_heading_block(updated, "短板雷达", level=2), 6)
         merged = upsert_rows(existing, rows, key_indexes=(0, 1))
-        updated = replace_section_body(
+        updated = replace_heading_block(
             updated,
             "短板雷达",
             serialize_table(
@@ -246,9 +223,9 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
 
     if error_patterns:
         rows = [parse_row(item, 5, "error-pattern") for item in error_patterns]
-        existing = parse_table_rows(extract_section_body(updated, "高频错误模式统计"), 5)
+        existing = parse_table_rows(extract_heading_block(updated, "高频错误模式统计", level=2), 5)
         merged = upsert_rows(existing, rows, key_indexes=(0, 1))
-        updated = replace_section_body(
+        updated = replace_heading_block(
             updated,
             "高频错误模式统计",
             serialize_table(
@@ -262,7 +239,7 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
 
     if next_steps:
         numbered = "\n".join(f"{index}. {item}" for index, item in enumerate(next_steps[:3], start=1))
-        updated = replace_section_body(updated, "下一步建议（只保留 3 条）", numbered)
+        updated = replace_heading_block(updated, "下一步建议（只保留 3 条）", numbered, level=2)
         updated_sections.append("下一步建议")
 
     return updated, updated_sections

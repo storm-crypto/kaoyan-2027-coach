@@ -16,7 +16,6 @@ import argparse
 import json
 import re
 import shutil
-from datetime import date
 from pathlib import Path
 
 from env_util import atomic_write, json_error, resolve_obsidian_root
@@ -29,6 +28,7 @@ from init_vault import (
     extract_markdown_block,
     load_template_text,
 )
+from study_ops import parse_today
 
 
 PRESERVED_PROFILE_KEYS = ("school_major", "target_total", "exam_date", "daily_hours", "stage")
@@ -42,12 +42,6 @@ def parse_args():
     parser.add_argument("--yes", action="store_true", help="确认执行破坏性重置")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     return parser.parse_args()
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
-
-
 def count_tree(path):
     if not path.exists():
         return {"path": str(path), "files_removed": 0, "dirs_removed": 0}

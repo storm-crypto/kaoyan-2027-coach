@@ -17,6 +17,7 @@ import re
 
 from frontmatter import parse_frontmatter, serialize_frontmatter
 from env_util import atomic_write, json_error, safe_int, safe_float
+from study_ops import parse_today
 
 
 QID_SUFFIX_RE = re.compile(r"-qid-[0-9a-f]{12}$")
@@ -34,12 +35,6 @@ def canonicalize_card_path(card, question_id):
     else:
         new_stem = f"{stem}{desired_suffix}"
     return card.with_name(new_stem + card.suffix)
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
-
-
 def is_within_root(path, root):
     try:
         path.relative_to(root)

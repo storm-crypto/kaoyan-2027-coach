@@ -15,8 +15,7 @@ from archive_ops import (
     upsert_mock_row,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
-
-SUBJECTS = ["政治", "数学一", "英语一", "408"]
+from study_ops import SCORE_SUBJECTS
 ALIASES = {"数学": "数学一", "英语": "英语一"}
 
 
@@ -27,13 +26,13 @@ def parse_score_args(tokens):
             json_error(f"成绩参数格式错误: {token}，应为 科目=分数")
         subject, raw_score = token.split("=", 1)
         subject = ALIASES.get(subject, subject)
-        if subject not in SUBJECTS:
+        if subject not in SCORE_SUBJECTS:
             json_error(f"不支持的科目: {subject}")
         try:
             scores[subject] = float(raw_score)
         except ValueError:
             json_error(f"分数必须是数字: {token}")
-    missing = [subject for subject in SUBJECTS if subject not in scores]
+    missing = [subject for subject in SCORE_SUBJECTS if subject not in scores]
     if missing:
         json_error(f"缺少科目成绩: {'、'.join(missing)}")
     return scores
@@ -95,7 +94,7 @@ def pick_action_subjects(scores, target_gaps):
     for _, subject in sorted(target_gaps):
         if subject not in subjects:
             subjects.append(subject)
-    for subject, _ in sorted(scores.items(), key=lambda item: (item[1], SUBJECTS.index(item[0]))):
+    for subject, _ in sorted(scores.items(), key=lambda item: (item[1], SCORE_SUBJECTS.index(item[0]))):
         if subject not in subjects:
             subjects.append(subject)
     return subjects[:2]
@@ -116,12 +115,12 @@ def main():
             previous_row = row
             break
 
-    total_score = sum(scores[subject] for subject in SUBJECTS)
+    total_score = sum(scores[subject] for subject in SCORE_SUBJECTS)
     previous_total = parse_score_cell(previous_row["总分"]) if previous_row else None
 
     score_rows = []
     target_gaps = []
-    for subject in SUBJECTS:
+    for subject in SCORE_SUBJECTS:
         previous_score = parse_score_cell(previous_row[subject]) if previous_row else None
         target_score = targets.get(subject)
         target_delta, judgement = target_judgement(scores[subject], target_score)
@@ -132,8 +131,8 @@ def main():
         if target_score is not None:
             target_gaps.append((scores[subject] - target_score, subject))
 
-    all_targets_complete = all(targets.get(subject) is not None for subject in SUBJECTS)
-    target_total = sum(targets[subject] for subject in SUBJECTS) if all_targets_complete else None
+    all_targets_complete = all(targets.get(subject) is not None for subject in SCORE_SUBJECTS)
+    target_total = sum(targets[subject] for subject in SCORE_SUBJECTS) if all_targets_complete else None
     if target_total:
         total_gap = total_score - target_total
         if total_gap >= 0:
@@ -152,7 +151,7 @@ def main():
         if gap < 0:
             issues.append(f"{subject} 距目标还差 {format_score(abs(gap))} 分，需要优先补。")
     if previous_row:
-        for subject in SUBJECTS:
+        for subject in SCORE_SUBJECTS:
             previous_score = parse_score_cell(previous_row[subject])
             if previous_score is not None and scores[subject] < previous_score:
                 issues.append(f"{subject} 比上次回落 {format_score(previous_score - scores[subject])} 分，建议回看最近训练策略。")

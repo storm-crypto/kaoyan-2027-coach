@@ -2,7 +2,7 @@
 """基于学习者档案和到期错题生成周计划。"""
 import argparse
 import json
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 from archive_ops import (
@@ -13,13 +13,7 @@ from archive_ops import (
     parse_daily_hours,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
-from frontmatter import parse_frontmatter
-
-SUBJECTS = ["数学一", "408", "英语一", "政治"]
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
+from study_ops import PLAN_SUBJECTS, count_due_reviews, format_hours, parse_today
 
 
 def iso_week(today):
@@ -27,54 +21,19 @@ def iso_week(today):
     sunday = monday + timedelta(days=6)
     iso_year, iso_week_num, _ = monday.isocalendar()
     return monday, sunday, f"{iso_year}-W{iso_week_num:02d}"
-
-
-def format_hours(value):
-    rounded = round(value * 2) / 2
-    if abs(rounded - int(rounded)) < 1e-9:
-        return str(int(rounded))
-    return f"{rounded:.1f}"
-
-
-def count_due_reviews(obsidian_root, today):
-    due_counts = {subject: 0 for subject in SUBJECTS}
-    root = Path(obsidian_root) / "错题本"
-    if not root.exists():
-        return due_counts
-
-    for md_file in root.rglob("*.md"):
-        try:
-            fm, _, _ = parse_frontmatter(md_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "next_review" not in fm:
-            continue
-        try:
-            next_review = date.fromisoformat(fm["next_review"])
-            interval = int(fm.get("review_interval", "1") or "1")
-        except (TypeError, ValueError):
-            continue
-        if next_review <= today and interval < 90:
-            rel = md_file.relative_to(root)
-            subject = rel.parts[0] if rel.parts else ""
-            if subject in due_counts:
-                due_counts[subject] += 1
-    return due_counts
-
-
 def allocate_hours(total_hours, focus_counts, due_counts):
     weights = {}
-    for subject in SUBJECTS:
+    for subject in PLAN_SUBJECTS:
         weights[subject] = 1.0 + focus_counts.get(subject, 0) * 1.4 + min(due_counts.get(subject, 0), 5) * 0.8
 
-    weight_sum = sum(weights.values()) or float(len(SUBJECTS))
+    weight_sum = sum(weights.values()) or float(len(PLAN_SUBJECTS))
     rounded = {
         subject: round((total_hours * weights[subject] / weight_sum) * 2) / 2
-        for subject in SUBJECTS
+        for subject in PLAN_SUBJECTS
     }
     diff = round((total_hours - sum(rounded.values())) * 2) / 2
     if abs(diff) > 1e-9:
-        top_subject = max(SUBJECTS, key=lambda item: (weights[item], rounded[item]))
+        top_subject = max(PLAN_SUBJECTS, key=lambda item: (weights[item], rounded[item]))
         rounded[top_subject] = round((rounded[top_subject] + diff) * 2) / 2
     return rounded
 
@@ -120,7 +79,7 @@ def main():
     monday, sunday, week_label = iso_week(today)
     focus_items = extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）")
     focus_counts = infer_subject_mentions(focus_items)
-    due_counts = count_due_reviews(obsidian_root, today)
+    _, due_counts = count_due_reviews(obsidian_root, today, PLAN_SUBJECTS)
 
     if total_hours_arg:
         total_hours = float(total_hours_arg)
@@ -131,14 +90,14 @@ def main():
         total_hours = daily_hours * 7
     allocations = allocate_hours(total_hours, focus_counts, due_counts)
     ranked_subjects = sorted(
-        SUBJECTS,
+        PLAN_SUBJECTS,
         key=lambda item: (allocations[item], due_counts[item], focus_counts.get(item, 0)),
         reverse=True,
     )
     priority_summary = f"优先推进 {ranked_subjects[0]} / {ranked_subjects[1]}，并清理 {sum(due_counts.values())} 道到期复习"
 
     subject_rows = []
-    for subject in SUBJECTS:
+    for subject in PLAN_SUBJECTS:
         subject_rows.append(
             f"| {subject} | {format_hours(allocations[subject])} | {due_counts[subject]} | {subject_goal(subject, focus_items, due_counts[subject])} |"
         )

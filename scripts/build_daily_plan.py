@@ -3,8 +3,6 @@
 import argparse
 import json
 from collections import Counter
-from datetime import date
-from pathlib import Path
 
 from archive_ops import (
     extract_list_items,
@@ -14,13 +12,7 @@ from archive_ops import (
     parse_daily_hours,
 )
 from env_util import json_error, resolve_obsidian_root
-from frontmatter import parse_frontmatter
-
-SUBJECTS = ["数学一", "408", "英语一", "政治"]
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
+from study_ops import PLAN_SUBJECTS, collect_due_cards, format_hours, parse_today
 
 
 def parse_args():
@@ -41,49 +33,9 @@ def parse_args():
             obsidian_root_arg = None
             available_hours_arg = args.arg1
     return obsidian_root_arg, available_hours_arg, args.today
-
-
-def format_hours(value):
-    rounded = round(value * 2) / 2
-    if abs(rounded - int(rounded)) < 1e-9:
-        return str(int(rounded))
-    return f"{rounded:.1f}"
-
-
-def collect_due_cards(obsidian_root, today):
-    root = Path(obsidian_root) / "错题本"
-    due_cards = []
-    if not root.exists():
-        return due_cards
-
-    for md_file in root.rglob("*.md"):
-        try:
-            fm, _, _ = parse_frontmatter(md_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "next_review" not in fm:
-            continue
-        try:
-            next_review = date.fromisoformat(fm["next_review"])
-            interval = int(fm.get("review_interval", "1") or "1")
-        except (TypeError, ValueError):
-            continue
-        if next_review <= today and interval < 90:
-            rel = md_file.relative_to(root)
-            subject = rel.parts[0] if rel.parts else "未知"
-            due_cards.append({
-                "path": str(md_file),
-                "subject": subject,
-                "topic": fm.get("topic", md_file.stem),
-                "review_interval": interval,
-            })
-
-    return sorted(due_cards, key=lambda item: (item["review_interval"], item["subject"], item["topic"]))
-
-
 def rank_subjects(focus_counts, due_counts):
     return sorted(
-        SUBJECTS,
+        PLAN_SUBJECTS,
         key=lambda subject: (focus_counts.get(subject, 0) * 2 + due_counts.get(subject, 0), focus_counts.get(subject, 0), due_counts.get(subject, 0)),
         reverse=True,
     )
@@ -97,7 +49,7 @@ def build_task_list(available_hours, focus_items, due_cards):
 
     if not any(focus_counts.values()) and selected_due:
         ranked_subjects = sorted(due_counts, key=lambda subject: (due_counts[subject], subject), reverse=True) + [
-            subject for subject in SUBJECTS if subject not in due_counts
+            subject for subject in PLAN_SUBJECTS if subject not in due_counts
         ]
 
     review_hours = 0.0

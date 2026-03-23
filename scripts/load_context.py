@@ -9,13 +9,7 @@ from pathlib import Path
 
 from archive_ops import extract_list_items, load_archive_text, parse_daily_hours, parse_subject_targets
 from env_util import resolve_obsidian_root
-from frontmatter import parse_frontmatter
-
-SUBJECTS = ["政治", "数学一", "英语一", "408"]
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
+from study_ops import SCORE_SUBJECTS, count_due_reviews, parse_today
 
 
 def parse_exam_date(text):
@@ -121,38 +115,6 @@ def latest_report_info(obsidian_root):
                 "next_actions": next_actions,
             }
     return latest
-
-
-def count_due_reviews(obsidian_root, today):
-    root = Path(obsidian_root) / "错题本"
-    due_counts = {subject: 0 for subject in SUBJECTS}
-    due_total = 0
-
-    if not root.exists():
-        return due_total, due_counts
-
-    for md_file in root.rglob("*.md"):
-        try:
-            fm, _, _ = parse_frontmatter(md_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "next_review" not in fm:
-            continue
-        try:
-            next_review = date.fromisoformat(fm["next_review"])
-            interval = int(fm.get("review_interval", "1") or "1")
-        except (TypeError, ValueError):
-            continue
-        if next_review <= today and interval < 90:
-            due_total += 1
-            rel = md_file.relative_to(root)
-            subject = rel.parts[0] if rel.parts else ""
-            if subject in due_counts:
-                due_counts[subject] += 1
-
-    return due_total, due_counts
-
-
 def unique_items(items, limit):
     result = []
     for item in items:
@@ -173,7 +135,7 @@ def build_priorities(focus_items, latest_log, latest_report, due_total, due_coun
     if latest_report:
         candidates.extend(latest_report["issues"][:2])
     if due_total:
-        top_subject = max(SUBJECTS, key=lambda subject: (due_counts[subject], subject))
+        top_subject = max(SCORE_SUBJECTS, key=lambda subject: (due_counts.get(subject, 0), subject))
         candidates.append(f"{top_subject} 到期复习共 {due_total} 道，先防止旧题继续积压")
     return unique_items(candidates, 3)
 
@@ -195,7 +157,7 @@ def build_risks(latest_log, latest_report, due_total, today, exam_day):
 
 def build_first_step(archive_steps, latest_report, due_total, due_counts, latest_log):
     if due_total:
-        top_subject = max(SUBJECTS, key=lambda subject: (due_counts[subject], subject))
+        top_subject = max(SCORE_SUBJECTS, key=lambda subject: (due_counts.get(subject, 0), subject))
         return f"先用 20-30 分钟清掉 {top_subject} 最早到期的 3-5 道旧题，再进今天主线。"
     if archive_steps:
         return archive_steps[0]
@@ -214,7 +176,7 @@ def build_warnings(today, exam_day, daily_hours, target_total, subject_targets, 
         warnings.append("档案里还没有填写“每日可投入时长”，计划脚本会要求你显式传时长。")
     if target_total is None:
         warnings.append("档案里还没有填写目标总分，模考趋势只能看相对变化。")
-    if any(subject_targets.get(subject) is None for subject in SUBJECTS):
+    if any(subject_targets.get(subject) is None for subject in SCORE_SUBJECTS):
         warnings.append("各科目标分还没补全，模考分析会优先参考已填写科目。")
     if latest_log is None:
         warnings.append("还没有学习日志，/load 暂时只能基于档案本身给建议。")
@@ -237,7 +199,7 @@ def build_missing_fields(exam_day, daily_hours, target_total, subject_targets):
         missing.append("每日可投入时长")
     if target_total is None:
         missing.append("当前目标总分")
-    for subject in SUBJECTS:
+    for subject in SCORE_SUBJECTS:
         if subject_targets.get(subject) is None:
             missing.append(f"{subject}目标分")
     return missing
@@ -313,7 +275,7 @@ def main():
     subject_targets = parse_subject_targets(archive_text)
     latest_log = latest_log_info(obsidian_root)
     latest_report = latest_report_info(obsidian_root)
-    due_total, due_counts = count_due_reviews(obsidian_root, today)
+    due_total, due_counts = count_due_reviews(obsidian_root, today, SCORE_SUBJECTS)
 
     priorities = build_priorities(focus_items, latest_log, latest_report, due_total, due_counts)
     risks = build_risks(latest_log, latest_report, due_total, today, exam_day)

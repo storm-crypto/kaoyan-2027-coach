@@ -17,13 +17,8 @@ from pathlib import Path
 from archive_ops import extract_list_items, extract_section_block, infer_subject_mentions, load_template_markdown
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
-
-SUBJECTS = ["数学一", "408", "英语一", "政治"]
+from study_ops import PLAN_SUBJECTS, format_hours, parse_today
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
-
-
-def parse_today(value):
-    return date.fromisoformat(value) if value else date.today()
 
 
 def get_date_range(today, period):
@@ -47,12 +42,8 @@ def get_date_range(today, period):
 def parse_logged_hours(text):
     match = re.search(r"时长[^0-9]*([0-9]+(?:\.[0-9]+)?)", text)
     return float(match.group(1)) if match else 0.0
-
-
-def format_hours(value):
-    if abs(value - int(value)) < 1e-9:
-        return f"{int(value)} 小时"
-    return f"{value:.1f} 小时"
+def recap_hours(value):
+    return f"{format_hours(value)} 小时"
 
 
 def build_bullets(items, fallback):
@@ -129,7 +120,7 @@ def collect_review_stats(obsidian_root, start, end):
     """扫描日期范围内的错题卡复习历史。"""
     root = Path(obsidian_root) / "错题本"
     status_counts = {"不会": 0, "半会": 0, "会": 0}
-    subject_counts = {subject: 0 for subject in SUBJECTS}
+    subject_counts = {subject: 0 for subject in PLAN_SUBJECTS}
 
     if not root.exists():
         return 0, status_counts, subject_counts
@@ -258,7 +249,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     subject_signal = infer_subject_mentions(highlights + blockers)
     combined = {
         s: subject_counts[s] + subject_signal.get(s, 0) + score_subject_counts.get(s, 0)
-        for s in SUBJECTS
+        for s in PLAN_SUBJECTS
     }
     active_subjects = [s for s, c in sorted(combined.items(), key=lambda x: x[1], reverse=True) if c > 0]
     active_subjects_text = "、".join(active_subjects[:3]) if active_subjects else "记录不足"
@@ -266,7 +257,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     review_stats = build_bullets([
         f"本{period_name}共记录 {total_reviews} 次复习更新。",
         f"状态分布：不会 {status_counts['不会']} / 半会 {status_counts['半会']} / 会 {status_counts['会']}。",
-        "涉及科目：" + ("、".join(f"{s} {subject_counts[s]} 次" for s in SUBJECTS if subject_counts[s]) or "暂无。"),
+        "涉及科目：" + ("、".join(f"{s} {subject_counts[s]} 次" for s in PLAN_SUBJECTS if subject_counts[s]) or "暂无。"),
     ], f"- 本{period_name}暂未检索到复习更新。")
 
     next_actions = []
@@ -283,7 +274,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "period_label": label,
         "period_range": f"{start.isoformat()} ~ {end.isoformat()}",
         "logged_days": str(logged_days),
-        "total_hours": format_hours(total_hours),
+        "total_hours": recap_hours(total_hours),
         "active_subjects": active_subjects_text,
         "highlights": build_bullets(highlights, f"- 本{period_name}日志产出较少，优先补齐关键学习记录。"),
         "score_stats": score_stats,

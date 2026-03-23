@@ -5,28 +5,21 @@
 - serialize_frontmatter(fm, ...)  → 序列化回 markdown
 - parse_frontmatter_field(text, field) → 轻量提取单个字段
 """
+import re
 
 
-def _find_closing_fence(text):
-    """找到 frontmatter 结束的 --- 位置（必须独占一行）。
+FRONTMATTER_RE = re.compile(
+    r"\A---\r?\n(?P<fm>.*?)\r?\n---(?P<body>\r?\n.*|\Z)",
+    re.S,
+)
 
-    从第一行 --- 之后开始，逐行扫描，返回结束 --- 的字符偏移。
-    未找到返回 -1。
-    """
-    # 跳过开头的 ---\n
-    start = text.index("\n") + 1 if "\n" in text[:4] else 3
-    while start < len(text):
-        line_end = text.find("\n", start)
-        if line_end == -1:
-            line = text[start:]
-            if line.strip() == "---":
-                return start
-            break
-        line = text[start:line_end]
-        if line.strip() == "---":
-            return start
-        start = line_end + 1
-    return -1
+
+def _extract_frontmatter_block(text):
+    """提取 frontmatter 文本和正文，兼容 LF/CRLF。"""
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return None, text
+    return match.group("fm"), match.group("body") or ""
 
 
 def _split_list_items(raw):
@@ -61,15 +54,12 @@ def parse_frontmatter(text):
     - body_str: frontmatter 之后的正文（含前导换行）
     - key_order_list: 字段出现顺序，用于序列化时保持原始顺序
     """
-    if not text.startswith("---"):
+    fm_text, body = _extract_frontmatter_block(text)
+    if fm_text is None:
         return {}, text, []
-    end = _find_closing_fence(text)
-    if end == -1:
-        return {}, text, []
-    fm_text = text[3:end].strip()
     fm = {}
     key_order = []
-    for line in fm_text.split("\n"):
+    for line in fm_text.splitlines():
         if ":" not in line:
             continue
         key, val = line.split(":", 1)
@@ -80,9 +70,6 @@ def parse_frontmatter(text):
         else:
             fm[key] = val
         key_order.append(key)
-    # body starts after the closing --- line
-    body_start = text.find("\n", end)
-    body = text[body_start:] if body_start != -1 else ""
     return fm, body, key_order
 
 
@@ -123,12 +110,10 @@ def serialize_frontmatter(fm, key_order, body):
 
 def parse_frontmatter_field(text, field):
     """快速提取 frontmatter 中某个字段的值（字符串），未找到返回空串。"""
-    if not text.startswith("---"):
+    fm_text, _ = _extract_frontmatter_block(text)
+    if fm_text is None:
         return ""
-    end = _find_closing_fence(text)
-    if end == -1:
-        return ""
-    for line in text[3:end].split("\n"):
+    for line in fm_text.splitlines():
         if ":" not in line:
             continue
         key, val = line.split(":", 1)

@@ -97,6 +97,7 @@ Kaoyan_2027_Prep/
 | 脚本 | 用途 | 用法 |
 |------|------|------|
 | `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
+| `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT]` |
 | `find_card.py` | 搜索已有错题卡 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
@@ -126,6 +127,16 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 运行 `init_vault.py` 并把这些信息通过 CLI 参数写入档案
 3. 仅在用户没提供的字段上保留空白，禁止手写目录骨架和知识地图表头
 4. 后续通过 `/wrong` 自然填充知识地图
+
+### `/reset [hard]` — 重置测试数据
+
+用于“先试一遍系统，再从干净状态正式开始”的场景。
+
+1. 这是破坏性操作，执行前先明确提醒：会清空学习日志、周计划、复盘报告、错题本，并重置档案和知识地图
+2. 默认执行软重置：调用 `reset_vault.py --yes`，保留基础建档信息（院校/总分/考试日期/每日时长/阶段），但清掉测试产生的学习数据
+3. 用户明确说“彻底清空”或给出 `hard` 时，调用 `reset_vault.py --yes --hard`，把基础建档信息也恢复为空白模板
+4. 默认不清空 `知识笔记/`，避免误删手写笔记；只有用户明确要求时才加 `--include-notes`
+5. 重置完成后，简要说明保留了什么、清掉了什么，并提醒可以重新 `/load` 开始
 
 ### `/wrong [科目] [题目及错解]` — 错题解析
 

@@ -14,7 +14,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from archive_ops import extract_list_items, infer_subject_mentions, load_template_markdown
+from archive_ops import extract_list_items, extract_section_block, infer_subject_mentions, load_template_markdown
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 
@@ -61,12 +61,51 @@ def build_bullets(items, fallback):
     return "\n".join(f"- {item}" for item in items[:5])
 
 
+def format_number(value):
+    if abs(value - int(value)) < 1e-9:
+        return str(int(value))
+    return f"{value:.1f}"
+
+
+def parse_score_records(text, log_day):
+    block = extract_section_block(text, "训练成绩记录")
+    records = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+        if len(cells) != 7 or cells[0] in {"科目", "------"} or set(cells[0]) == {"-"}:
+            continue
+        if not cells[3] or not cells[4]:
+            continue
+        score_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", cells[3])
+        total_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", cells[4])
+        if not score_match or not total_match:
+            continue
+        score = float(score_match.group(1))
+        total = float(total_match.group(1))
+        if total <= 0:
+            continue
+        records.append({
+            "date": log_day,
+            "subject": cells[0],
+            "kind": cells[1],
+            "source": cells[2],
+            "score": score,
+            "total": total,
+            "note": cells[6] if cells[6] != "-" else "",
+        })
+    return records
+
+
 def collect_logs(obsidian_root, start, end):
     """扫描日期范围内的学习日志。"""
     log_dir = Path(obsidian_root) / "学习日志"
     highlights, blockers = [], []
     logged_days = 0
     total_hours = 0.0
+    score_records = []
 
     current = start
     while current <= end:
@@ -81,8 +120,9 @@ def collect_logs(obsidian_root, start, end):
             total_hours += parse_logged_hours(text)
             highlights.extend(extract_list_items(text, "学到了什么"))
             blockers.extend(extract_list_items(text, "卡壳与挣扎"))
+            score_records.extend(parse_score_records(text, current))
         current += timedelta(days=1)
-    return highlights, blockers, logged_days, total_hours
+    return highlights, blockers, logged_days, total_hours, score_records
 
 
 def collect_review_stats(obsidian_root, start, end):
@@ -115,6 +155,84 @@ def collect_review_stats(obsidian_root, start, end):
     return sum(status_counts.values()), status_counts, subject_counts
 
 
+def build_score_summary(score_records, period_name):
+    if not score_records:
+        return f"- 本{period_name}没有结构化记录训练成绩；后续可在 `/progress` 里补成绩项。", {}
+
+    grouped = {}
+    for item in score_records:
+        key = (item["subject"], item["kind"])
+        grouped.setdefault(key, []).append(item)
+
+    lines = [f"- 本{period_name}共记录 {len(score_records)} 条训练成绩。"]
+    subject_counts = {}
+    ordered_groups = []
+
+    for key, records in grouped.items():
+        records.sort(key=lambda item: (item["date"], item["source"]))
+        subject, kind = key
+        subject_counts[subject] = subject_counts.get(subject, 0) + len(records)
+        first = records[0]
+        latest = records[-1]
+        best = max(records, key=lambda item: (item["score"] / item["total"], item["score"], item["date"]))
+        avg_rate = sum(item["score"] / item["total"] for item in records) / len(records)
+        delta = (latest["score"] / latest["total"] - first["score"] / first["total"]) * 100
+        ordered_groups.append({
+            "subject": subject,
+            "kind": kind,
+            "count": len(records),
+            "first": first,
+            "latest": latest,
+            "best": best,
+            "avg_rate": avg_rate,
+            "delta": delta,
+        })
+
+    ordered_groups.sort(
+        key=lambda item: (item["latest"]["date"], item["count"], item["latest"]["score"] / item["latest"]["total"]),
+        reverse=True,
+    )
+
+    for item in ordered_groups[:5]:
+        latest = item["latest"]
+        first = item["first"]
+        best = item["best"]
+        if item["count"] == 1:
+            lines.append(
+                "- {subject}·{kind}：1 次，最近 {score}/{total}，完成率 {rate:.1f}%。".format(
+                    subject=item["subject"],
+                    kind=item["kind"],
+                    score=format_number(latest["score"]),
+                    total=format_number(latest["total"]),
+                    rate=latest["score"] / latest["total"] * 100,
+                )
+            )
+            continue
+
+        delta_text = "持平"
+        if abs(item["delta"]) >= 0.05:
+            sign = "+" if item["delta"] > 0 else ""
+            delta_text = f"{sign}{item['delta']:.1f}pct"
+        lines.append(
+            "- {subject}·{kind}：{count} 次，首次 {first_score}/{first_total}，最近 {latest_score}/{latest_total}，"
+            "最高 {best_score}/{best_total}，平均完成率 {avg_rate:.1f}%（{delta_text}）。".format(
+                subject=item["subject"],
+                kind=item["kind"],
+                count=item["count"],
+                first_score=format_number(first["score"]),
+                first_total=format_number(first["total"]),
+                latest_score=format_number(latest["score"]),
+                latest_total=format_number(latest["total"]),
+                best_score=format_number(best["score"]),
+                best_total=format_number(best["total"]),
+                avg_rate=item["avg_rate"] * 100,
+                delta_text=delta_text,
+            )
+        )
+
+    return "\n".join(lines), subject_counts
+
+
 def render_recap(template, mapping):
     content = template
     for key, value in mapping.items():
@@ -135,10 +253,14 @@ def main():
     period_name = "月" if args.period == "month" else "周"
     template_name = "月复盘模板.md" if args.period == "month" else "周复盘模板.md"
 
-    highlights, blockers, logged_days, total_hours = collect_logs(obsidian_root, start, end)
+    highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
+    score_stats, score_subject_counts = build_score_summary(score_records, period_name)
     subject_signal = infer_subject_mentions(highlights + blockers)
-    combined = {s: subject_counts[s] + subject_signal.get(s, 0) for s in SUBJECTS}
+    combined = {
+        s: subject_counts[s] + subject_signal.get(s, 0) + score_subject_counts.get(s, 0)
+        for s in SUBJECTS
+    }
     active_subjects = [s for s, c in sorted(combined.items(), key=lambda x: x[1], reverse=True) if c > 0]
     active_subjects_text = "、".join(active_subjects[:3]) if active_subjects else "记录不足"
 
@@ -165,6 +287,7 @@ def main():
         "total_hours": format_hours(total_hours),
         "active_subjects": active_subjects_text,
         "highlights": build_bullets(highlights, f"- 本{period_name}日志产出较少，优先补齐关键学习记录。"),
+        "score_stats": score_stats,
         "review_stats": review_stats,
         "blockers": build_bullets(blockers, f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"),
         "next_actions": build_bullets(next_actions, f"- 下{period_name}先保证日志和复盘的连续性。"),
@@ -183,6 +306,7 @@ def main():
         "logged_days": logged_days,
         "total_hours": round(total_hours, 2),
         "review_count": total_reviews,
+        "score_count": len(score_records),
     }, ensure_ascii=False, indent=2))
 
 

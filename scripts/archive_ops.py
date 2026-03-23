@@ -6,7 +6,7 @@ from env_util import resolve_skill_root
 
 
 def extract_section_block(text, heading):
-    pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
+    pattern = rf"^\s*## {re.escape(heading)}\n(.*?)(?=^\s*## |\Z)"
     match = re.search(pattern, text, re.M | re.S)
     return match.group(1).strip("\n") if match else ""
 

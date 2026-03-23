@@ -21,6 +21,12 @@ def parse_args():
     parser.add_argument("--blocker", action="append", default=[], help="今日卡点，可重复传入")
     parser.add_argument("--mastered", action="append", default=[], help="已掌握知识点，格式：知识点|信心")
     parser.add_argument("--review", action="append", default=[], help="下次需要复习的内容，可重复传入")
+    parser.add_argument(
+        "--score",
+        action="append",
+        default=[],
+        help="训练成绩，格式：科目|类型|来源|得分|满分|备注",
+    )
     parser.add_argument("--coach-note", default="", help="教练评语")
     parser.add_argument("--weakness", action="append", default=[], help="回写短板雷达，格式：短板|科目|严重度|证据|当前状态|下一步")
     parser.add_argument("--error-pattern", action="append", default=[], help="回写高频错误模式，格式：错误模式|科目|出现频率|最近一次出现|备注")
@@ -48,6 +54,32 @@ def parse_mastered(value):
     return parts[0], parts[1]
 
 
+def parse_score(value):
+    parts = [part.strip() for part in value.split("|")]
+    if len(parts) != 6 or any(part == "" for part in parts[:5]):
+        json_error("score 参数格式错误，应为 科目|类型|来源|得分|满分|备注")
+
+    try:
+        score = float(parts[3])
+        total = float(parts[4])
+    except ValueError:
+        json_error("score 参数中的得分和满分必须是数字")
+
+    if total <= 0:
+        json_error("score 参数中的满分必须大于 0")
+    if score < 0:
+        json_error("score 参数中的得分不能小于 0")
+
+    return {
+        "subject": parts[0],
+        "kind": parts[1],
+        "source": parts[2],
+        "score": score,
+        "total": total,
+        "note": parts[5],
+    }
+
+
 def bullet_list(items, fallback):
     if not items:
         return f"- {fallback}"
@@ -62,6 +94,37 @@ def render_mastered(items):
         topic, confidence = parse_mastered(item)
         lines.append(f"- {topic} - 信心：{confidence}")
     return "\n".join(lines)
+
+
+def format_number(value):
+    if abs(value - int(value)) < 1e-9:
+        return str(int(value))
+    return f"{value:.1f}"
+
+
+def render_scores(items):
+    if not items:
+        return "- 今天没有单独记录训练成绩。"
+
+    rows = [
+        "| 科目 | 类型 | 来源 | 得分 | 满分 | 完成率 | 备注 |",
+        "|------|------|------|------|------|--------|------|",
+    ]
+    for raw_item in items:
+        item = parse_score(raw_item)
+        rate = item["score"] / item["total"] * 100
+        rows.append(
+            "| {subject} | {kind} | {source} | {score} | {total} | {rate:.1f}% | {note} |".format(
+                subject=item["subject"],
+                kind=item["kind"],
+                source=item["source"],
+                score=format_number(item["score"]),
+                total=format_number(item["total"]),
+                rate=rate,
+                note=item["note"] or "-",
+            )
+        )
+    return "\n".join(rows)
 
 
 def render_log_content(log_day, args):
@@ -83,6 +146,9 @@ def render_log_content(log_day, args):
         "",
         "## 今日已掌握（含信心等级）",
         render_mastered(args.mastered),
+        "",
+        "## 训练成绩记录",
+        render_scores(args.score),
         "",
         "## 下次需要复习",
         bullet_list(args.review, "暂未指定复习点，建议先回看今天最容易再次出错的内容。"),
@@ -229,6 +295,7 @@ def main():
         "date": log_day.isoformat(),
         "archive_updated": bool(updated_sections),
         "updated_sections": updated_sections,
+        "score_count": len(args.score),
     }, ensure_ascii=False, indent=2))
 
 

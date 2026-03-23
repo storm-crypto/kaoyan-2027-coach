@@ -15,17 +15,23 @@ def test_log_progress_writes_log(sample_archive, vault_root):
         "--blocker", "OS 调度题里周转时间还是容易算乱",
         "--mastered", "积分区域判断|中高",
         "--review", "回看一遍 OS 调度指标",
+        "--score", "数学一|真题|2025 数学一真题|145|150|后两道大题还不够稳",
+        "--score", "408|套卷|王道八套卷 03|118|150|OS 和计网丢分偏多",
         "--coach-note", "今天的主线比较清楚，明天继续收口最卡的那一块。",
     ])
 
     assert rc == 0
     data = json.loads(out)
     assert data["archive_updated"] is False
+    assert data["score_count"] == 2
     log_path = vault_root / "学习日志" / "2026-03-23.md"
     assert log_path.exists()
     content = log_path.read_text(encoding="utf-8")
     assert "数学二重积分 + 408 操作系统复习" in content
     assert "积分区域判断 - 信心：中高" in content
+    assert "## 训练成绩记录" in content
+    assert "| 数学一 | 真题 | 2025 数学一真题 | 145 | 150 | 96.7% | 后两道大题还不够稳 |" in content
+    assert "| 408 | 套卷 | 王道八套卷 03 | 118 | 150 | 78.7% | OS 和计网丢分偏多 |" in content
 
 
 def test_log_progress_updates_archive(sample_archive, vault_root):

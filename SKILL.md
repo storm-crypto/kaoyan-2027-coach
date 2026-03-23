@@ -107,7 +107,7 @@ Kaoyan_2027_Prep/
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
-| `log_progress.py` | 写学习日志并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
+| `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
@@ -193,9 +193,10 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 1. 2-3 句话总结质量
 2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
-3. 明日建议 1-3 条
-4. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
-5. 不重写知识地图
+3. 若用户提到单科测试/专项训练/真题得分，提取为结构化成绩并通过 `--score 科目|类型|来源|得分|满分|备注` 写入；允许只记录数学、408、英语阅读、政治选择等部分科目/部分模块
+4. 明日建议 1-3 条
+5. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
+6. 不重写知识地图
 
 ### `/review` — 间隔复习
 
@@ -204,8 +205,8 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/recap [week|month]` — 周/月复盘
 
 1. 运行 `build_recap.py`（默认 `--period week`，加 `month` 做月复盘）
-2. 汇总对应周期内的学习日志和错题卡复习历史
-3. 输出产出、复习统计、卡点和下一步建议
+2. 汇总对应周期内的学习日志、结构化训练成绩和错题卡复习历史
+3. 输出产出、成绩趋势、复习统计、卡点和下一步建议
 4. 周复盘写入 `复盘报告/YYYY-Www-周复盘.md`，月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
 
 ### `/test [章节]` — 知识测试

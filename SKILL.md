@@ -120,7 +120,7 @@ Kaoyan_2027_Prep/
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `create_wrong_card.py` | 新建错题卡，并保留题干/选项 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项]` |
-| `scan_due_reviews.py` | 扫描到期错题+超期降级 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT]` |
+| `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
@@ -225,7 +225,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/review` — 间隔复习
 
-运行 `scan_due_reviews.py` → 按科目分组显示到期卡，并优先展示卡片里的 `题目/选项` → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
+在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目/选项`；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
 
 ### `/recap [week|month]` — 周/月复盘
 

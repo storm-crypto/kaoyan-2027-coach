@@ -162,3 +162,24 @@ def test_plain_flag_absent_keeps_latex(vault_root):
     data = json.loads(out)
     assert "$" in data["due"][0]["question_text"]
     assert "\\frac" in data["due"][0]["question_text"]
+
+
+def test_plain_handles_nested_math_readably(vault_root):
+    """--plain 不应把常见嵌套公式转坏。"""
+    _make_card(
+        vault_root,
+        "nested-card.md",
+        TODAY,
+        2,
+        question_lines=["- 求 $\\left(\\frac{x+1}{x-1}\\right)^2$ 的值。"],
+        option_lines=["- A. $\\sqrt{1+\\frac{1}{x}}$"],
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY, "--plain"])
+    assert rc == 0
+    data = json.loads(out)
+    item = next(card for card in data["due"] if card["filename"] == "nested-card")
+    assert "\\right" not in item["question_text"]
+    assert "\\frac" not in item["options_text"]
+    assert "≤ft" not in item["question_text"]
+    assert "((x+1)/(x-1))²" in item["question_text"]
+    assert "√(1+1/x)" in item["options_text"]

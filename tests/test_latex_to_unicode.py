@@ -199,6 +199,8 @@ def test_kaoyan_fraction_inequality():
     assert "$" not in result
     assert "/" in result  # fraction converted
     assert "<" in result
+    assert "\\right" not in result
+    assert "\u2264ft" not in result
 
 
 def test_partial_derivative():
@@ -214,3 +216,23 @@ def test_multiple_formulas_in_line():
     assert "$" not in result
     assert "已知" in result
     assert "求" in result
+
+
+def test_nested_fraction_regression():
+    result = latex_to_unicode("$\\frac{\\frac{a}{b}}{c}$")
+    assert result == "(a/b)/c"
+
+
+def test_nested_sqrt_fraction_regression():
+    result = latex_to_unicode("$\\sqrt{1+\\frac{1}{x}}$")
+    assert result == "\u221a(1+1/x)"
+
+
+def test_left_right_regression():
+    result = latex_to_unicode("$\\left(\\frac{x+1}{x-1}\\right)^2$")
+    assert result == "((x+1)/(x-1))\u00b2"
+
+
+def test_fraction_with_subscripts_regression():
+    result = latex_to_unicode("$\\frac{a_{n+1}}{b_n}$")
+    assert result == "a\u2099\u208a\u2081/b\u2099"

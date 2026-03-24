@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """将 LaTeX 数学公式转为 Unicode 可读文本，供 CLI 环境下阅读。
 
-仅做"尽力转写"，覆盖考研数学常见符号；
-极端嵌套公式可能仍不完美，但比原始 LaTeX 可读性好得多。
+仅做保守转写：
+- 优先保证“不转错”，其次才是“尽量美观”
+- 常见考研数学公式会转成更适合对话框阅读的文本
+- 复杂或不支持的命令会尽量保留原意，而不是强行展开
 """
 import re
+from typing import List, Match, Tuple
 
 # ---------- 希腊字母 ----------
 _GREEK = {
@@ -21,52 +24,73 @@ _GREEK = {
 }
 
 # ---------- 上标 / 下标映射 ----------
-_SUP = str.maketrans("0123456789+-=()nixy", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2071\u02e3\u02b8")
-_SUB = str.maketrans("0123456789+-=()aeioruvx", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u2090\u2091\u1d62\u2092\u1d63\u1d64\u1d65\u2093")
+_SUP = str.maketrans(
+    "0123456789+-=()nixy",
+    "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2071\u02e3\u02b8",
+)
+_SUB = str.maketrans(
+    "0123456789+-=()aeinoruvx",
+    "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u2090\u2091\u1d62\u2099\u2092\u1d63\u1d64\u1d65\u2093",
+)
 
 # ---------- 简单符号替换 ----------
-_SYMBOLS = {
-    r"\cdot": "\u00b7",
-    r"\times": "\u00d7",
-    r"\div": "\u00f7",
-    r"\pm": "\u00b1",
-    r"\mp": "\u2213",
-    r"\leq": "\u2264", r"\le": "\u2264",
-    r"\geq": "\u2265", r"\ge": "\u2265",
-    r"\neq": "\u2260", r"\ne": "\u2260",
-    r"\approx": "\u2248",
-    r"\equiv": "\u2261",
-    r"\sim": "\u223c",
-    r"\propto": "\u221d",
-    r"\infty": "\u221e",
-    r"\partial": "\u2202",
-    r"\nabla": "\u2207",
-    r"\forall": "\u2200",
-    r"\exists": "\u2203",
-    r"\in": "\u2208",
-    r"\notin": "\u2209",
-    r"\subset": "\u2282",
-    r"\supset": "\u2283",
-    r"\cup": "\u222a",
-    r"\cap": "\u2229",
-    r"\emptyset": "\u2205",
-    r"\to": "\u2192", r"\rightarrow": "\u2192",
-    r"\leftarrow": "\u2190",
-    r"\Rightarrow": "\u21d2", r"\implies": "\u21d2",
-    r"\Leftarrow": "\u21d0",
-    r"\Leftrightarrow": "\u21d4", r"\iff": "\u21d4",
-    r"\ldots": "\u2026", r"\cdots": "\u22ef", r"\dots": "\u2026",
-    r"\prime": "\u2032",
-    r"\quad": " ", r"\qquad": "  ",
-    r"\,": " ", r"\;": " ", r"\!": "",
+_NAMED_SYMBOLS = {
+    "cdot": "\u00b7",
+    "times": "\u00d7",
+    "div": "\u00f7",
+    "pm": "\u00b1",
+    "mp": "\u2213",
+    "leq": "\u2264", "le": "\u2264",
+    "geq": "\u2265", "ge": "\u2265",
+    "neq": "\u2260", "ne": "\u2260",
+    "approx": "\u2248",
+    "equiv": "\u2261",
+    "sim": "\u223c",
+    "propto": "\u221d",
+    "infty": "\u221e",
+    "partial": "\u2202",
+    "nabla": "\u2207",
+    "forall": "\u2200",
+    "exists": "\u2203",
+    "in": "\u2208",
+    "notin": "\u2209",
+    "subset": "\u2282",
+    "supset": "\u2283",
+    "cup": "\u222a",
+    "cap": "\u2229",
+    "emptyset": "\u2205",
+    "to": "\u2192",
+    "rightarrow": "\u2192",
+    "leftarrow": "\u2190",
+    "Rightarrow": "\u21d2",
+    "implies": "\u21d2",
+    "Leftarrow": "\u21d0",
+    "Leftrightarrow": "\u21d4",
+    "iff": "\u21d4",
+    "ldots": "\u2026",
+    "cdots": "\u22ef",
+    "dots": "\u2026",
+    "prime": "\u2032",
+}
+
+_TOKEN_SYMBOLS = {
+    r"\,": " ",
+    r"\;": " ",
+    r"\!": "",
     r"\%": "%",
+    r"\\": " ",
 }
 
 # ---------- 大运算符 ----------
 _BIG_OPS = {
-    "sum": "\u2211", "prod": "\u220f", "int": "\u222b",
-    "iint": "\u222c", "iiint": "\u222d", "oint": "\u222e",
-    "bigcup": "\u22c3", "bigcap": "\u22c2",
+    "sum": "\u2211",
+    "prod": "\u220f",
+    "int": "\u222b",
+    "iint": "\u222c",
+    "iiint": "\u222d",
+    "oint": "\u222e",
+    "bigcup": "\u22c3",
+    "bigcap": "\u22c2",
 }
 
 # ---------- 函数名 ----------
@@ -79,149 +103,276 @@ _FUNC_NAMES = {
     "gcd", "arg",
 }
 
-# ---------- 正则 ----------
+_TEXT_COMMANDS = {"text", "mathrm", "textbf", "mathbf", "mathit", "operatorname"}
+_IGNORED_COMMANDS = {"displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle", "limits", "nolimits"}
+_ACCENT_COMMANDS = {
+    "overline": "\u0304",
+    "hat": "\u0302",
+    "vec": "\u20d7",
+}
+_DELIMITER_COMMANDS = {
+    r"\{": "{",
+    r"\}": "}",
+    r"\langle": "\u27e8",
+    r"\rangle": "\u27e9",
+    r"\lvert": "|",
+    r"\rvert": "|",
+    r"\lfloor": "\u230a",
+    r"\rfloor": "\u230b",
+    r"\lceil": "\u2308",
+    r"\rceil": "\u2309",
+}
 _LATEX_BLOCK_RE = re.compile(r"\$\$(.+?)\$\$|\$(.+?)\$", re.S)
 
 
-def _strip_braces(s: str) -> str:
-    """去掉最外层花括号（如果有的话）。"""
-    s = s.strip()
-    if s.startswith("{") and s.endswith("}"):
-        return s[1:-1]
-    return s
+def _skip_spaces(text: str, start: int) -> int:
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index
 
 
-def _find_brace_group(tex: str, start: int) -> str:
-    """从 start 位置开始匹配 {...}，返回花括号内的内容。"""
-    if start >= len(tex) or tex[start] != "{":
-        # 没有花括号，取单个字符
-        if start < len(tex):
-            return tex[start]
-        return ""
-    depth = 0
-    for i in range(start, len(tex)):
-        if tex[i] == "{":
+def _consume_group(text: str, start: int, open_char: str, close_char: str) -> Tuple[str, int]:
+    if start >= len(text) or text[start] != open_char:
+        return "", start
+
+    depth = 1
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == open_char:
             depth += 1
-        elif tex[i] == "}":
+        elif char == close_char:
             depth -= 1
             if depth == 0:
-                return tex[start + 1:i]
-    return tex[start + 1:]
+                return text[start + 1:index], index + 1
+        index += 1
+
+    return text[start + 1:], len(text)
 
 
-def _to_superscript(text: str) -> str:
-    return text.translate(_SUP)
+def _consume_command_token(text: str, start: int) -> Tuple[str, int]:
+    if start >= len(text) or text[start] != "\\":
+        return "", start
+
+    if start + 1 < len(text) and text[start + 1].isalpha():
+        index = start + 2
+        while index < len(text) and text[index].isalpha():
+            index += 1
+        return text[start:index], index
+
+    if start + 1 < len(text):
+        return text[start:start + 2], start + 2
+
+    return text[start:], len(text)
 
 
-def _to_subscript(text: str) -> str:
-    return text.translate(_SUB)
+def _consume_argument(text: str, start: int) -> Tuple[str, int]:
+    index = _skip_spaces(text, start)
+    if index >= len(text):
+        return "", index
+
+    if text[index] == "{":
+        return _consume_group(text, index, "{", "}")
+
+    if text[index] == "[":
+        return _consume_group(text, index, "[", "]")
+
+    if text[index] == "\\":
+        token, next_index = _consume_command_token(text, index)
+        return token, next_index
+
+    return text[index], index + 1
+
+
+def _consume_delimiter(text: str, start: int) -> Tuple[str, int]:
+    index = _skip_spaces(text, start)
+    if index >= len(text):
+        return "", index
+
+    for token, value in sorted(_DELIMITER_COMMANDS.items(), key=lambda item: len(item[0]), reverse=True):
+        if text.startswith(token, index):
+            return value, index + len(token)
+
+    char = text[index]
+    if char in "()[]|":
+        return char, index + 1
+    if char == ".":
+        return "", index + 1
+    return "", index
+
+
+def _is_simple_atom(text: str) -> bool:
+    value = text.strip()
+    if not value:
+        return False
+    return not any(char.isspace() or char in "+-*/=<>≤≥≠()[]{}" for char in value)
+
+
+def _format_fraction(numerator: str, denominator: str) -> str:
+    num = numerator.strip() or "?"
+    den = denominator.strip() or "?"
+    if not _is_simple_atom(num):
+        num = f"({num})"
+    if not _is_simple_atom(den):
+        den = f"({den})"
+    return f"{num}/{den}"
+
+
+def _format_accent(base: str, accent: str) -> str:
+    cleaned = base.strip() or "?"
+    if len(cleaned) == 1 or _is_simple_atom(cleaned):
+        return cleaned + accent
+    return f"({cleaned}){accent}"
+
+
+def _format_script(content: str, superscript: bool) -> str:
+    value = content.strip()
+    if not value:
+        return ""
+
+    converted = value.translate(_SUP if superscript else _SUB)
+    if converted != value:
+        return converted
+
+    marker = "^" if superscript else "_"
+    if len(value) == 1:
+        return marker + value
+    return f"{marker}({value})"
+
+
+def _normalize_result(text: str) -> str:
+    result = re.sub(r"[ \t]+", " ", text)
+    result = re.sub(r" ?\n ?", "\n", result)
+    return result.strip()
 
 
 def _convert_inner(tex: str) -> str:  # noqa: C901
     """将单个 LaTeX 数学表达式（不含 $ 定界符）转为 Unicode。"""
-    out = tex
+    pieces: List[str] = []
+    index = 0
 
-    # 1) \text{...} / \mathrm{...} / \textbf{...} → 内容原样保留
-    out = re.sub(r"\\(?:text|mathrm|textbf|mathbf|mathit|operatorname)\{([^}]*)\}", r"\1", out)
+    while index < len(tex):
+        char = tex[index]
 
-    # 2) 希腊字母
-    for cmd, char in _GREEK.items():
-        out = re.sub(r"\\%s(?![a-zA-Z])" % cmd, char, out)
+        if char == "\\":
+            if tex.startswith(r"\left", index):
+                delimiter, index = _consume_delimiter(tex, index + len(r"\left"))
+                if delimiter:
+                    pieces.append(delimiter)
+                continue
 
-    # 3) 大运算符（在简单符号替换之前，避免 \in 吃掉 \int）
-    for cmd, char in _BIG_OPS.items():
-        out = re.sub(r"\\%s(?![a-zA-Z])" % cmd, char, out)
+            if tex.startswith(r"\right", index):
+                delimiter, index = _consume_delimiter(tex, index + len(r"\right"))
+                if delimiter:
+                    pieces.append(delimiter)
+                continue
 
-    # 4) \lim 和函数名  \sin → sin
-    out = re.sub(r"\\lim(?![a-zA-Z])", "lim", out)
-    for fn in _FUNC_NAMES:
-        out = re.sub(r"\\%s(?![a-zA-Z])" % fn, fn, out)
+            handled_frac = False
+            for command in (r"\dfrac", r"\tfrac", r"\frac"):
+                if tex.startswith(command, index):
+                    numerator_raw, next_index = _consume_argument(tex, index + len(command))
+                    denominator_raw, next_index = _consume_argument(tex, next_index)
+                    pieces.append(
+                        _format_fraction(
+                            _convert_inner(numerator_raw),
+                            _convert_inner(denominator_raw),
+                        )
+                    )
+                    index = next_index
+                    handled_frac = True
+                    break
+            if handled_frac:
+                continue
 
-    # 5) 简单符号（\in 等用 regex 避免误匹配 \int 等）
-    for cmd, char in _SYMBOLS.items():
-        if cmd in (r"\in", r"\notin"):
-            out = re.sub(re.escape(cmd) + r"(?![a-zA-Z])", char, out)
-        else:
-            out = out.replace(cmd, char)
+            if tex.startswith(r"\sqrt", index):
+                next_index = index + len(r"\sqrt")
+                root_raw = ""
+                next_index = _skip_spaces(tex, next_index)
+                if next_index < len(tex) and tex[next_index] == "[":
+                    root_raw, next_index = _consume_group(tex, next_index, "[", "]")
+                body_raw, next_index = _consume_argument(tex, next_index)
+                body = _convert_inner(body_raw)
+                if root_raw:
+                    root = _format_script(_convert_inner(root_raw), superscript=True)
+                    pieces.append(f"{root}\u221a({body})")
+                else:
+                    pieces.append(f"\u221a({body})")
+                index = next_index
+                continue
 
-    # 6) \sqrt[n]{x} → ⁿ√(x)  ;  \sqrt{x} → √(x)
-    # 带可选参数
-    out = re.sub(
-        r"\\sqrt\[([^\]]*)\]\{([^}]*)\}",
-        lambda m: _to_superscript(_convert_inner(m.group(1))) + "\u221a(" + _convert_inner(m.group(2)) + ")",
-        out,
-    )
-    # 不带可选参数
-    out = re.sub(
-        r"\\sqrt\{([^}]*)\}",
-        lambda m: "\u221a(" + _convert_inner(m.group(1)) + ")",
-        out,
-    )
+            token, next_index = _consume_command_token(tex, index)
+            command = token[1:]
 
-    # 7) \frac{a}{b} → (a)/(b)  — 简单内容省略括号
-    def _repl_frac(m):
-        num = _convert_inner(m.group(1))
-        den = _convert_inner(m.group(2))
-        if len(num) <= 2 and num.isalnum():
-            num_part = num
-        else:
-            num_part = "(" + num + ")"
-        if len(den) <= 2 and den.isalnum():
-            den_part = den
-        else:
-            den_part = "(" + den + ")"
-        return num_part + "/" + den_part
-    out = re.sub(r"\\(?:frac|dfrac|tfrac)\{([^}]*)\}\{([^}]*)\}", _repl_frac, out)
+            if token in _TOKEN_SYMBOLS:
+                pieces.append(_TOKEN_SYMBOLS[token])
+                index = next_index
+                continue
 
-    # 8) \left( \right)  → ( )
-    out = re.sub(r"\\left\s*([(\[{|.])", r"\1", out)
-    out = re.sub(r"\\right\s*([)\]}|.])", r"\1", out)
-    out = out.replace(r"\left", "").replace(r"\right", "")
+            if command in _TEXT_COMMANDS:
+                group_raw, next_index = _consume_argument(tex, next_index)
+                pieces.append(group_raw)
+                index = next_index
+                continue
 
-    # 9) \overline{x} → x̄
-    out = re.sub(r"\\overline\{([^}])\}", lambda m: m.group(1) + "\u0304", out)
-    out = re.sub(r"\\overline\{([^}]+)\}", lambda m: "(" + m.group(1) + ")\u0304", out)
-    # \hat{x} → x̂
-    out = re.sub(r"\\hat\{([^}])\}", lambda m: m.group(1) + "\u0302", out)
-    # \vec{x} → x⃗
-    out = re.sub(r"\\vec\{([^}])\}", lambda m: m.group(1) + "\u20d7", out)
+            if command in _ACCENT_COMMANDS:
+                base_raw, next_index = _consume_argument(tex, next_index)
+                pieces.append(_format_accent(_convert_inner(base_raw), _ACCENT_COMMANDS[command]))
+                index = next_index
+                continue
 
-    # 10) 上标 ^{...} → 上标字符
-    def _repl_sup(m):
-        content = _convert_inner(m.group(1))
-        converted = _to_superscript(content)
-        if converted == content:
-            # 无法转为上标字符，用 ^ 保留
-            return "^(" + content + ")" if len(content) > 1 else "^" + content
-        return converted
-    out = re.sub(r"\^\{([^}]*)\}", _repl_sup, out)
-    # 单字符上标 ^x
-    def _repl_sup_single(m):
-        ch = m.group(1)
-        converted = _to_superscript(ch)
-        return converted if converted != ch else "^" + ch
-    out = re.sub(r"\^([A-Za-z0-9])", _repl_sup_single, out)
+            if command in _IGNORED_COMMANDS:
+                index = next_index
+                continue
 
-    # 11) 下标 _{...} → 下标字符
-    def _repl_sub(m):
-        content = _convert_inner(m.group(1))
-        converted = _to_subscript(content)
-        if converted == content:
-            return "_(" + content + ")" if len(content) > 1 else "_" + content
-        return converted
-    out = re.sub(r"_\{([^}]*)\}", _repl_sub, out)
-    # 单字符下标 _x
-    def _repl_sub_single(m):
-        ch = m.group(1)
-        converted = _to_subscript(ch)
-        return converted if converted != ch else "_" + ch
-    out = re.sub(r"_([A-Za-z0-9])", _repl_sub_single, out)
+            if command in _GREEK:
+                pieces.append(_GREEK[command])
+                index = next_index
+                continue
 
-    # 13) 清理残余花括号和多余空格
-    out = out.replace("{", "").replace("}", "")
-    out = re.sub(r"  +", " ", out)
+            if command in _BIG_OPS:
+                pieces.append(_BIG_OPS[command])
+                index = next_index
+                continue
 
-    return out.strip()
+            if command in _FUNC_NAMES:
+                pieces.append(command)
+                index = next_index
+                continue
+
+            if command in _NAMED_SYMBOLS:
+                pieces.append(_NAMED_SYMBOLS[command])
+                index = next_index
+                continue
+
+            if token in _DELIMITER_COMMANDS:
+                pieces.append(_DELIMITER_COMMANDS[token])
+                index = next_index
+                continue
+
+            # 未知命令保守处理：去掉反斜杠，保留命令名，避免直接丢失信息。
+            pieces.append(command or token.lstrip("\\"))
+            index = next_index
+            continue
+
+        if char in "^_":
+            argument_raw, index = _consume_argument(tex, index + 1)
+            pieces.append(_format_script(_convert_inner(argument_raw), superscript=(char == "^")))
+            continue
+
+        if char == "{":
+            group_raw, index = _consume_group(tex, index, "{", "}")
+            pieces.append(_convert_inner(group_raw))
+            continue
+
+        if char == "}":
+            index += 1
+            continue
+
+        pieces.append(char)
+        index += 1
+
+    return _normalize_result("".join(pieces))
 
 
 def latex_to_unicode(text: str) -> str:
@@ -229,8 +380,9 @@ def latex_to_unicode(text: str) -> str:
 
     非数学部分保持不变。
     """
-    def _replace_match(m):
-        # group(1) 是 $$...$$ 的内容，group(2) 是 $...$ 的内容
-        inner = m.group(1) or m.group(2)
+
+    def _replace_match(match: Match[str]) -> str:
+        inner = match.group(1) or match.group(2)
         return _convert_inner(inner)
+
     return _LATEX_BLOCK_RE.sub(_replace_match, text)

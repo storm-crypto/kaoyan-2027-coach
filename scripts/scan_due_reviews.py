@@ -2,7 +2,7 @@
 """扫描错题本，返回今日到期的待复习错题（JSON）。
 同时对超期 7 天以上的卡片自动将 review_interval 重置为 1。
 
-用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD]
+用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--plain]
       环境变量 KAOYAN_OBSIDIAN_ROOT 可替代 CLI 参数
 """
 import argparse

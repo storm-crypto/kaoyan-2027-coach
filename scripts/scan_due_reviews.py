@@ -14,6 +14,7 @@ from archive_ops import extract_heading_block
 from constants import SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
 from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
+from latex_to_unicode import latex_to_unicode
 from study_ops import iter_review_cards, parse_today
 
 from constants import QUESTION_PREVIEW_LINE_LIMIT
@@ -39,6 +40,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="扫描到期错题")
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
+    parser.add_argument("--plain", action="store_true",
+                        help="将 LaTeX 公式转为 Unicode 可读文本（适用于 CLI 环境）")
     args = parser.parse_args()
 
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
@@ -74,6 +77,10 @@ def main() -> None:
         if next_review <= today and interval < SRS_GRADUATED_INTERVAL_DAYS:
             topic = fm.get("topic", "")
             question_text, options_text, question_preview = build_question_payload(body, topic)
+            if args.plain:
+                question_text = latex_to_unicode(question_text)
+                options_text = latex_to_unicode(options_text)
+                question_preview = latex_to_unicode(question_preview)
             due.append({
                 "path": str(item["path"]),
                 "subject": item["subject"],

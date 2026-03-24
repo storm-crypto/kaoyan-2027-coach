@@ -120,3 +120,45 @@ def test_env_var(vault_root):
     assert rc == 0
     data = json.loads(out)
     assert len(data["due"]) == 1
+
+
+def test_plain_converts_latex(vault_root):
+    """--plain 标志将 LaTeX 公式转为 Unicode 可读文本。"""
+    _make_card(
+        vault_root,
+        "latex-card.md",
+        TODAY,
+        2,
+        question_lines=["- 若 $f''(x) > 0$，求 $\\frac{1}{2}$ 的值。"],
+        option_lines=[
+            "- A. $x^2 + 1$",
+            "- B. $\\sqrt{x}$",
+        ],
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY, "--plain"])
+    assert rc == 0
+    data = json.loads(out)
+    item = data["due"][0]
+    # LaTeX $ 定界符应被去除
+    assert "$" not in item["question_text"]
+    assert "$" not in item["options_text"]
+    assert "$" not in item["question_preview"]
+    # Unicode 转写后应包含可读内容
+    assert "1/2" in item["question_text"]       # \frac{1}{2} → 1/2
+    assert "\u221a" in item["options_text"]      # \sqrt → √
+
+
+def test_plain_flag_absent_keeps_latex(vault_root):
+    """不带 --plain 时，LaTeX 原样保留。"""
+    _make_card(
+        vault_root,
+        "raw-card.md",
+        TODAY,
+        2,
+        question_lines=["- 求 $\\frac{a}{b}$ 的值。"],
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY])
+    assert rc == 0
+    data = json.loads(out)
+    assert "$" in data["due"][0]["question_text"]
+    assert "\\frac" in data["due"][0]["question_text"]

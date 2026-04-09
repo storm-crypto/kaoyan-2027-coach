@@ -14,7 +14,15 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from archive_ops import extract_list_items, extract_section_block, infer_subject_mentions, load_template_markdown
+from archive_ops import (
+    extract_list_items,
+    extract_section_block,
+    infer_subject_mentions,
+    load_archive_text,
+    load_template_markdown,
+    parse_score_cell,
+    parse_subject_score_rows,
+)
 from constants import LEGACY_HEADING_INDENT_LIMIT
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
@@ -124,6 +132,50 @@ def collect_logs(obsidian_root, start, end):
             score_records.extend(parse_score_records(text, current))
         current += timedelta(days=1)
     return highlights, blockers, logged_days, total_hours, score_records
+
+
+def collect_archive_subject_scores(obsidian_root, start, end):
+    try:
+        _, archive_text = load_archive_text(obsidian_root)
+    except FileNotFoundError:
+        return []
+
+    records = []
+    for subject in ("数学一", "408"):
+        for row in parse_subject_score_rows(archive_text, subject):
+            try:
+                row_day = date.fromisoformat(row["date"])
+            except ValueError:
+                continue
+            if not (start <= row_day <= end):
+                continue
+            score_value = parse_score_cell(row["score"] if subject == "数学一" else row["total"])
+            if score_value is None:
+                continue
+            note_parts = []
+            if subject == "408":
+                note_parts.append(
+                    "模块错题：DS {ds} / CO {co} / OS {os} / CN {cn}".format(
+                        ds=row["ds"],
+                        co=row["co"],
+                        os=row["os"],
+                        cn=row["cn"],
+                    )
+                )
+            if row["issues"] and row["issues"] != "-":
+                note_parts.append(f"主要问题：{row['issues']}")
+            if row["note"] and row["note"] != "-":
+                note_parts.append(row["note"])
+            records.append({
+                "date": row_day,
+                "subject": subject,
+                "kind": "模拟",
+                "source": row["paper"],
+                "score": score_value,
+                "total": 150.0,
+                "note": "；".join(note_parts),
+            })
+    return records
 
 
 def collect_review_stats(obsidian_root, start, end):
@@ -254,6 +306,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     template_name = "月复盘模板.md" if period == "month" else "周复盘模板.md"
 
     highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
+    score_records.extend(collect_archive_subject_scores(obsidian_root, start, end))
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
     score_stats, score_subject_counts = build_score_summary(score_records, period_name)
     subject_signal = infer_subject_mentions(highlights + blockers)

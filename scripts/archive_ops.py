@@ -8,6 +8,23 @@ from env_util import resolve_skill_root
 
 MARKDOWN_TEMPLATE_RE = re.compile(r"```markdown\r?\n(.*?)\r?\n```", re.S)
 
+SUBJECT_SCORE_SECTION_CONFIG = {
+    "数学一": {
+        "heading": "数学一模拟成绩追踪",
+        "columns": ("date", "paper", "score", "issues", "note"),
+        "headers": ("日期", "卷子", "成绩", "主要问题", "备注"),
+        "separator": "|------|------|------|----------|------|",
+        "blank": "| | | | | |",
+    },
+    "408": {
+        "heading": "408模拟成绩追踪",
+        "columns": ("date", "paper", "ds", "co", "os", "cn", "total", "issues", "note"),
+        "headers": ("日期", "卷子", "DS", "CO", "OS", "CN", "总分", "主要问题", "备注"),
+        "separator": "|------|------|----|----|----|----|------|----------|------|",
+        "blank": "| | | | | | | | | |",
+    },
+}
+
 
 def _heading_block_pattern(heading: str, level: int) -> Pattern[str]:
     hashes = "#" * level
@@ -112,6 +129,19 @@ def parse_score_cell(value: str) -> Optional[float]:
     return float(match.group(1)) if match else None
 
 
+def format_number(value: float) -> str:
+    if abs(value - int(value)) < 1e-9:
+        return str(int(value))
+    return f"{value:.1f}"
+
+
+def update_archive_date(text: str, day: str) -> str:
+    pattern = r"(- \*\*最近更新日期\*\*：)(.*)"
+    if not re.search(pattern, text):
+        return text
+    return re.sub(pattern, rf"\g<1>{day}", text, count=1)
+
+
 def append_mock_row(text: str, row: Mapping[str, str]) -> str:
     return upsert_mock_row(text, row)
 
@@ -139,6 +169,92 @@ def upsert_mock_row(text: str, row: Mapping[str, str]) -> str:
         if stripped.startswith("|"):
             cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
             if len(cells) == 7 and cells[0] == row["date"]:
+                if not replaced:
+                    updated_lines.append(row_line)
+                    replaced = True
+                continue
+        updated_lines.append(line)
+
+    if not replaced:
+        updated_lines.append(row_line)
+
+    updated_section = "\n".join(updated_lines).rstrip("\n") + "\n"
+    return text[:section_start] + updated_section + text[next_section:]
+
+
+def render_subject_score_section(subject: str) -> str:
+    config = SUBJECT_SCORE_SECTION_CONFIG[subject]
+    header_row = f"| {' | '.join(config['headers'])} |"
+    return "\n".join([
+        f"## {config['heading']}",
+        header_row,
+        config["separator"],
+        config["blank"],
+    ])
+
+
+def ensure_subject_score_sections(text: str) -> str:
+    missing = [
+        render_subject_score_section(subject)
+        for subject, config in SUBJECT_SCORE_SECTION_CONFIG.items()
+        if f"## {config['heading']}" not in text
+    ]
+    if not missing:
+        return text
+
+    marker = "## 最近聚焦问题（只保留 3-5 条）"
+    insertion = "\n\n".join(missing).strip()
+    index = text.find(marker)
+    if index == -1:
+        return text.rstrip("\n") + "\n\n" + insertion + "\n"
+    return text[:index].rstrip("\n") + "\n\n" + insertion + "\n\n" + text[index:]
+
+
+def parse_subject_score_rows(text: str, subject: str) -> List[Dict[str, str]]:
+    if subject not in SUBJECT_SCORE_SECTION_CONFIG:
+        raise ValueError(f"不支持的单科成绩表: {subject}")
+    config = SUBJECT_SCORE_SECTION_CONFIG[subject]
+    block = extract_section_block(text, config["heading"])
+    rows: List[Dict[str, str]] = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+        if len(cells) != len(config["columns"]):
+            continue
+        if cells[0] in {"日期", "------"} or set("".join(cells)) <= {"-", " "}:
+            continue
+        if not cells[0] or not cells[1]:
+            continue
+        rows.append(dict(zip(config["columns"], cells)))
+    return rows
+
+
+def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) -> str:
+    if subject not in SUBJECT_SCORE_SECTION_CONFIG:
+        raise ValueError(f"不支持的单科成绩表: {subject}")
+    config = SUBJECT_SCORE_SECTION_CONFIG[subject]
+    text = ensure_subject_score_sections(text)
+    marker = f"## {config['heading']}"
+    section_start = text.find(marker)
+    if section_start == -1:
+        raise ValueError(f"档案中缺少“{config['heading']}”区块")
+
+    next_section = text.find("\n## ", section_start + len(marker))
+    if next_section == -1:
+        next_section = len(text)
+
+    section = text[section_start:next_section].rstrip("\n")
+    row_line = "| " + " | ".join(row[column] for column in config["columns"]) + " |"
+    section_lines = section.splitlines()
+    updated_lines = []
+    replaced = False
+    for line in section_lines:
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+            if len(cells) == len(config["columns"]) and cells[0] == row["date"] and cells[1] == row["paper"]:
                 if not replaced:
                     updated_lines.append(row_line)
                     replaced = True

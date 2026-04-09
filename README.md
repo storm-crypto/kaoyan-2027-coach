@@ -9,7 +9,7 @@
 - `/wrong` 负责讲题并把错题归档到本地 Markdown
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
-- `/progress`、`/recap`、`/recalibrate` 负责日志、复盘和策略校准
+- `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、单科总表、复盘和策略校准
 - 所有学习状态都外置到本地文件，跨 AI 工具可恢复
 
 ## 适合谁
@@ -62,6 +62,7 @@ source ~/.zshrc
 /plan_today 6h
 /wrong 数学一 这道题我卡在第一步
 /progress 今天做了哪些内容...
+/score 408 卷子=2024真题 DS=3 CO=2 OS=1 CN=3 总分=120 主要问题=DS排序综合、CN运输层
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
@@ -87,4 +88,3 @@ source ~/.zshrc
 ```bash
 python3 -m pytest tests/ -v
 ```
-

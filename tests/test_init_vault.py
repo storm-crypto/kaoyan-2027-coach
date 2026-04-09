@@ -15,6 +15,9 @@ def test_fresh_init(tmp_path):
     assert (vault / "知识地图" / "408.md").exists()
     assert (vault / "错题本" / "数学一").is_dir()
     assert (vault / "周计划").is_dir()
+    archive_text = (vault / "我的学习者档案.md").read_text(encoding="utf-8")
+    assert "## 数学一模拟成绩追踪" in archive_text
+    assert "## 408模拟成绩追踪" in archive_text
 
 
 def test_idempotent(tmp_path):

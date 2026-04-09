@@ -98,10 +98,12 @@ def test_load_context_happy_path(sample_archive, vault_root):
     assert data["days_until_exam"] == 70
     assert data["due_total"] == 11
     assert len(data["priorities"]) == 3
+    assert "最近一次408模拟（2026-03-19 2025 真题）暴露" in data["priorities"][0]
     assert "最早到期的 3-5 道旧题" in data["first_step"]
     assert "到期复习积压 11 道" in "\n".join(data["warnings"])
     assert data["latest_log_path"].endswith("2026-10-12.md")
     assert data["latest_report_path"].endswith("2026-10-10-模考分析.md")
+    assert any("最近一次408模拟还没消化" in item for item in data["risks"])
     assert "考试倒计时" in data["markdown"]
 
 

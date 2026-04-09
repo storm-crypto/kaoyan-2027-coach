@@ -6,7 +6,14 @@ import re
 from datetime import date
 from pathlib import Path
 
-from archive_ops import extract_heading_block, load_archive_text, replace_heading_block
+from archive_ops import (
+    extract_heading_block,
+    format_number,
+    load_archive_text,
+    replace_heading_block,
+    update_archive_date,
+    upsert_subject_score_row,
+)
 from env_util import atomic_write, json_error, resolve_obsidian_root
 
 
@@ -26,6 +33,12 @@ def parse_args():
         action="append",
         default=[],
         help="训练成绩，格式：科目|类型|来源|得分|满分|备注",
+    )
+    parser.add_argument(
+        "--subject-score",
+        action="append",
+        default=[],
+        help="单科模拟成绩；数学一格式：数学一|卷子|成绩|主要问题|备注；408 格式：408|卷子|DS|CO|OS|CN|总分|主要问题|备注",
     )
     parser.add_argument("--coach-note", default="", help="教练评语")
     parser.add_argument("--weakness", action="append", default=[], help="回写短板雷达，格式：短板|科目|严重度|证据|当前状态|下一步")
@@ -94,12 +107,6 @@ def render_mastered(items):
         topic, confidence = parse_mastered(item)
         lines.append(f"- {topic} - 信心：{confidence}")
     return "\n".join(lines)
-
-
-def format_number(value):
-    if abs(value - int(value)) < 1e-9:
-        return str(int(value))
-    return f"{value:.1f}"
 
 
 def render_scores(items):
@@ -194,16 +201,9 @@ def upsert_rows(existing_rows, new_rows, key_indexes):
     return rows
 
 
-def update_archive_date(text, log_day):
-    pattern = r"(- \*\*最近更新日期\*\*：)(.*)"
-    if not re.search(pattern, text):
-        return text
-    return re.sub(pattern, rf"\g<1>{log_day.isoformat()}", text, count=1)
-
-
 def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
     updated_sections = []
-    updated = update_archive_date(text, log_day)
+    updated = update_archive_date(text, log_day.isoformat())
 
     if weaknesses:
         rows = [parse_row(item, 6, "weakness") for item in weaknesses]
@@ -243,6 +243,83 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
         updated_sections.append("下一步建议")
 
     return updated, updated_sections
+
+
+def parse_subject_score(value):
+    parts = [part.strip() for part in value.split("|")]
+    if not parts or not parts[0]:
+        json_error("subject-score 参数格式错误")
+
+    subject = parts[0]
+    if subject in {"数学", "数学一"}:
+        if len(parts) != 5 or any(part == "" for part in parts[:4]):
+            json_error("数学一 subject-score 参数格式错误，应为 数学一|卷子|成绩|主要问题|备注")
+        try:
+            score = float(parts[2])
+        except ValueError:
+            json_error("数学一 subject-score 中的成绩必须是数字")
+        if score < 0:
+            json_error("数学一 subject-score 中的成绩不能小于 0")
+        return {
+            "subject": "数学一",
+            "paper": parts[1],
+            "score": score,
+            "issues": parts[3],
+            "note": parts[4],
+        }
+
+    if subject == "408":
+        if len(parts) != 9 or any(part == "" for part in parts[:8]):
+            json_error("408 subject-score 参数格式错误，应为 408|卷子|DS|CO|OS|CN|总分|主要问题|备注")
+        try:
+            ds, co, os_value, cn, total = (float(parts[index]) for index in range(2, 7))
+        except ValueError:
+            json_error("408 subject-score 中的 DS/CO/OS/CN/总分必须是数字")
+        if min(ds, co, os_value, cn, total) < 0:
+            json_error("408 subject-score 中的数值不能小于 0")
+        return {
+            "subject": "408",
+            "paper": parts[1],
+            "ds": ds,
+            "co": co,
+            "os": os_value,
+            "cn": cn,
+            "total": total,
+            "issues": parts[7],
+            "note": parts[8],
+        }
+
+    json_error(f"不支持的 subject-score 科目: {subject}")
+
+
+def subject_score_to_training_score(item):
+    note_parts = []
+    if item["subject"] == "数学一":
+        note_parts.append(f"主要问题：{item['issues']}")
+        if item["note"]:
+            note_parts.append(item["note"])
+        return "数学一|模拟|{paper}|{score}|150|{note}".format(
+            paper=item["paper"],
+            score=format_number(item["score"]),
+            note="；".join(note_parts),
+        )
+
+    note_parts.append(
+        "模块错题：DS {ds} / CO {co} / OS {os} / CN {cn}".format(
+            ds=format_number(item["ds"]),
+            co=format_number(item["co"]),
+            os=format_number(item["os"]),
+            cn=format_number(item["cn"]),
+        )
+    )
+    note_parts.append(f"主要问题：{item['issues']}")
+    if item["note"]:
+        note_parts.append(item["note"])
+    return "408|模拟|{paper}|{total}|150|{note}".format(
+        paper=item["paper"],
+        total=format_number(item["total"]),
+        note="；".join(note_parts),
+    )
 
 
 def _extract_log_bullets(text, heading):
@@ -330,6 +407,11 @@ def main():
     args = parse_args()
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     log_day = parse_date(args.log_date)
+    parsed_subject_scores = [parse_subject_score(item) for item in args.subject_score]
+    for item in parsed_subject_scores:
+        derived = subject_score_to_training_score(item)
+        if derived not in args.score:
+            args.score.append(derived)
 
     log_dir = Path(obsidian_root) / "学习日志"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -348,7 +430,7 @@ def main():
     atomic_write(output_path, render_log_content(log_day, merged_args))
 
     updated_sections = []
-    if args.weakness or args.error_pattern or args.archive_next_step:
+    if args.weakness or args.error_pattern or args.archive_next_step or parsed_subject_scores:
         archive_path, archive_text = load_archive_text(obsidian_root)
         updated_archive, updated_sections = update_archive(
             archive_text,
@@ -357,6 +439,31 @@ def main():
             args.error_pattern,
             args.archive_next_step,
         )
+        for item in parsed_subject_scores:
+            if item["subject"] == "数学一":
+                row = {
+                    "date": log_day.isoformat(),
+                    "paper": item["paper"],
+                    "score": format_number(item["score"]),
+                    "issues": item["issues"],
+                    "note": item["note"] or "-",
+                }
+            else:
+                row = {
+                    "date": log_day.isoformat(),
+                    "paper": item["paper"],
+                    "ds": format_number(item["ds"]),
+                    "co": format_number(item["co"]),
+                    "os": format_number(item["os"]),
+                    "cn": format_number(item["cn"]),
+                    "total": format_number(item["total"]),
+                    "issues": item["issues"],
+                    "note": item["note"] or "-",
+                }
+            updated_archive = upsert_subject_score_row(updated_archive, item["subject"], row)
+            section_name = f"{item['subject']}模拟成绩追踪"
+            if section_name not in updated_sections:
+                updated_sections.append(section_name)
         atomic_write(archive_path, updated_archive)
 
     print(json.dumps({
@@ -366,6 +473,7 @@ def main():
         "archive_updated": bool(updated_sections),
         "updated_sections": updated_sections,
         "score_count": len(merged_args.score),
+        "subject_score_count": len(parsed_subject_scores),
     }, ensure_ascii=False, indent=2))
 
 

@@ -129,7 +129,8 @@ Kaoyan_2027_Prep/
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
-| `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
+| `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
+| `record_subject_score.py` | 记录数学一/408 单科模拟成绩总表 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
@@ -141,6 +142,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/load` — 恢复上下文
 
 1. 先运行 `load_context.py`，读取 `我的学习者档案.md` + 最新学习日志 + 最新复盘/模考报告（如有）
+2. 若档案里已有数学一/408 单科模拟总表，优先把最近一次暴露的问题拉进“优先问题/风险提醒”
 2. 按固定 5 个槽位输出：当前阶段、倒计时（<100 天时显示）、优先问题、风险提醒、立刻开始
 3. 缺失信息和异常状态以脚本结果为准，直接提醒，不自行脑补
 
@@ -219,9 +221,20 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 2-3 句话总结质量
 2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
 3. 若用户提到单科测试/专项训练/真题得分，提取为结构化成绩并通过 `--score 科目|类型|来源|得分|满分|备注` 写入；允许只记录数学、408、英语阅读、政治选择等部分科目/部分模块
-4. 明日建议 1-3 条
-5. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
-6. 不重写知识地图
+4. 若用户明确给出了数学一或 408 的单科模拟结构化信息（卷子、分数/模块错题、主要问题、备注），再追加 `--subject-score`，同步写入 `我的学习者档案.md` 的对应单科总表；字段不全时只写日志，不强行同步总表
+5. 明日建议 1-3 条
+6. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
+7. 不重写知识地图
+
+### `/score [科目]` — 单科模拟总表
+
+用于数学一 / 408 的“单科模拟成绩追踪”，和 `/progress` 不是替代关系，而是配套关系。
+
+1. 数学一使用：记录 `日期 / 卷子 / 成绩 / 主要问题 / 备注`
+2. 408 使用：记录 `日期 / 卷子 / DS / CO / OS / CN / 总分 / 主要问题 / 备注`
+3. 调用 `record_subject_score.py` 写入 `我的学习者档案.md`
+4. 去重规则固定为 `日期 + 卷子`；同一天同一卷子再次记录时覆盖旧行
+5. `/score` 只写单科总表，不代替 `/progress` 的每日日志
 
 ### `/review` — 间隔复习
 
@@ -230,7 +243,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/recap [week|month]` — 周/月复盘
 
 1. 运行 `build_recap.py`（默认 `--period week`，加 `month` 做月复盘）
-2. 汇总对应周期内的学习日志、结构化训练成绩和错题卡复习历史
+2. 汇总对应周期内的学习日志、结构化训练成绩、数学一/408 单科模拟总表和错题卡复习历史
 3. 输出产出、成绩趋势、复习统计、卡点和下一步建议
 4. 周复盘写入 `复盘报告/YYYY-Www-周复盘.md`，月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
 
@@ -248,6 +261,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 将本次成绩写入 `我的学习者档案.md` 的"模考成绩追踪"；同一天重复执行时覆盖当日记录，不重复追加
 3. 输出各科相对目标/上次成绩的变化、关键问题和策略调整建议
 4. 写入 `复盘报告/YYYY-MM-DD-模考分析.md`
+5. `/recalibrate` 只处理四科完整模考，不代替 `/score` 的数学一/408 单科总表
 
 ### `/mock [科目] [题量]` — 限时训练
 

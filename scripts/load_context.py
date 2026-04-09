@@ -8,7 +8,13 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, TypedDict
 
-from archive_ops import extract_list_items, load_archive_text, parse_daily_hours, parse_subject_targets
+from archive_ops import (
+    extract_list_items,
+    load_archive_text,
+    parse_daily_hours,
+    parse_subject_score_rows,
+    parse_subject_targets,
+)
 from constants import LOAD_COUNTDOWN_WINDOW_DAYS, LOAD_DUE_BACKLOG_WARNING_THRESHOLD
 from env_util import resolve_obsidian_root
 from study_ops import SCORE_SUBJECTS, count_due_reviews, parse_today
@@ -27,6 +33,14 @@ class LatestReportInfo(TypedDict):
     path: str
     issues: List[str]
     next_actions: List[str]
+
+
+class LatestSubjectScoreInfo(TypedDict):
+    date: date
+    subject: str
+    paper: str
+    issues: str
+    note: str
 
 
 def parse_exam_date(text: str) -> Optional[date]:
@@ -144,6 +158,26 @@ def latest_report_info(obsidian_root: Path) -> Optional[LatestReportInfo]:
     }
 
 
+def latest_subject_score_info(archive_text: str) -> Optional[LatestSubjectScoreInfo]:
+    latest: Optional[LatestSubjectScoreInfo] = None
+    for subject in ("数学一", "408"):
+        for row in parse_subject_score_rows(archive_text, subject):
+            try:
+                row_day = date.fromisoformat(row["date"])
+            except ValueError:
+                continue
+            candidate: LatestSubjectScoreInfo = {
+                "date": row_day,
+                "subject": subject,
+                "paper": row["paper"],
+                "issues": row["issues"] if row["issues"] != "-" else "",
+                "note": row["note"] if row["note"] != "-" else "",
+            }
+            if latest is None or candidate["date"] > latest["date"]:
+                latest = candidate
+    return latest
+
+
 def unique_items(items: Sequence[str], limit: int) -> List[str]:
     result: List[str] = []
     for item in items:
@@ -168,10 +202,15 @@ def build_priorities(
     focus_items: Sequence[str],
     latest_log: Optional[LatestLogInfo],
     latest_report: Optional[LatestReportInfo],
+    latest_subject_score: Optional[LatestSubjectScoreInfo],
     due_total: int,
     due_counts: Dict[str, int],
 ) -> List[str]:
     candidates: List[str] = []
+    if latest_subject_score and latest_subject_score["issues"]:
+        candidates.append(
+            f"最近一次{latest_subject_score['subject']}模拟（{latest_subject_score['date'].isoformat()} {latest_subject_score['paper']}）暴露：{latest_subject_score['issues']}"
+        )
     candidates.extend(focus_items[:3])
     if latest_log:
         candidates.extend(latest_log["blockers"][:2])
@@ -186,6 +225,7 @@ def build_priorities(
 def build_risks(
     latest_log: Optional[LatestLogInfo],
     latest_report: Optional[LatestReportInfo],
+    latest_subject_score: Optional[LatestSubjectScoreInfo],
     due_total: int,
     today: date,
     exam_day: Optional[date],
@@ -195,6 +235,10 @@ def build_risks(
         risks.append(f"到期复习已积压 {due_total} 道，今天不先清旧题的话会继续滚大。")
     if latest_log and latest_log["blockers"]:
         risks.append(f"最近一次学习记录里最明显的卡点是：{latest_log['blockers'][0]}")
+    if latest_subject_score and latest_subject_score["issues"]:
+        risks.append(
+            f"最近一次{latest_subject_score['subject']}模拟还没消化：{latest_subject_score['issues']}"
+        )
     if latest_report and latest_report["issues"]:
         risks.append(f"最近一次复盘/模考还在提示：{latest_report['issues'][0]}")
     if exam_day is not None:
@@ -359,10 +403,11 @@ def main() -> None:
     subject_targets = parse_subject_targets(archive_text)
     latest_log = latest_log_info(obsidian_root)
     latest_report = latest_report_info(obsidian_root)
+    latest_subject_score = latest_subject_score_info(archive_text)
     due_total, due_counts = count_due_reviews(obsidian_root, today, SCORE_SUBJECTS)
 
-    priorities = build_priorities(focus_items, latest_log, latest_report, due_total, due_counts)
-    risks = build_risks(latest_log, latest_report, due_total, today, exam_day)
+    priorities = build_priorities(focus_items, latest_log, latest_report, latest_subject_score, due_total, due_counts)
+    risks = build_risks(latest_log, latest_report, latest_subject_score, due_total, today, exam_day)
     if not risks:
         risks = ["当前没有突出的系统性风险，重点是把计划、复习和日志连续性保持住。"]
     first_step = build_first_step(archive_steps, latest_report, due_total, due_counts, latest_log)

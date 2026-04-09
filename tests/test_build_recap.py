@@ -205,3 +205,16 @@ def test_week_recap_supports_legacy_indented_score_heading(vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["score_count"] == 1
+
+
+def test_week_recap_includes_subject_score_tables(sample_archive, vault_root):
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["score_count"] == 2
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "数学一·模拟：1 次，最近 105/150，完成率 70.0%。" in content
+    assert "408·模拟：1 次，最近 101/150，完成率 67.3%。" in content

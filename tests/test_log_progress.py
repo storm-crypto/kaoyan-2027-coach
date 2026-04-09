@@ -93,6 +93,8 @@ def test_log_progress_subject_score_syncs_archive_and_log(sample_archive, vault_
         str(vault_root),
         "--date", "2026-03-23",
         "--topic", "数学和 408 各做了一套模拟",
+        "--score", "数学一|真题训练|李林6套卷2|118|150|主要问题：级数、矩阵对角化、积分不等式；细节会崩但比上周稳",
+        "--score", "408|真题训练|2024 真题|120|150|模块错题：DS 3 / CO 2 / OS 1 / CN 3；主要问题：DS 排序综合、CN 运输层；真题二刷依然有盲区",
         "--subject-score", "数学一|李林6套卷2|118|级数、矩阵对角化、积分不等式|细节会崩但比上周稳",
         "--subject-score", "408|2024 真题|3|2|1|3|120|DS 排序综合、CN 运输层|真题二刷依然有盲区",
     ])
@@ -104,8 +106,10 @@ def test_log_progress_subject_score_syncs_archive_and_log(sample_archive, vault_
     assert "408模拟成绩追踪" in data["updated_sections"]
     assert data["score_count"] == 2
     log_text = (vault_root / "学习日志" / "2026-03-23.md").read_text(encoding="utf-8")
-    assert "| 数学一 | 模拟 | 李林6套卷2 | 118 | 150 | 78.7% | 主要问题：级数、矩阵对角化、积分不等式；细节会崩但比上周稳 |" in log_text
-    assert "| 408 | 模拟 | 2024 真题 | 120 | 150 | 80.0% | 模块错题：DS 3 / CO 2 / OS 1 / CN 3；主要问题：DS 排序综合、CN 运输层；真题二刷依然有盲区 |" in log_text
+    assert "| 数学一 | 真题训练 | 李林6套卷2 | 118 | 150 | 78.7% | 主要问题：级数、矩阵对角化、积分不等式；细节会崩但比上周稳 |" in log_text
+    assert "| 408 | 真题训练 | 2024 真题 | 120 | 150 | 80.0% | 模块错题：DS 3 / CO 2 / OS 1 / CN 3；主要问题：DS 排序综合、CN 运输层；真题二刷依然有盲区 |" in log_text
+    assert "| 数学一 | 模拟 | 李林6套卷2 | 118 | 150 | 78.7% |" not in log_text
+    assert "| 408 | 模拟 | 2024 真题 | 120 | 150 | 80.0% |" not in log_text
     archive_text = sample_archive.read_text(encoding="utf-8")
     assert "| 2026-03-23 | 李林6套卷2 | 118 | 级数、矩阵对角化、积分不等式 | 细节会崩但比上周稳 |" in archive_text
     assert "| 2026-03-23 | 2024 真题 | 3 | 2 | 1 | 3 | 120 | DS 排序综合、CN 运输层 | 真题二刷依然有盲区 |" in archive_text

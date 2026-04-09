@@ -218,3 +218,25 @@ def test_week_recap_includes_subject_score_tables(sample_archive, vault_root):
     content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·模拟：1 次，最近 105/150，完成率 70.0%。" in content
     assert "408·模拟：1 次，最近 101/150，完成率 67.3%。" in content
+
+
+def test_week_recap_dedupes_progress_score_and_subject_table(sample_archive, vault_root):
+    rc, _, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-03-23",
+        "--topic", "数学真题训练",
+        "--score", "数学一|真题训练|2009年真题|145|150|中值定理不太会",
+        "--subject-score", "数学一|2009年真题|145|中值定理不太会|",
+    ])
+
+    assert rc == 0
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-23"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["score_count"] == 1
+    content = (vault_root / "复盘报告" / "2026-W13-周复盘.md").read_text(encoding="utf-8")
+    assert "数学一·真题训练：1 次，最近 145/150，完成率 96.7%。" in content

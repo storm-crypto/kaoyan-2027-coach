@@ -292,36 +292,6 @@ def parse_subject_score(value):
     json_error(f"不支持的 subject-score 科目: {subject}")
 
 
-def subject_score_to_training_score(item):
-    note_parts = []
-    if item["subject"] == "数学一":
-        note_parts.append(f"主要问题：{item['issues']}")
-        if item["note"]:
-            note_parts.append(item["note"])
-        return "数学一|模拟|{paper}|{score}|150|{note}".format(
-            paper=item["paper"],
-            score=format_number(item["score"]),
-            note="；".join(note_parts),
-        )
-
-    note_parts.append(
-        "模块错题：DS {ds} / CO {co} / OS {os} / CN {cn}".format(
-            ds=format_number(item["ds"]),
-            co=format_number(item["co"]),
-            os=format_number(item["os"]),
-            cn=format_number(item["cn"]),
-        )
-    )
-    note_parts.append(f"主要问题：{item['issues']}")
-    if item["note"]:
-        note_parts.append(item["note"])
-    return "408|模拟|{paper}|{total}|150|{note}".format(
-        paper=item["paper"],
-        total=format_number(item["total"]),
-        note="；".join(note_parts),
-    )
-
-
 def _extract_log_bullets(text, heading):
     """从已有日志中提取某区块的 bullet 列表项。"""
     pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
@@ -408,10 +378,6 @@ def main():
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     log_day = parse_date(args.log_date)
     parsed_subject_scores = [parse_subject_score(item) for item in args.subject_score]
-    for item in parsed_subject_scores:
-        derived = subject_score_to_training_score(item)
-        if derived not in args.score:
-            args.score.append(derived)
 
     log_dir = Path(obsidian_root) / "学习日志"
     log_dir.mkdir(parents=True, exist_ok=True)

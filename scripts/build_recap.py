@@ -108,6 +108,28 @@ def parse_score_records(text, log_day):
     return records
 
 
+def normalize_score_identity(record):
+    return (
+        record["date"],
+        "数学一" if record["subject"] == "数学" else record["subject"],
+        re.sub(r"\s+", "", record["source"]),
+        round(record["score"], 4),
+        round(record["total"], 4),
+    )
+
+
+def merge_score_records(primary_records, extra_records):
+    seen = {normalize_score_identity(record) for record in primary_records}
+    merged = list(primary_records)
+    for record in extra_records:
+        identity = normalize_score_identity(record)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        merged.append(record)
+    return merged
+
+
 def collect_logs(obsidian_root, start, end):
     """扫描日期范围内的学习日志。"""
     log_dir = Path(obsidian_root) / "学习日志"
@@ -306,7 +328,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     template_name = "月复盘模板.md" if period == "month" else "周复盘模板.md"
 
     highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
-    score_records.extend(collect_archive_subject_scores(obsidian_root, start, end))
+    score_records = merge_score_records(score_records, collect_archive_subject_scores(obsidian_root, start, end))
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
     score_stats, score_subject_counts = build_score_summary(score_records, period_name)
     subject_signal = infer_subject_mentions(highlights + blockers)

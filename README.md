@@ -64,7 +64,7 @@ source ~/.zshrc
 /wrong 数学一 这道题我卡在第一步
 /progress 今天做了哪些内容...
 /score 408 卷子=2024真题 DS=3 CO=2 OS=1 CN=3 总分=120 主要问题=DS排序综合、CN运输层
-/chapter_grill_import /path/to/voyager-export.json
+/chapter_grill_import latest
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
@@ -84,6 +84,16 @@ source ~/.zshrc
 - `templates/`：Obsidian Markdown 模板
 - `references/`：数学一和 408 的专项答疑参考，以及 Gemini prompt 真源
 - `tests/`：主要脚本的回归测试
+
+## Gemini 导入收件箱
+
+- 默认导入收件箱固定为 `资料库/408/gemini_kaoda/`
+- Voyager 导出的 JSON 建议统一放到这个目录
+- 之后可以直接执行：
+
+```text
+/chapter_grill_import latest
+```
 
 ## 开发验证
 

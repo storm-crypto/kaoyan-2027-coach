@@ -30,6 +30,7 @@ Kaoyan_2027_Prep/
 ├── 学习日志/YYYY-MM-DD.md    ← /progress 写入
 ├── 周计划/YYYY-Www.md        ← /plan_week 写入
 ├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /chapter_grill_import 写入
+├── 资料库/408/gemini_kaoda/*.json  ← Voyager 导出收件箱
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
 ├── 知识笔记/                 ← 可选
 └── 复盘报告/                 ← /recalibrate /recap 写入
@@ -254,10 +255,13 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 这个入口只支持 `408`，只吃 `Voyager` 导出的 `gemini-voyager.chat.v1` JSON
 2. 正常流程：你先在 Gemini 里完成整章拷打，结束时输入 `结束本章，按模板总评`
 3. Gemini 应按 `references/gemini-prompts/408-chapter-grill.md` 的结束协议输出固定标签总评块
-4. 调用 `import_chapter_grill.py` 读取 `items[].user / items[].assistant`
-5. 若检测到固定总评块，则高置信导入；未检测到时退化为 transcript 弱结构化导入，并在报告里标记 `import_confidence=low`
-6. 章节掌握报告写入 `章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md`
-7. 仅根据 `【可映射考点】` 自动回写 `知识地图/408.md`；匹配不唯一时跳过，不强写
+4. Voyager 导出的 JSON 默认收件箱固定为 `资料库/408/gemini_kaoda/`
+5. 调用 `import_chapter_grill.py` 读取 `items[].user / items[].assistant`；传 `latest` 或省略路径时，自动抓收件箱里最新的 JSON
+6. 若检测到固定总评块，则高置信导入；未检测到时退化为 transcript 弱结构化导入，并在报告里标记 `import_confidence=low`
+7. 章节掌握报告写入 `章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md`
+8. 仅根据 `【可映射考点】` 自动回写 `知识地图/408.md`；匹配不唯一时跳过，不强写
+9. 导入完成后，自动调用 `/progress` 对应脚本，把本次章节拷打摘要并入当天学习日志
+10. `/recap` 会继续扫描 `章节掌握报告/`，把章节诊断汇入周/月复盘
 
 ### `/test [章节]` — 知识测试
 

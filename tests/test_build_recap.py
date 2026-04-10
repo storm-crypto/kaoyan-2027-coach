@@ -61,6 +61,37 @@ def _write_review_card(vault_root, history_dates):
     card.write_text(content, encoding="utf-8")
 
 
+def _write_chapter_report(vault_root, day, module, chapter, mastery, unstable, illusion, gap):
+    report_dir = vault_root / "章节掌握报告" / "408" / module
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"{day}-{chapter}.md"
+    report_path.write_text(textwrap.dedent(f"""\
+        ---
+        type: chapter_grill_report
+        subject: 408
+        module: {module}
+        chapter: {chapter}
+        session_date: {day}
+        source: gemini-voyager
+        import_confidence: high
+        overall_mastery: {mastery}
+        knowledge_map_updated: 1
+        knowledge_map_skipped: 0
+        ---
+
+        # 章节掌握报告：{chapter}
+
+        ## 半会但不稳的点
+        - {unstable}
+
+        ## 不会或有能力错觉的点
+        - {illusion}
+
+        ## 关键漏洞
+        - {gap}
+    """), encoding="utf-8")
+
+
 def test_week_recap(vault_root):
     """周复盘：扫描本周一到周日的日志和错题卡历史。"""
     _write_log(
@@ -218,6 +249,33 @@ def test_week_recap_includes_subject_score_tables(sample_archive, vault_root):
     content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·模拟：1 次，最近 105/150，完成率 70.0%。" in content
     assert "408·模拟：1 次，最近 101/150，完成率 67.3%。" in content
+
+
+def test_week_recap_includes_chapter_grill_reports(vault_root):
+    _write_log(vault_root, "2026-03-18", 2, "计组看了一章", "Cache 还是混")
+    _write_chapter_report(
+        vault_root,
+        "2026-03-19",
+        "计算机组成原理",
+        "01-计算机系统概述",
+        "半会",
+        "性能指标的推理链条不稳",
+        "Cache 只有口头印象，没有机制图景",
+        "CPU 时间和 CPI 关系总说反",
+    )
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["period"] == "week"
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "## 章节诊断" in content
+    assert "本周新增 1 份章节掌握报告" in content
+    assert "计算机组成原理 1 章" in content
+    assert "CPU 时间和 CPI 关系总说反" in content
 
 
 def test_week_recap_dedupes_progress_score_and_subject_table(sample_archive, vault_root):

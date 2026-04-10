@@ -262,3 +262,38 @@ def test_import_chapter_grill_uses_incrementing_suffix(vault_root, tmp_path):
     path2 = json.loads(out2)["report_path"]
     assert path1.endswith("2026-04-10-01-计算机系统概述.md")
     assert path2.endswith("2026-04-10-01-计算机系统概述-02.md")
+
+
+def test_import_chapter_grill_reads_latest_from_fixed_inbox_and_syncs_log(vault_root):
+    _write_408_knowledge_map(vault_root)
+    inbox = vault_root / "资料库" / "408" / "gemini_kaoda"
+    older = inbox / "older.json"
+    newer = inbox / "newer.json"
+    older.write_text(json.dumps({
+        "format": "gemini-voyager.chat.v1",
+        "exportedAt": "2026-04-09T02:41:32.818Z",
+        "count": 1,
+        "title": "older",
+        "items": [{"user": "结束本章，按模板总评", "assistant": _structured_assistant_text()}],
+    }, ensure_ascii=False), encoding="utf-8")
+    newer.write_text(json.dumps({
+        "format": "gemini-voyager.chat.v1",
+        "exportedAt": "2026-04-13T02:41:32.818Z",
+        "count": 1,
+        "title": "newer",
+        "items": [{"user": "结束本章，按模板总评", "assistant": _structured_assistant_text()}],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    rc, out, _ = run_script("import_chapter_grill.py", [
+        str(vault_root), "latest"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["import_source"].endswith("newer.json")
+    log_path = vault_root / "学习日志" / "2026-04-13.md"
+    assert log_path.exists()
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "408 章节拷打：计算机组成原理 / 01 计算机系统概述" in log_text
+    assert "性能指标（CPI/MIPS/主频）的推理链条还不稳" in log_text
+    assert "24小时内：重讲一次 CPU 执行时间公式" in log_text

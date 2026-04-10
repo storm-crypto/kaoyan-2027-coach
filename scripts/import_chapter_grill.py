@@ -3,13 +3,14 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from archive_ops import load_template_markdown
-from env_util import atomic_write, json_error, resolve_obsidian_root
+from env_util import atomic_write, json_error, resolve_obsidian_root, resolve_skill_root
 
 STRUCTURED_SECTIONS = (
     "章节信息",
@@ -38,9 +39,10 @@ MODULE_PATTERNS = (
     ("计算机网络", ("计算机网络", "计网")),
     ("数据结构", ("数据结构",)),
 )
+DEFAULT_IMPORT_SUBDIR = Path("资料库") / "408" / "gemini_kaoda"
 
 
-def parse_args() -> Tuple[Optional[str], str, Optional[str]]:
+def parse_args() -> Tuple[Optional[str], Optional[str], Optional[str]]:
     raw_args = sys.argv[1:]
     obsidian_root_arg = None
     voyager_json_path = None
@@ -57,9 +59,6 @@ def parse_args() -> Tuple[Optional[str], str, Optional[str]]:
     parser = argparse.ArgumentParser(description="导入 Gemini Voyager 聊天记录，生成章节掌握报告")
     parser.add_argument("--today", help="导入日期 YYYY-MM-DD；默认取导出时间的日期")
     args = parser.parse_args(raw_args)
-
-    if not voyager_json_path:
-        json_error("缺少 Voyager JSON 路径：用法 python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]")
     return obsidian_root_arg, voyager_json_path, args.today
 
 
@@ -89,6 +88,37 @@ def load_voyager_payload(path: Path) -> Dict[str, object]:
     if not isinstance(items, list) or not items:
         json_error("Voyager 导出文件缺少有效的 items 对话数组")
     return payload
+
+
+def resolve_import_inbox(obsidian_root: Path) -> Path:
+    return obsidian_root / DEFAULT_IMPORT_SUBDIR
+
+
+def resolve_voyager_path(obsidian_root: Path, raw_path: Optional[str]) -> Path:
+    inbox = resolve_import_inbox(obsidian_root)
+
+    if raw_path in {None, "", "latest"}:
+        if not inbox.exists():
+            json_error(f"固定收件箱不存在: {inbox}")
+        candidates = [path for path in inbox.glob("*.json") if path.is_file()]
+        if not candidates:
+            json_error(f"固定收件箱里没有可导入的 JSON: {inbox}")
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    candidate = Path(raw_path)
+    if candidate.exists():
+        return candidate
+
+    inbox_candidate = inbox / raw_path
+    if inbox_candidate.exists():
+        return inbox_candidate
+
+    if candidate.suffix != ".json":
+        alt_candidate = inbox / f"{raw_path}.json"
+        if alt_candidate.exists():
+            return alt_candidate
+
+    json_error(f"找不到 Voyager JSON：{raw_path}；默认收件箱为 {inbox}")
 
 
 def normalize_module_name(text: str) -> str:
@@ -451,6 +481,69 @@ def render_map_results(updated: Sequence[Dict[str, str]], skipped: Sequence[Dict
     return "\n".join(lines)
 
 
+def sync_log_progress(obsidian_root: Path, session_date: str, summary: Dict[str, object]) -> Dict[str, object]:
+    script_path = resolve_skill_root() / "scripts" / "log_progress.py"
+    topic = f"408 章节拷打：{summary['module']} / {summary['chapter']}"
+    command = [
+        "python3",
+        str(script_path),
+        str(obsidian_root),
+        "--date", session_date,
+        "--topic", topic,
+        "--mode", "章节拷打 / 费曼检查",
+        "--coach-note", str(summary["one_liner"]),
+    ]
+
+    learned_items = [str(item) for item in summary["mastered"][:5]]
+    if not learned_items:
+        learned_items = [f"{summary['module']}《{summary['chapter']}》完成一次章节拷打导入。"]
+    for item in learned_items:
+        command.extend(["--learned", item])
+
+    blockers = []
+    blockers.extend(str(item) for item in summary["unstable"][:3])
+    blockers.extend(str(item) for item in summary["illusions"][:3])
+    blockers.extend(str(item) for item in summary["critical_gaps"][:2])
+    if not blockers:
+        blockers.append("本次章节拷打未显式总结卡点，建议下次在 Gemini 里补固定总评。")
+    seen = set()
+    deduped_blockers = []
+    for item in blockers:
+        if item not in seen:
+            seen.add(item)
+            deduped_blockers.append(item)
+    for item in deduped_blockers[:5]:
+        command.extend(["--blocker", item])
+
+    mastered_rows = [f"{item}|中高" for item in summary["mastered"][:3]]
+    for item in mastered_rows:
+        command.extend(["--mastered", item])
+
+    review_items = []
+    for label in ("24小时内", "3天内", "下次开始前"):
+        value = str(summary["next_actions"].get(label, "")).strip()
+        if value:
+            review_items.append(f"{label}：{value}")
+    if not review_items:
+        review_items.append("回看这章里最容易被继续追问的那个点。")
+    for item in review_items[:5]:
+        command.extend(["--review", item])
+
+    result = subprocess.run(command, capture_output=True, text=True, cwd=str(script_path.parent))
+    if result.returncode != 0:
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            message = result.stderr.strip() or result.stdout.strip() or "未知错误"
+            json_error(f"同步学习日志失败: {message}")
+        json_error(f"同步学习日志失败: {payload.get('message', '未知错误')}")
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        json_error("同步学习日志失败：log_progress.py 返回了不可解析的结果")
+
+
 def build_report_content(
     summary: Dict[str, object],
     session_date: str,
@@ -502,7 +595,8 @@ def pick_output_path(obsidian_root: Path, module: str, session_date: str, chapte
 def main() -> None:
     obsidian_root_arg, voyager_json_path, today_arg = parse_args()
     obsidian_root = resolve_obsidian_root(obsidian_root_arg)
-    payload = load_voyager_payload(Path(voyager_json_path))
+    resolved_voyager_path = resolve_voyager_path(obsidian_root, voyager_json_path)
+    payload = load_voyager_payload(resolved_voyager_path)
     items = payload["items"]
     session_date = parse_export_date(today_arg, str(payload.get("exportedAt", "") or ""))
 
@@ -521,6 +615,7 @@ def main() -> None:
         session_date,
         summary["mapping_items"],
     )
+    log_sync = sync_log_progress(obsidian_root, session_date, summary)
     content = build_report_content(summary, session_date, import_confidence, evidence_quotes, updated, skipped)
     output_path = pick_output_path(obsidian_root, str(summary["module"]), session_date, str(summary["chapter"]))
     atomic_write(output_path, content)
@@ -532,7 +627,10 @@ def main() -> None:
         "chapter": summary["chapter"],
         "overall_mastery": summary["overall_mastery"],
         "import_confidence": import_confidence,
+        "import_source": str(resolved_voyager_path),
+        "import_inbox": str(resolve_import_inbox(obsidian_root)),
         "report_path": str(output_path),
+        "log_path": log_sync["path"],
         "knowledge_map_updated": updated,
         "knowledge_map_skipped": skipped,
     }, ensure_ascii=False, indent=2))

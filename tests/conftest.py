@@ -19,6 +19,8 @@ def vault_root(tmp_path):
         "学习日志",
         "复盘报告",
         "周计划",
+        "章节掌握报告/408",
+        "资料库/408/gemini_kaoda",
     ]
     for d in dirs:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)

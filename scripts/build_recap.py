@@ -230,6 +230,76 @@ def collect_review_stats(obsidian_root, start, end):
     return sum(status_counts.values()), status_counts, subject_counts
 
 
+def collect_chapter_grill_stats(obsidian_root, start, end):
+    root = Path(obsidian_root) / "章节掌握报告" / "408"
+    if not root.exists():
+        return {
+            "count": 0,
+            "module_counts": {},
+            "mastery_counts": {"不会": 0, "半会": 0, "会": 0},
+            "highlights": [],
+            "blockers": [],
+        }
+
+    module_counts = {}
+    mastery_counts = {"不会": 0, "半会": 0, "会": 0}
+    highlights = []
+    blockers = []
+
+    for md_file in root.rglob("*.md"):
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        fm, body, _ = parse_frontmatter(text)
+        session_date = str(fm.get("session_date", "")).strip()
+        if not session_date:
+            continue
+        try:
+            report_day = date.fromisoformat(session_date)
+        except ValueError:
+            continue
+        if not (start <= report_day <= end):
+            continue
+        module = str(fm.get("module", "未标注模块")).strip() or "未标注模块"
+        chapter = str(fm.get("chapter", md_file.stem)).strip() or md_file.stem
+        mastery = str(fm.get("overall_mastery", "")).strip()
+        if mastery in mastery_counts:
+            mastery_counts[mastery] += 1
+        module_counts[module] = module_counts.get(module, 0) + 1
+        highlights.append(f"408 {module}《{chapter}》完成 1 次章节拷打（总体：{mastery or '未标注'}）。")
+        blockers.extend(extract_list_items(body, "半会但不稳的点"))
+        blockers.extend(extract_list_items(body, "不会或有能力错觉的点"))
+        blockers.extend(extract_list_items(body, "关键漏洞"))
+
+    return {
+        "count": sum(module_counts.values()),
+        "module_counts": module_counts,
+        "mastery_counts": mastery_counts,
+        "highlights": highlights,
+        "blockers": blockers,
+    }
+
+
+def build_chapter_stats(chapter_stats, period_name):
+    if chapter_stats["count"] == 0:
+        return f"- 本{period_name}没有新的章节拷打报告。"
+
+    module_summary = "、".join(
+        f"{module} {count} 章"
+        for module, count in sorted(chapter_stats["module_counts"].items(), key=lambda item: item[1], reverse=True)
+    )
+    blocker_lines = chapter_stats["blockers"][:3]
+    lines = [
+        f"- 本{period_name}新增 {chapter_stats['count']} 份章节掌握报告。",
+        f"- 模块分布：{module_summary}。",
+        "总体掌握分布：不会 {不会} / 半会 {半会} / 会 {会}。".format(**chapter_stats["mastery_counts"]),
+    ]
+    if blocker_lines:
+        lines.append("- 章节拷打高频漏洞：" + "；".join(blocker_lines) + "。")
+    return "\n".join(lines)
+
+
 def build_score_summary(score_records, period_name):
     if not score_records:
         return f"- 本{period_name}没有结构化记录训练成绩；后续可在 `/progress` 里补成绩项。", {}
@@ -328,10 +398,14 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     template_name = "月复盘模板.md" if period == "month" else "周复盘模板.md"
 
     highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
+    chapter_stats = collect_chapter_grill_stats(obsidian_root, start, end)
+    highlights = highlights + chapter_stats["highlights"]
+    blockers = blockers + chapter_stats["blockers"]
     score_records = merge_score_records(score_records, collect_archive_subject_scores(obsidian_root, start, end))
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
     score_stats, score_subject_counts = build_score_summary(score_records, period_name)
     subject_signal = infer_subject_mentions(highlights + blockers)
+    score_subject_counts["408"] = score_subject_counts.get("408", 0) + chapter_stats["count"]
     combined = {
         s: subject_counts[s] + subject_signal.get(s, 0) + score_subject_counts.get(s, 0)
         for s in PLAN_SUBJECTS
@@ -362,6 +436,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "total_hours": recap_hours(total_hours),
         "active_subjects": active_subjects_text,
         "highlights": build_bullets(highlights, f"- 本{period_name}日志产出较少，优先补齐关键学习记录。"),
+        "chapter_stats": build_chapter_stats(chapter_stats, period_name),
         "score_stats": score_stats,
         "review_stats": review_stats,
         "blockers": build_bullets(blockers, f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"),

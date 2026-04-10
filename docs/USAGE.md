@@ -565,7 +565,7 @@ Kaoyan_2027_Prep/
 - `复盘报告/YYYY-Www-周复盘.md`
 - `复盘报告/YYYY-MM-月复盘.md`
 
-### `/chapter_grill_import [voyager_json_path]`
+### `/chapter_grill_import [voyager_json_path|latest]`
 
 作用：
 
@@ -582,6 +582,7 @@ Kaoyan_2027_Prep/
 前置要求：
 
 - 使用 Voyager 导出完整聊天 JSON
+- 默认把 JSON 放到 `资料库/408/gemini_kaoda/`
 - Gemini 结束时最好补一句：`结束本章，按模板总评`
 - Gemini 的 prompt 建议直接使用：
   - `references/gemini-prompts/408-chapter-grill.md`
@@ -589,7 +590,11 @@ Kaoyan_2027_Prep/
 示例：
 
 ```text
-/chapter_grill_import /path/to/gemini-voyager-export.json
+/chapter_grill_import latest
+```
+
+```text
+/chapter_grill_import 2026-04-10-计组第一章.json
 ```
 
 会做什么：
@@ -599,6 +604,7 @@ Kaoyan_2027_Prep/
 - 优先提取最后一次固定标签总评块
 - 生成 `章节掌握报告/408/<模块>/YYYY-MM-DD-<章节名>.md`
 - 根据 `【可映射考点】` 自动回写 `知识地图/408.md`
+- 自动把本次章节拷打摘要并入当天 `学习日志/YYYY-MM-DD.md`
 
 会写到哪里：
 
@@ -610,6 +616,7 @@ Kaoyan_2027_Prep/
 - v1 只支持 `408`
 - 如果 Gemini 没有输出固定标签总评块，仍可导入，但会退化为弱结构化分析
 - `【可映射考点】` 写得越接近知识地图叶子节点，自动回写越稳
+- `/recap` 会继续扫描 `章节掌握报告/`，所以这类导入会进入你的周/月复盘
 
 ### `/test [章节]`
 

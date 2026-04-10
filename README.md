@@ -88,7 +88,7 @@ source ~/.zshrc
 ## Gemini 导入收件箱
 
 - 默认导入收件箱固定为 `资料库/408/gemini_kaoda/`
-- Voyager 导出的 JSON 建议统一放到这个目录
+- Voyager 导出的 JSON 建议统一放到这个目录；支持继续按 `计组/数据结构/操作系统/计网` 分子目录
 - 之后可以直接执行：
 
 ```text

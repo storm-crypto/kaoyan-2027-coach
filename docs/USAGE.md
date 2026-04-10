@@ -584,7 +584,7 @@ Kaoyan_2027_Prep/
 前置要求：
 
 - 使用 Voyager 导出完整聊天 JSON
-- 默认把 JSON 放到 `资料库/408/gemini_kaoda/`
+- 默认把 JSON 放到 `资料库/408/gemini_kaoda/`，也支持继续按 `计组/数据结构/操作系统/计网` 分子目录管理
 - Gemini 结束时最好补一句：`结束本章，按模板总评`
 - Gemini 的 prompt 建议直接使用：
   - `references/gemini-prompts/408-chapter-grill.md`
@@ -604,6 +604,7 @@ Kaoyan_2027_Prep/
 - 校验导出文件是否为 `gemini-voyager.chat.v1`
 - 读取 `items[].user / items[].assistant`
 - 优先提取最后一次固定标签总评块
+- 传 `latest` 时，递归扫描 `资料库/408/gemini_kaoda/` 及其子目录，自动抓最新的 JSON
 - 生成 `章节掌握报告/408/<模块>/YYYY-MM-DD-<章节名>.md`
 - 根据 `【可映射考点】` 自动回写 `知识地图/408.md`
 - 自动把本次章节拷打摘要并入当天 `学习日志/YYYY-MM-DD.md`

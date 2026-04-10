@@ -268,7 +268,9 @@ def test_import_chapter_grill_reads_latest_from_fixed_inbox_and_syncs_log(vault_
     _write_408_knowledge_map(vault_root)
     inbox = vault_root / "资料库" / "408" / "gemini_kaoda"
     older = inbox / "older.json"
-    newer = inbox / "newer.json"
+    subdir = inbox / "计组"
+    subdir.mkdir(parents=True, exist_ok=True)
+    newer = subdir / "newer.json"
     older.write_text(json.dumps({
         "format": "gemini-voyager.chat.v1",
         "exportedAt": "2026-04-09T02:41:32.818Z",
@@ -291,6 +293,7 @@ def test_import_chapter_grill_reads_latest_from_fixed_inbox_and_syncs_log(vault_
     assert rc == 0
     data = json.loads(out)
     assert data["import_source"].endswith("newer.json")
+    assert "/计组/" in data["import_source"]
     log_path = vault_root / "学习日志" / "2026-04-13.md"
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")

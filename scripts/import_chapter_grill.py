@@ -100,7 +100,7 @@ def resolve_voyager_path(obsidian_root: Path, raw_path: Optional[str]) -> Path:
     if raw_path in {None, "", "latest"}:
         if not inbox.exists():
             json_error(f"固定收件箱不存在: {inbox}")
-        candidates = [path for path in inbox.glob("*.json") if path.is_file()]
+        candidates = [path for path in inbox.rglob("*.json") if path.is_file()]
         if not candidates:
             json_error(f"固定收件箱里没有可导入的 JSON: {inbox}")
         return max(candidates, key=lambda path: path.stat().st_mtime)

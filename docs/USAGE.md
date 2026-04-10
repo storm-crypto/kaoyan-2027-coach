@@ -565,7 +565,9 @@ Kaoyan_2027_Prep/
 - `复盘报告/YYYY-Www-周复盘.md`
 - `复盘报告/YYYY-MM-月复盘.md`
 
-### `/chapter_grill_import [voyager_json_path|latest]`
+### `/grill [voyager_json_path|latest]`
+
+`/chapter_grill_import` 仍可用，但后续默认都用更短的 `/grill`。
 
 作用：
 
@@ -590,11 +592,11 @@ Kaoyan_2027_Prep/
 示例：
 
 ```text
-/chapter_grill_import latest
+/grill latest
 ```
 
 ```text
-/chapter_grill_import 2026-04-10-计组第一章.json
+/grill 2026-04-10-计组第一章.json
 ```
 
 会做什么：

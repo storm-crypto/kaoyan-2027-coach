@@ -208,7 +208,7 @@ def parse_structured_summary(text: str) -> Optional[Dict[str, object]]:
 
     subject = chapter_info.get("科目", "").strip()
     if subject != "408":
-        json_error(f"/chapter_grill_import v1 只支持 408，当前科目为: {subject or '未填写'}")
+        json_error(f"/grill v1 只支持 408，当前科目为: {subject or '未填写'}")
 
     overall_mastery = conclusion.get("总体掌握", "").strip()
     if overall_mastery not in MASTERY_VALUES:

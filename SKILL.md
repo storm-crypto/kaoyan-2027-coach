@@ -29,7 +29,7 @@ Kaoyan_2027_Prep/
 ├── 知识地图/{数学一,408,政治,英语一}.md  ← 按需读取
 ├── 学习日志/YYYY-MM-DD.md    ← /progress 写入
 ├── 周计划/YYYY-Www.md        ← /plan_week 写入
-├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /chapter_grill_import 写入
+├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /grill 写入
 ├── 资料库/408/gemini_kaoda/*.json  ← Voyager 导出收件箱
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
 ├── 知识笔记/                 ← 可选
@@ -250,7 +250,9 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 3. 输出产出、成绩趋势、复习统计、卡点和下一步建议
 4. 周复盘写入 `复盘报告/YYYY-Www-周复盘.md`，月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
 
-### `/chapter_grill_import [voyager_json_path]` — Gemini 章节拷打导入
+### `/grill [voyager_json_path|latest]` — Gemini 章节拷打导入
+
+`/chapter_grill_import` 作为兼容别名继续保留，但默认统一使用更短的 `/grill`。
 
 1. 这个入口只支持 `408`，只吃 `Voyager` 导出的 `gemini-voyager.chat.v1` JSON
 2. 正常流程：你先在 Gemini 里完成整章拷打，结束时输入 `结束本章，按模板总评`

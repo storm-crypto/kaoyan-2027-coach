@@ -10,7 +10,7 @@
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
 - `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、单科总表、复盘和策略校准
-- `/chapter_grill_import` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告
+- `/grill` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告（兼容旧写法 `/chapter_grill_import`）
 - 所有学习状态都外置到本地文件，跨 AI 工具可恢复
 
 ## 适合谁
@@ -64,7 +64,7 @@ source ~/.zshrc
 /wrong 数学一 这道题我卡在第一步
 /progress 今天做了哪些内容...
 /score 408 卷子=2024真题 DS=3 CO=2 OS=1 CN=3 总分=120 主要问题=DS排序综合、CN运输层
-/chapter_grill_import latest
+/grill latest
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
@@ -92,7 +92,7 @@ source ~/.zshrc
 - 之后可以直接执行：
 
 ```text
-/chapter_grill_import latest
+/grill latest
 ```
 
 ## 开发验证

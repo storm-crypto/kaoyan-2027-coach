@@ -565,6 +565,52 @@ Kaoyan_2027_Prep/
 - `复盘报告/YYYY-Www-周复盘.md`
 - `复盘报告/YYYY-MM-月复盘.md`
 
+### `/chapter_grill_import [voyager_json_path]`
+
+作用：
+
+- 导入 Gemini 对 408 某一章的整段拷打记录
+- 生成标准化章节掌握报告
+- 自动尝试回写 `知识地图/408.md`
+
+什么时候用：
+
+- 你已经在 Gemini 里用“苏格拉底 + 费曼”风格完成一整章复盘
+- 你希望把这次对练结果沉淀到本地 Obsidian
+- 你希望后续 `/test`、`/recap` 能更快读到这些薄弱点
+
+前置要求：
+
+- 使用 Voyager 导出完整聊天 JSON
+- Gemini 结束时最好补一句：`结束本章，按模板总评`
+- Gemini 的 prompt 建议直接使用：
+  - `references/gemini-prompts/408-chapter-grill.md`
+
+示例：
+
+```text
+/chapter_grill_import /path/to/gemini-voyager-export.json
+```
+
+会做什么：
+
+- 校验导出文件是否为 `gemini-voyager.chat.v1`
+- 读取 `items[].user / items[].assistant`
+- 优先提取最后一次固定标签总评块
+- 生成 `章节掌握报告/408/<模块>/YYYY-MM-DD-<章节名>.md`
+- 根据 `【可映射考点】` 自动回写 `知识地图/408.md`
+
+会写到哪里：
+
+- `章节掌握报告/408/<模块>/YYYY-MM-DD-<章节名>.md`
+- `知识地图/408.md`（仅限能安全匹配到唯一叶子考点的项）
+
+注意：
+
+- v1 只支持 `408`
+- 如果 Gemini 没有输出固定标签总评块，仍可导入，但会退化为弱结构化分析
+- `【可映射考点】` 写得越接近知识地图叶子节点，自动回写越稳
+
 ### `/test [章节]`
 
 作用：

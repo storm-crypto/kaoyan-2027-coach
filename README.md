@@ -1,6 +1,6 @@
 # Kaoyan 2027 Coach（考研 2027 全科答疑教练）
 
-面向 2027 考研的 Obsidian 驱动型 AI 学习教练。这个 skill 把建档、答疑、错题归档、间隔复习、今日/周计划、学习日志、周月复盘和模考校准串成一个可持续使用的闭环。
+面向 2027 考研的 Obsidian 驱动型 AI 学习教练。这个 skill 把建档、答疑、错题归档、间隔复习、今日/周计划、学习日志、周月复盘、模考校准和 Gemini 章节拷打导入串成一个可持续使用的闭环。
 
 ## 功能概览
 
@@ -10,6 +10,7 @@
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
 - `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、单科总表、复盘和策略校准
+- `/chapter_grill_import` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告
 - 所有学习状态都外置到本地文件，跨 AI 工具可恢复
 
 ## 适合谁
@@ -63,6 +64,7 @@ source ~/.zshrc
 /wrong 数学一 这道题我卡在第一步
 /progress 今天做了哪些内容...
 /score 408 卷子=2024真题 DS=3 CO=2 OS=1 CN=3 总分=120 主要问题=DS排序综合、CN运输层
+/chapter_grill_import /path/to/voyager-export.json
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
@@ -80,7 +82,7 @@ source ~/.zshrc
 - `SKILL.md`：skill 触发与行为规则
 - `scripts/`：建档、归档、复习、复盘等确定性脚本
 - `templates/`：Obsidian Markdown 模板
-- `references/`：数学一和 408 的专项答疑参考
+- `references/`：数学一和 408 的专项答疑参考，以及 Gemini prompt 真源
 - `tests/`：主要脚本的回归测试
 
 ## 开发验证

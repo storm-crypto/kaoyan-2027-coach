@@ -29,6 +29,7 @@ Kaoyan_2027_Prep/
 ├── 知识地图/{数学一,408,政治,英语一}.md  ← 按需读取
 ├── 学习日志/YYYY-MM-DD.md    ← /progress 写入
 ├── 周计划/YYYY-Www.md        ← /plan_week 写入
+├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /chapter_grill_import 写入
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
 ├── 知识笔记/                 ← 可选
 └── 复盘报告/                 ← /recalibrate /recap 写入
@@ -129,6 +130,7 @@ Kaoyan_2027_Prep/
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
+| `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `record_subject_score.py` | 记录数学一/408 单科模拟成绩总表 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
@@ -246,6 +248,16 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 汇总对应周期内的学习日志、结构化训练成绩、数学一/408 单科模拟总表和错题卡复习历史
 3. 输出产出、成绩趋势、复习统计、卡点和下一步建议
 4. 周复盘写入 `复盘报告/YYYY-Www-周复盘.md`，月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
+
+### `/chapter_grill_import [voyager_json_path]` — Gemini 章节拷打导入
+
+1. 这个入口只支持 `408`，只吃 `Voyager` 导出的 `gemini-voyager.chat.v1` JSON
+2. 正常流程：你先在 Gemini 里完成整章拷打，结束时输入 `结束本章，按模板总评`
+3. Gemini 应按 `references/gemini-prompts/408-chapter-grill.md` 的结束协议输出固定标签总评块
+4. 调用 `import_chapter_grill.py` 读取 `items[].user / items[].assistant`
+5. 若检测到固定总评块，则高置信导入；未检测到时退化为 transcript 弱结构化导入，并在报告里标记 `import_confidence=low`
+6. 章节掌握报告写入 `章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md`
+7. 仅根据 `【可映射考点】` 自动回写 `知识地图/408.md`；匹配不唯一时跳过，不强写
 
 ### `/test [章节]` — 知识测试
 

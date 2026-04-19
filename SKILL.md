@@ -80,6 +80,9 @@ Kaoyan_2027_Prep/
 - 传给 `create_wrong_card.py` 的 `--question`、`--option`、以及所有详解参数（`--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等）中，**所有数学公式必须用 `$...$` 或 `$$...$$` 包裹**，以确保 Obsidian 能正确渲染
 - 示例：写 `$f''(x) > 0$` 而非 `f''(x) > 0`；写 `$\frac{x_1+x_2}{2}$` 而非 `(x_1+x_2)/2`
 - 选项中的数学表达式同样必须用 LaTeX 包裹，例如 `(A) 若 $f(x) < 0$, $f''(x) > 0$，则 $f^2\left(\frac{x_1+x_2}{2}\right) < \frac{f^2(x_1)+f^2(x_2)}{2}$`
+- **落盘风格约束：正文解释默认优先使用行内公式 `$...$`；只有独立成行的推导式、变形链或最终结论才使用块公式 `$$...$$`**
+- 不要把 `$$...$$` 嵌进一句话中间；像“当 $x \to 0$ 时”“因为 $\sin x \sim x$”这种解释句都应使用行内公式
+- 文件名、frontmatter、tag 中不要放数学公式；这些位置只保留纯文本，公式只放正文
 
 **解析落盘硬约束（禁止遗漏）：**
 - **新建卡片时，必须一次性把完整解析通过 CLI 参数传给 `create_wrong_card.py`**，禁止先建骨架再手动补写

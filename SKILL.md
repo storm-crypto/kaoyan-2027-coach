@@ -84,6 +84,8 @@ Kaoyan_2027_Prep/
 **解析落盘硬约束（禁止遗漏）：**
 - **新建卡片时，必须一次性把完整解析通过 CLI 参数传给 `create_wrong_card.py`**，禁止先建骨架再手动补写
 - 正确流程：先在内部完成全部解析（考点判断、解法、错因、易错点、追问等），然后调用 `create_wrong_card.py` 时通过 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等参数一并写入
+- 新建卡片时，**初始 `status` 必须反映用户当前真实状态**：做错/答不上来用 `不会`，做对但解释不完整或主要靠记忆用 `半会`，做对且能清楚说明理由再用 `会`
+- 因此，调用 `create_wrong_card.py` 新建卡片时，默认应显式传 `--status`；如果已经判断是 `半会/会`，禁止先按 `不会` 建卡后再立刻调用 `update_card.py` 修正，否则会产生重复历史记录
 - 如果因为 CLI 参数长度限制导致无法一次传完，则在 `create_wrong_card.py` 返回路径后，**立即**用文件编辑工具将剩余解析写入对应区块，不得等用户提醒
 - 建卡完成后，检查卡片中是否还存在 "待补充" 占位符；如果有，说明解析未落盘，必须立刻补写
 
@@ -121,7 +123,7 @@ Kaoyan_2027_Prep/
 | `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
-| `create_wrong_card.py` | 新建错题卡，并保留题干/选项 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项]` |
+| `create_wrong_card.py` | 新建错题卡，并保留题干/选项 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |

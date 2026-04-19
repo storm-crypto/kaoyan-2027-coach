@@ -27,6 +27,7 @@
       [--knowledge-link 文本]
       [--memory-hook 文本]
       [--check-question 文本]
+      [--status 不会|半会|会]
       [--comment 简评]
       [--today YYYY-MM-DD]
 
@@ -44,7 +45,12 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from constants import SRS_DEFAULT_EASE_FACTOR
+from constants import (
+    SRS_DEFAULT_EASE_FACTOR,
+    SRS_EASE_REWARD_STEP,
+    SRS_GRADUATED_INTERVAL_DAYS,
+    SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
+)
 from env_util import atomic_write, json_error, resolve_obsidian_root
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
@@ -129,6 +135,12 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
         action="append",
         default=[],
         help="理解检查问题（数学一/408 通用），可重复传入",
+    )
+    parser.add_argument(
+        "--status",
+        default="不会",
+        choices=["不会", "半会", "会"],
+        help="新建卡片时的初始掌握状态，默认 不会",
     )
     parser.add_argument("--comment", default="首次归档", help="历史记录中的一句话简评")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
@@ -396,6 +408,16 @@ def build_detail_sections(subject: str, args: argparse.Namespace) -> str:
     return build_generic_detail_sections(args)
 
 
+def compute_initial_review_schedule(status: str) -> Tuple[int, float]:
+    if status == "不会":
+        return 1, SRS_DEFAULT_EASE_FACTOR
+    if status == "半会":
+        return max(int(1 * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), 2), SRS_DEFAULT_EASE_FACTOR
+    return min(max(int(1 * SRS_DEFAULT_EASE_FACTOR), 1), SRS_GRADUATED_INTERVAL_DAYS), (
+        SRS_DEFAULT_EASE_FACTOR + SRS_EASE_REWARD_STEP
+    )
+
+
 def build_card_body(
     subject: str,
     topic: str,
@@ -404,6 +426,7 @@ def build_card_body(
     question_lines: Sequence[str],
     option_lines: Sequence[str],
     detail_sections: str,
+    status: str,
     comment: str,
     today: str,
 ) -> str:
@@ -412,12 +435,12 @@ def build_card_body(
     subject_tag = SUBJECT_TAGS[subject]
 
     return (
-        f"\n#subject/{subject_tag} #topic/{topic_tag} #status/不会 #source/{source_tag}\n\n"
+        f"\n#subject/{subject_tag} #topic/{topic_tag} #status/{status} #source/{source_tag}\n\n"
         f"## {topic} — {source} — {question_id}\n\n"
         f"### 题目\n{render_bullet_block(question_lines, '待补题干')}\n\n"
         f"### 选项（如有）\n{render_bullet_block(option_lines, '无')}\n\n"
         f"{detail_sections}\n\n"
-        f"### 历史记录\n- {today} - 不会 - {comment.strip() or '首次归档'}\n"
+        f"### 历史记录\n- {today} - {status} - {comment.strip() or '首次归档'}\n"
     )
 
 
@@ -436,7 +459,8 @@ def main() -> None:
 
     today_obj = parse_today(args.today)
     today = today_obj.isoformat()
-    next_review = (today_obj + timedelta(days=1)).isoformat()
+    review_interval, ease_factor = compute_initial_review_schedule(args.status)
+    next_review = (today_obj + timedelta(days=review_interval)).isoformat()
 
     card_dir = (
         Path(obsidian_root)
@@ -462,10 +486,10 @@ def main() -> None:
         "first_wrong_at": today,
         "last_review_at": today,
         "wrong_count": "1",
-        "status": "不会",
+        "status": args.status,
         "next_review": next_review,
-        "review_interval": "1",
-        "ease_factor": f"{SRS_DEFAULT_EASE_FACTOR:.2f}",
+        "review_interval": str(review_interval),
+        "ease_factor": f"{ease_factor:.2f}",
     }
     key_order = [
         "source",
@@ -490,6 +514,7 @@ def main() -> None:
         question_lines=question_lines,
         option_lines=option_lines,
         detail_sections=detail_sections,
+        status=args.status,
         comment=args.comment,
         today=today,
     )

@@ -221,6 +221,36 @@ def test_create_wrong_card_renders_math_detailed_sections(vault_root):
     assert "2. 这题第一步为什么先查定理条件？" in content
 
 
+def test_create_wrong_card_respects_initial_status_without_extra_history(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "复合极限",
+        "--source", "李林",
+        "--question-id", "qid-123456abcdef",
+        "--question", "求极限并说明理由。",
+        "--point-judgment", "复合极限题，先看外层结构。",
+        "--first-step", "先识别是否能用中值定理降成内层差。",
+        "--formal-solution", "按中值定理展开后再做等价替换。",
+        "--mistake-analysis", "答案能对，但替换依据不够稳。",
+        "--pitfall", "不要先写成不会再补成半会。",
+        "--next-time", "建卡时直接使用真实初始状态。",
+        "--check-question", "为什么这题更适合记成半会？",
+        "--status", "半会",
+        "--comment", "答案能对，但依据还不够稳。",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    card_path = Path(json.loads(out)["path"])
+    content = card_path.read_text(encoding="utf-8")
+    assert "status: 半会" in content
+    assert "#status/半会" in content
+    assert "- 2026-03-23 - 半会 - 答案能对，但依据还不够稳。" in content
+    assert "- 2026-03-23 - 不会 -" not in content
+
+
 def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),

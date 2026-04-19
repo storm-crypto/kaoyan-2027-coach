@@ -64,6 +64,7 @@ BOOLEAN_OPTION_RE = re.compile(r"^[ \t]{0,4}(?P<label>正确|错误|True|False)(
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
 LATEX_SEGMENT_RE = re.compile(r"\$\$.*?\$\$|\$(?!\$).*?(?<!\$)\$", re.S)
+DISPLAY_MATH_SEGMENT_RE = re.compile(r"\$\$.*?\$\$", re.S)
 TAG_VALUE_MAX_LENGTH = 32
 PLACEHOLDER_TOKENS = ("待补充", "待补题干")
 UNWRAPPED_MATH_PATTERNS = (
@@ -311,6 +312,16 @@ def strip_latex_segments(text: str) -> str:
     return LATEX_SEGMENT_RE.sub(" ", text)
 
 
+def has_inline_display_math_text(text: str) -> Optional[str]:
+    for original_line in split_nonempty_lines(text):
+        if "$$" not in original_line:
+            continue
+        stripped_line = DISPLAY_MATH_SEGMENT_RE.sub(" ", original_line).strip()
+        if stripped_line:
+            return original_line.strip()
+    return None
+
+
 def find_unwrapped_math_excerpt(text: str) -> Optional[str]:
     for original_line in split_nonempty_lines(text):
         stripped_line = strip_latex_segments(original_line)
@@ -342,6 +353,7 @@ def validate_latex_wrapping(args: argparse.Namespace, explicit_options: Sequence
         ("--check-question", list(args.check_question)),
     ]
     violations = []
+    style_violations = []
     for field_name, values in field_values:
         for value in values:
             if not value or not value.strip():
@@ -351,13 +363,25 @@ def validate_latex_wrapping(args: argparse.Namespace, explicit_options: Sequence
                 violations.append(f"{field_name}: {excerpt}")
             if len(violations) >= 3:
                 break
+            style_excerpt = has_inline_display_math_text(value)
+            if style_excerpt:
+                style_violations.append(f"{field_name}: {style_excerpt}")
+            if len(style_violations) >= 3:
+                break
         if len(violations) >= 3:
+            break
+        if len(style_violations) >= 3:
             break
 
     if violations:
         json_error(
             "检测到疑似未用 $...$ 包裹的数学公式，请改成 LaTeX 后重试："
             + "；".join(violations)
+        )
+    if style_violations:
+        json_error(
+            "检测到把 $$...$$ 块公式嵌进了解释句中，请把句中短公式改成 $...$，块公式单独成行："
+            + "；".join(style_violations)
         )
 
 

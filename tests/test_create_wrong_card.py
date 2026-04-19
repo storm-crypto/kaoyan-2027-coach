@@ -251,6 +251,55 @@ def test_create_wrong_card_respects_initial_status_without_extra_history(vault_r
     assert "- 2026-03-23 - 不会 -" not in content
 
 
+def test_create_wrong_card_rejects_inline_display_math_in_explanation(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "行内块公式风格",
+        "--source", "李林",
+        "--question-id", "qid-fedcba654321",
+        "--question", "求极限并说明理由。",
+        "--point-judgment", "这题关键在于 $$x^2$$ 主项。",
+        "--first-step", "先识别结构。",
+        "--formal-solution", "按主项展开。",
+        "--mistake-analysis", "把块公式塞进句子里了。",
+        "--pitfall", "句中公式应用 $...$。",
+        "--next-time", "块公式单独成行。",
+        "--check-question", "为什么这里不该用块公式？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "块公式嵌进了解释句中" in data["message"]
+    assert "--point-judgment" in data["message"]
+
+
+def test_create_wrong_card_allows_standalone_display_math_lines(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "高等数学",
+        "--topic", "独立块公式风格",
+        "--source", "李林",
+        "--question-id", "qid-abcdef123456",
+        "--question", "求极限并说明理由。",
+        "--point-judgment", "这题关键在于主项判断。",
+        "--first-step", "先识别结构。",
+        "--formal-solution", "先得到\n$$x-\\sin x\\sim \\frac{x^3}{6}$$\n再继续收口。",
+        "--mistake-analysis", "独立推导式允许用块公式。",
+        "--pitfall", "不要把块公式塞进句子里。",
+        "--next-time", "解释句用行内公式，推导式单独成行。",
+        "--check-question", "为什么这行块公式是允许的？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "$$x-\\sin x\\sim \\frac{x^3}{6}$$" in content
+
+
 def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),

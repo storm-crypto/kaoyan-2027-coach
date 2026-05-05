@@ -104,3 +104,43 @@ def test_record_paper_score_accepts_total_only(sample_archive, vault_root):
     assert data["total_score"] == 81.0
     record_text = (vault_root / "成绩记录" / "英语一" / "2026-03-25-模拟-英语模拟卷-3.md").read_text(encoding="utf-8")
     assert "score_reading:" not in record_text
+
+
+def test_record_politics_paper_score(sample_archive, vault_root):
+    rc, out, err = run_script("record_paper_score.py", [
+        str(vault_root),
+        "政治",
+        "--date", "2026-03-26",
+        "--paper", "肖四1",
+        "--paper-type", "模拟",
+        "--total", "62",
+        "--issues", "选择失分多,马原概念混",
+        "--note", "首次刷肖四,大题没背",
+    ])
+    assert rc == 0, err
+
+    data = json.loads(out)
+    assert data["subject"] == "政治"
+    assert data["total_score"] == 62.0
+    record_text = (vault_root / "成绩记录" / "政治" / "2026-03-26-模拟-肖四1.md").read_text(encoding="utf-8")
+    assert "subject: 政治" in record_text
+    assert "total_score: 62" in record_text
+    archive_text = sample_archive.read_text(encoding="utf-8")
+    assert "## 政治模拟成绩追踪" in archive_text
+    assert "| 2026-03-26 | 模拟 | 肖四1 | 62 | 选择失分多,马原概念混 | 首次刷肖四,大题没背 |" in archive_text
+
+
+def test_record_paper_score_unknown_subject_lists_legal_values(sample_archive, vault_root):
+    rc, out, err = run_script("record_paper_score.py", [
+        str(vault_root),
+        "高数",
+        "--paper", "x",
+        "--paper-type", "模拟",
+        "--total", "100",
+        "--issues", "x",
+    ])
+    assert rc == 1, err
+    data = json.loads(out)
+    assert "不支持的科目" in data["message"]
+    assert "数学一" in data["message"]
+    assert "政治" in data["message"]

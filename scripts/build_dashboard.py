@@ -928,28 +928,50 @@ def build_subject_score_trend(points: Sequence[Mapping[str, object]], subject: s
     }
 
 
+def build_politics_points_from_overall(archive_text: str) -> List[Dict[str, object]]:
+    """从「模考成绩追踪」综合表里抽政治分数,作为政治趋势的兜底数据源。
+
+    issues/note 用 mock 行的备注,不再用 paper_label 顶替——空就让它空。
+    """
+    if not archive_text:
+        return []
+    points: List[Dict[str, object]] = []
+    for row in parse_mock_rows(archive_text):
+        score = parse_score_cell(row["政治"])
+        if score is None:
+            continue
+        note = row.get("备注", "")
+        paper_name = note or "总模考"
+        points.append({
+            "subject": "政治",
+            "exam_date": row["date"],
+            "paper_type": "总模考",
+            "paper": paper_name,
+            "paper_label": f"总模考 / {paper_name}",
+            "total_score": score,
+            "issues": "",
+            "note": note,
+            "source": "overall_mock",
+        })
+    return points
+
+
 def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[str, object]:
-    detailed_records = collect_score_records(obsidian_root, ("数学一", "408", "英语一"))
+    detailed_records = collect_score_records(obsidian_root, ("数学一", "408", "英语一", "政治"))
     math_points = merge_score_points(detailed_records, archive_text, "数学一")
     cs_points = merge_score_points(detailed_records, archive_text, "408")
     english_points = merge_score_points(detailed_records, archive_text, "英语一")
+    politics_points = merge_score_points(detailed_records, archive_text, "政治")
     overall = build_overall_mock_trend(archive_text)
-    politics_series = next((item for item in overall["series"] if item["subject"] == "政治"), {"points": []})
-    politics_points = [
-        {
-            "exam_date": point["date"],
-            "paper_type": point["paper_type"],
-            "paper": point["paper"],
-            "paper_label": point["paper_label"],
-            "total_score": point["score"],
-            "issues": point["paper_label"],
-            "note": point["paper_label"],
-        }
-        for point in politics_series["points"]
-    ]
+
+    # 政治兜底:若用户尚未走 record_paper_score 录入单卷,从联合模考表里取
+    politics_fallback_used = False
+    if not politics_points:
+        politics_points = build_politics_points_from_overall(archive_text)
+        politics_fallback_used = bool(politics_points)
 
     recent_records = []
-    all_records = math_points + cs_points + english_points
+    all_records = math_points + cs_points + english_points + politics_points
     for point in sorted(all_records, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:5]:
         recent_records.append({
             "subject": point["subject"],
@@ -982,7 +1004,10 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
             ),
         },
         "english1": build_subject_score_trend(english_points, "英语一"),
-        "politics": build_subject_score_trend(politics_points, "政治"),
+        "politics": {
+            **build_subject_score_trend(politics_points, "政治"),
+            "fallback_used": politics_fallback_used,
+        },
         "recent_records": recent_records,
     }
 
@@ -1333,18 +1358,28 @@ def render_total_score_panel(score_trends: Mapping[str, object]) -> str:
 
 
 def render_politics_panel(score_trends: Mapping[str, object]) -> str:
+    politics = score_trends["politics"]
     chart = render_line_chart(
-        score_trends["politics"]["points"],
+        politics["points"],
         "#6b7280",
         "还没有政治套卷趋势数据。",
         0.0,
         100.0,
         20.0,
     )
+    fallback_note = ""
+    if politics.get("fallback_used"):
+        fallback_note = (
+            '<p class="lede" style="margin-top: 0;">'
+            '当前显示来自联合模考表的政治分数。要单独追踪肖四肖八等政治套卷,'
+            '可用 <code>record_paper_score.py 政治 ...</code> 录入。'
+            '</p>'
+        )
     return (
+        f'{fallback_note}'
         '<div class="panel-grid">'
         f'<div class="mini-panel"><h3>政治总分趋势</h3>{chart}</div>'
-        f'<div class="mini-panel"><h3>最近政治成绩</h3>{render_subject_score_table("politics", score_trends["politics"]["recent_rows"])}</div>'
+        f'<div class="mini-panel"><h3>最近政治成绩</h3>{render_subject_score_table("politics", politics["recent_rows"])}</div>'
         '</div>'
     )
 

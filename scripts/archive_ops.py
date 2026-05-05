@@ -30,6 +30,13 @@ SUBJECT_SCORE_SECTION_CONFIG = {
         "separator": "|------|------|------|------|----------|------|",
         "blank": "| | | | | | |",
     },
+    "政治": {
+        "heading": "政治模拟成绩追踪",
+        "columns": ("date", "paper_type", "paper", "total", "issues", "note"),
+        "headers": ("日期", "卷型", "卷子", "总分", "主要问题", "备注"),
+        "separator": "|------|------|------|------|----------|------|",
+        "blank": "| | | | | | |",
+    },
 }
 
 

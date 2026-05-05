@@ -16,12 +16,14 @@ SUBJECT_ALIASES = {
     "408": "408",
     "英语": "英语一",
     "英语一": "英语一",
+    "政治": "政治",
 }
 
 SUBJECT_TOTALS = {
     "数学一": 150.0,
     "408": 150.0,
     "英语一": 100.0,
+    "政治": 100.0,
 }
 
 SUBJECT_SCORE_FIELDS = {
@@ -44,6 +46,8 @@ SUBJECT_SCORE_FIELDS = {
         "score_short_essay",
         "score_long_essay",
     ),
+    # 政治单卷只记录总分 + 主要问题 + 备注,不做 breakdown。
+    "政治": (),
 }
 
 RECORD_KEY_ORDER = [
@@ -89,7 +93,8 @@ WHITESPACE_RE = re.compile(r"\s+")
 def normalize_subject(subject: str) -> str:
     normalized = SUBJECT_ALIASES.get(subject)
     if not normalized:
-        json_error(f"不支持的科目: {subject}")
+        legal = sorted(set(SUBJECT_ALIASES))
+        json_error(f"不支持的科目: {subject},合法值: {legal}")
     return normalized
 
 

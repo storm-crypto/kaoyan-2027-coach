@@ -20,7 +20,7 @@ from score_record_lib import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="记录单张完整卷子的成绩")
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
-    parser.add_argument("subject", help="科目：数学一 / 408 / 英语一")
+    parser.add_argument("subject", help="科目：数学一 / 408 / 英语一 / 政治")
     parser.add_argument("--paper", required=True, help="卷子名称")
     parser.add_argument("--paper-type", required=True, choices=["真题", "模拟"], help="卷型")
     parser.add_argument("--total", required=True, help="总分")

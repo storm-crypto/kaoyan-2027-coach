@@ -25,6 +25,7 @@ from archive_ops import (
     parse_mock_rows,
     parse_score_cell,
     parse_subject_score_rows,
+    safe_load_archive_text,
 )
 from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
 from env_util import atomic_write, resolve_obsidian_root
@@ -987,9 +988,8 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
 
 
 def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
-    archive_path = obsidian_root / "我的学习者档案.md"
-    archive_exists = archive_path.exists()
-    archive_text = safe_read_text(archive_path) if archive_exists else ""
+    archive_path, archive_text = safe_load_archive_text(obsidian_root)
+    archive_exists = bool(archive_text)
     archive_basic = parse_archive_basic_info(archive_text, today) if archive_text else {
         "exam_date": "-",
         "days_until_exam": None,

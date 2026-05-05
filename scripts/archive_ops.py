@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Pattern, Sequence, Tuple
 
-from env_util import resolve_skill_root
+from env_util import atomic_write, resolve_skill_root
 
 
 MARKDOWN_TEMPLATE_RE = re.compile(r"```markdown\r?\n(.*?)\r?\n```", re.S)
@@ -232,6 +232,8 @@ def parse_subject_score_rows(text: str, subject: str) -> List[Dict[str, str]]:
             continue
         normalized: Dict[str, str]
         if subject == "数学一" and len(cells) == 5:
+            # 旧版数学一表：paper_type 内嵌在 paper 名里。运行 migrate_archive_schemas
+            # 之后所有档案都会升级到 6 列；本分支仅作为安全网。
             normalized = {
                 "date": cells[0],
                 "paper_type": "真题" if "真题" in cells[1] else "模拟",
@@ -239,32 +241,6 @@ def parse_subject_score_rows(text: str, subject: str) -> List[Dict[str, str]]:
                 "total": cells[2],
                 "issues": cells[3],
                 "note": cells[4],
-            }
-        elif subject == "408" and len(cells) == 9:
-            normalized = {
-                "date": cells[0],
-                "paper_type": "真题" if "真题" in cells[1] else "模拟",
-                "paper": cells[1],
-                "total": cells[6],
-                "issues": cells[7],
-                "note": cells[8],
-                "ds": cells[2],
-                "co": cells[3],
-                "os": cells[4],
-                "cn": cells[5],
-            }
-        elif subject == "408" and len(cells) == 6:
-            normalized = {
-                "date": cells[0],
-                "paper_type": cells[1],
-                "paper": cells[2],
-                "ds": "",
-                "co": "",
-                "os": "",
-                "cn": "",
-                "total": cells[3],
-                "issues": cells[4],
-                "note": cells[5],
             }
         elif len(cells) == len(config["columns"]):
             normalized = dict(zip(config["columns"], cells))
@@ -303,14 +279,9 @@ def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) ->
             existing_paper = ""
             existing_paper_type = ""
             if subject == "数学一" and len(cells) == 5:
+                # 旧版数学一表的 in-place upsert,paper_type 从 paper 名推断。
                 existing_paper = cells[1]
                 existing_paper_type = "真题" if "真题" in cells[1] else "模拟"
-            elif subject == "408" and len(cells) == 9:
-                existing_paper = cells[1]
-                existing_paper_type = "真题" if "真题" in cells[1] else "模拟"
-            elif subject == "408" and len(cells) == 6:
-                existing_paper_type = cells[1]
-                existing_paper = cells[2]
             elif len(cells) == len(config["columns"]):
                 existing_paper_type = cells[1]
                 existing_paper = cells[2]
@@ -351,7 +322,19 @@ def load_archive_text(obsidian_root: Path) -> Tuple[Path, str]:
     archive_path = Path(obsidian_root) / "我的学习者档案.md"
     if not archive_path.exists():
         raise FileNotFoundError(f"档案不存在: {archive_path}")
-    return archive_path, archive_path.read_text(encoding="utf-8")
+    raw_text = archive_path.read_text(encoding="utf-8")
+    migrated = migrate_archive_schemas(raw_text)
+    if migrated != raw_text:
+        atomic_write(archive_path, migrated)
+    return archive_path, migrated
+
+
+def safe_load_archive_text(obsidian_root: Path) -> Tuple[Path, str]:
+    """读档案,缺失则返回空文本(不写盘),存在则触发迁移。供只读调用方使用。"""
+    archive_path = Path(obsidian_root) / "我的学习者档案.md"
+    if not archive_path.exists():
+        return archive_path, ""
+    return load_archive_text(obsidian_root)
 
 
 def load_template_markdown(template_name: str) -> str:
@@ -361,3 +344,108 @@ def load_template_markdown(template_name: str) -> str:
     if not match:
         raise ValueError(f"模板缺少 ```markdown fenced block: {template_path}")
     return match.group(1)
+
+
+# ---------------------------------------------------------------------------
+# Archive schema migration
+# ---------------------------------------------------------------------------
+
+def _is_separator_row(cells: Sequence[str]) -> bool:
+    """识别 Markdown 表格的分隔行: 每个 cell 由若干 - / : 构成。"""
+    return bool(cells) and all(set(cell) <= {"-", ":", " "} and cell.strip() for cell in cells)
+
+
+def _is_blank_row(cells: Sequence[str]) -> bool:
+    return all(not cell.strip() for cell in cells)
+
+
+def _migrate_408_table(text: str) -> str:
+    """把 408 模拟成绩追踪表的旧格式(6 列 / 9 列)统一升级到当前 10 列 schema。
+
+    历史 schema:
+    - 9 列: date | paper(含真题/模拟) | DS | CO | OS | CN | total | issues | note
+    - 6 列: date | paper_type | paper | total | issues | note
+    - 10 列(当前): date | paper_type | paper | DS | CO | OS | CN | total | issues | note
+
+    幂等:已是 10 列的不动。
+    """
+    config = SUBJECT_SCORE_SECTION_CONFIG["408"]
+    pattern = _heading_block_pattern(config["heading"], 2)
+    match = pattern.search(text)
+    if not match:
+        return text
+
+    block = match.group(2)
+    expected_cols = len(config["columns"])
+    new_lines: List[str] = []
+    changed = False
+
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            new_lines.append(line)
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+
+        # 头行
+        if cells and cells[0] == "日期":
+            if len(cells) != expected_cols:
+                new_lines.append(f"| {' | '.join(config['headers'])} |")
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 分隔行
+        if _is_separator_row(cells):
+            if len(cells) != expected_cols:
+                new_lines.append(config["separator"])
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 空白占位行
+        if _is_blank_row(cells):
+            if len(cells) != expected_cols:
+                new_lines.append(config["blank"])
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 数据行 — 按列数迁移
+        if len(cells) == 6:
+            date_cell, paper_type, paper, total, issues, note = cells
+            new_line = (
+                f"| {date_cell} | {paper_type} | {paper} |  |  |  |  | "
+                f"{total} | {issues} | {note} |"
+            )
+            new_lines.append(new_line)
+            changed = True
+            continue
+
+        if len(cells) == 9:
+            date_cell, paper, ds, co, os_cell, cn, total, issues, note = cells
+            paper_type = "真题" if "真题" in paper else "模拟"
+            new_line = (
+                f"| {date_cell} | {paper_type} | {paper} | {ds} | {co} | {os_cell} | {cn} | "
+                f"{total} | {issues} | {note} |"
+            )
+            new_lines.append(new_line)
+            changed = True
+            continue
+
+        new_lines.append(line)
+
+    if not changed:
+        return text
+
+    new_block = "\n".join(new_lines)
+    return text[:match.start(2)] + new_block + ("\n" if not new_block.endswith("\n") else "") + text[match.end(2):]
+
+
+def migrate_archive_schemas(text: str) -> str:
+    """对档案应用所有已知的 schema 迁移。幂等:对已迁移文本是 no-op。"""
+    return _migrate_408_table(text)
+

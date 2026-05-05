@@ -11,10 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from archive_ops import (
     extract_heading_block,
     extract_list_items,
+    load_archive_text,
     load_template_markdown,
+    migrate_archive_schemas,
     parse_daily_hours,
     parse_mock_rows,
     parse_score_cell,
+    parse_subject_score_rows,
     parse_subject_targets,
     replace_heading_block,
     upsert_mock_row,
@@ -151,3 +154,81 @@ def test_load_template_markdown_requires_fenced_markdown(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="fenced block"):
         load_template_markdown("broken.md")
+
+
+def test_migrate_408_table_upgrades_six_column_rows():
+    text = textwrap.dedent("""\
+        ## 408模拟成绩追踪
+        | 日期 | 卷型 | 卷子 | 总分 | 主要问题 | 备注 |
+        |------|------|------|------|----------|------|
+        | 2026-03-24 | 模拟 | 王道8套卷1 | 118 | OS 调度 | 结构还不稳 |
+        | 2026-03-30 | 真题 | 2024 真题 | 123 | OS 调度 | 修正版 |
+    """)
+    migrated = migrate_archive_schemas(text)
+
+    rows = parse_subject_score_rows(migrated, "408")
+    assert len(rows) == 2
+    assert rows[0]["paper_type"] == "模拟"
+    assert rows[0]["paper"] == "王道8套卷1"
+    assert rows[0]["total"] == "118"
+    # DS/CO/OS/CN 字段被加进来,留空
+    assert rows[0]["ds"] == ""
+    assert rows[0]["cn"] == ""
+    # 表头/分隔行也升级到 10 列
+    assert "| DS | CO | OS | CN |" in migrated
+
+
+def test_migrate_408_table_upgrades_nine_column_legacy_rows():
+    text = textwrap.dedent("""\
+        ## 408模拟成绩追踪
+        | 日期 | 卷子 | DS | CO | OS | CN | 总分 | 主要问题 | 备注 |
+        |------|------|----|----|----|----|------|----------|------|
+        | 2026-03-24 | 王道8套卷1 | 34 | 24 | 27 | 33 | 118 | OS 调度 | 结构还不稳 |
+        | 2026-03-30 | 2024 真题 | 30 | 28 | 30 | 35 | 123 | OS 调度 | 真题二刷 |
+    """)
+    migrated = migrate_archive_schemas(text)
+
+    rows = parse_subject_score_rows(migrated, "408")
+    assert len(rows) == 2
+    # 9 列旧格式没有独立的 paper_type,从 paper 名推断
+    assert rows[0]["paper_type"] == "模拟"
+    assert rows[1]["paper_type"] == "真题"  # paper 名含「真题」
+    assert rows[0]["ds"] == "34"
+    assert rows[0]["total"] == "118"
+
+
+def test_migrate_archive_schemas_is_idempotent():
+    text = textwrap.dedent("""\
+        ## 408模拟成绩追踪
+        | 日期 | 卷型 | 卷子 | DS | CO | OS | CN | 总分 | 主要问题 | 备注 |
+        |------|------|------|----|----|----|----|------|----------|------|
+        | 2026-03-24 | 模拟 | 王道8套卷1 |  |  |  |  | 118 | OS 调度 | 结构还不稳 |
+    """)
+    once = migrate_archive_schemas(text)
+    twice = migrate_archive_schemas(once)
+    assert once == text  # 已是 10 列,no-op
+    assert twice == once
+
+
+def test_migrate_archive_schemas_handles_missing_section():
+    text = "# 我的学习者档案\n\n## 一些其他区块\n- 啥都没有\n"
+    assert migrate_archive_schemas(text) == text
+
+
+def test_load_archive_text_persists_migration(tmp_path):
+    archive = tmp_path / "我的学习者档案.md"
+    archive.write_text(textwrap.dedent("""\
+        # 我的学习者档案
+
+        ## 408模拟成绩追踪
+        | 日期 | 卷型 | 卷子 | 总分 | 主要问题 | 备注 |
+        |------|------|------|------|----------|------|
+        | 2026-03-24 | 模拟 | 王道8套卷1 | 118 | OS 调度 | 结构还不稳 |
+    """), encoding="utf-8")
+
+    path, text = load_archive_text(tmp_path)
+    # 返回的文本是已迁移的
+    assert "| DS | CO | OS | CN |" in text
+    # 已经原子写回到文件
+    assert "| DS | CO | OS | CN |" in archive.read_text(encoding="utf-8")
+

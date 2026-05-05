@@ -17,6 +17,41 @@ from score_record_lib import (
 )
 
 
+# 单科分数之外的失分/错题数追踪字段。score_* 字段从 SUBJECT_SCORE_FIELDS 反射,
+# loss_* 字段是单独的辅助统计,不参与总分校验,因此独立列出。
+LOSS_FIELDS_BY_SUBJECT: Dict[str, tuple] = {
+    "数学一": ("loss_objective", "loss_big"),
+    "408": (
+        "loss_choice_ds",
+        "loss_choice_co",
+        "loss_choice_os",
+        "loss_choice_cn",
+        "loss_big_ds",
+        "loss_big_co",
+        "loss_big_os",
+        "loss_big_cn",
+    ),
+}
+
+
+def _field_to_cli(field: str) -> str:
+    return "--" + field.replace("_", "-")
+
+
+def _all_extra_fields() -> tuple:
+    """所有 subject 用得到的字段并集,用于注册 CLI 参数。"""
+    seen: list = []
+    for subject_fields in SUBJECT_SCORE_FIELDS.values():
+        for field in subject_fields:
+            if field not in seen:
+                seen.append(field)
+    for subject_fields in LOSS_FIELDS_BY_SUBJECT.values():
+        for field in subject_fields:
+            if field not in seen:
+                seen.append(field)
+    return tuple(seen)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="记录单张完整卷子的成绩")
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
@@ -28,64 +63,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--note", default="", help="补充备注")
     parser.add_argument("--date", "--exam-date", dest="exam_date", help="考试日期 YYYY-MM-DD")
 
-    parser.add_argument("--score-objective", help="数学一：选填得分")
-    parser.add_argument("--score-big", help="数学一：大题得分")
-    parser.add_argument("--loss-objective", help="数学一：选填失分/错题数")
-    parser.add_argument("--loss-big", help="数学一：大题失分/错题数")
+    for field in _all_extra_fields():
+        parser.add_argument(_field_to_cli(field))
 
-    for prefix in ("score-choice", "score-big", "loss-choice", "loss-big"):
-        parser.add_argument(f"--{prefix}-ds")
-        parser.add_argument(f"--{prefix}-co")
-        parser.add_argument(f"--{prefix}-os")
-        parser.add_argument(f"--{prefix}-cn")
-
-    parser.add_argument("--score-cloze", help="英语一：完形得分")
-    parser.add_argument("--score-reading", help="英语一：阅读得分")
-    parser.add_argument("--score-new-type", help="英语一：新题型得分")
-    parser.add_argument("--score-translation", help="英语一：翻译得分")
-    parser.add_argument("--score-short-essay", help="英语一：小作文得分")
-    parser.add_argument("--score-long-essay", help="英语一：大作文得分")
     return parser.parse_args()
 
 
 def collect_extra_fields(subject: str, args: argparse.Namespace) -> Dict[str, Optional[float]]:
     fields: Dict[str, Optional[float]] = {}
-    if subject == "数学一":
-        fields["score_objective"] = parse_non_negative_number(args.score_objective, "score-objective")
-        fields["score_big"] = parse_non_negative_number(args.score_big, "score-big")
-        fields["loss_objective"] = parse_non_negative_number(args.loss_objective, "loss-objective")
-        fields["loss_big"] = parse_non_negative_number(args.loss_big, "loss-big")
-        return fields
-
-    if subject == "408":
-        for field in (
-            "score_choice_ds",
-            "score_choice_co",
-            "score_choice_os",
-            "score_choice_cn",
-            "score_big_ds",
-            "score_big_co",
-            "score_big_os",
-            "score_big_cn",
-            "loss_choice_ds",
-            "loss_choice_co",
-            "loss_choice_os",
-            "loss_choice_cn",
-            "loss_big_ds",
-            "loss_big_co",
-            "loss_big_os",
-            "loss_big_cn",
-        ):
-            cli_name = field.replace("_", "-")
-            fields[field] = parse_non_negative_number(getattr(args, cli_name.replace("-", "_")), cli_name)
-        return fields
-
-    if subject == "英语一":
-        for field in SUBJECT_SCORE_FIELDS["英语一"]:
-            cli_name = field.replace("_", "-")
-            fields[field] = parse_non_negative_number(getattr(args, cli_name.replace("-", "_")), cli_name)
-        return fields
-
+    relevant_fields = list(SUBJECT_SCORE_FIELDS.get(subject, ())) + list(LOSS_FIELDS_BY_SUBJECT.get(subject, ()))
+    for field in relevant_fields:
+        cli_name = _field_to_cli(field)
+        attr = field  # argparse 会把 --score-objective 转成 args.score_objective
+        fields[field] = parse_non_negative_number(getattr(args, attr), cli_name.lstrip("-"))
     return fields
 
 

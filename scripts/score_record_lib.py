@@ -89,6 +89,10 @@ RECORD_KEY_ORDER = [
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
 
+# 总分与细分之和允许的最大偏差。英语一阅读 2 分一题但部分模拟卷会出现
+# 0.5 粒度的部分给分,且浮点累加也会有微误差,所以容忍到 0.6 分。
+SCORE_TOTAL_TOLERANCE = 0.6
+
 
 def normalize_subject(subject: str) -> str:
     normalized = SUBJECT_ALIASES.get(subject)
@@ -141,7 +145,7 @@ def validate_score_breakdown(subject: str, total_score: float, fields: Mapping[s
         return
 
     breakdown_total = sum(value for value in provided if value is not None)
-    if abs(breakdown_total - total_score) > 0.6:
+    if abs(breakdown_total - total_score) > SCORE_TOTAL_TOLERANCE:
         json_error(f"{subject} 细分得分之和 {format_number(breakdown_total)} 与总分 {format_number(total_score)} 不一致")
 
 

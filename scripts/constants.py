@@ -1,10 +1,40 @@
 """共享调参常量：SRS、计划分配和上下文阈值。"""
 
-# 计划相关脚本默认按“今天该先学什么”的主攻顺序排优先级。
+# 计划相关脚本默认按"今天该先学什么"的主攻顺序排优先级。
 PLAN_SUBJECTS = ("数学一", "408", "英语一", "政治")
 
 # 成绩、目标分和模考相关脚本保持正式分数栏位顺序。
 SCORE_SUBJECTS = ("政治", "数学一", "英语一", "408")
+
+# 各科展示元数据的 single source of truth。
+# build_dashboard 的颜色、Y 轴范围、tab id 等渲染配置都从这里读,
+# 避免 colors / axis_configs / SUBJECT_TOTALS 在多个文件里漂移。
+SUBJECT_META = {
+    "数学一": {
+        "tab_id": "math1",
+        "color": "#b7791f",
+        "total_score": 150.0,
+        "y_step": 30.0,
+    },
+    "408": {
+        "tab_id": "408",
+        "color": "#1d4ed8",
+        "total_score": 150.0,
+        "y_step": 30.0,
+    },
+    "英语一": {
+        "tab_id": "english1",
+        "color": "#0f766e",
+        "total_score": 100.0,
+        "y_step": 20.0,
+    },
+    "政治": {
+        "tab_id": "politics",
+        "color": "#6b7280",
+        "total_score": 100.0,
+        "y_step": 20.0,
+    },
+}
 
 SRS_DEFAULT_EASE_FACTOR = 2.5
 SRS_EASE_PENALTY_FACTOR = 0.8

@@ -27,7 +27,7 @@ from archive_ops import (
     parse_subject_score_rows,
     safe_load_archive_text,
 )
-from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
+from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS, SUBJECT_META
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from score_record_lib import collect_score_records, format_optional_number, top_weakness_from_408_record
@@ -728,12 +728,6 @@ def build_overview_payload(
 
 
 def build_overall_mock_trend(archive_text: str) -> Dict[str, object]:
-    colors = {
-        "政治": "#6b7280",
-        "数学一": "#b7791f",
-        "英语一": "#0f766e",
-        "408": "#1d4ed8",
-    }
     rows = parse_mock_rows(archive_text) if archive_text else []
     series = []
     for subject in SCORE_SUBJECTS:
@@ -752,7 +746,7 @@ def build_overall_mock_trend(archive_text: str) -> Dict[str, object]:
             })
         series.append({
             "subject": subject,
-            "color": colors[subject],
+            "color": SUBJECT_META[subject]["color"],
             "points": points,
         })
     total_points = []
@@ -1359,13 +1353,14 @@ def render_total_score_panel(score_trends: Mapping[str, object]) -> str:
 
 def render_politics_panel(score_trends: Mapping[str, object]) -> str:
     politics = score_trends["politics"]
+    meta = SUBJECT_META["政治"]
     chart = render_line_chart(
         politics["points"],
-        "#6b7280",
+        meta["color"],
         "还没有政治套卷趋势数据。",
         0.0,
-        100.0,
-        20.0,
+        meta["total_score"],
+        meta["y_step"],
     )
     fallback_note = ""
     if politics.get("fallback_used"):
@@ -1524,14 +1519,15 @@ def render_subject_score_table(subject_key: str, rows: Sequence[Mapping[str, obj
     return "".join(parts)
 
 
-def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, object], color: str) -> str:
+SUBJECT_BY_TAB_ID = {meta["tab_id"]: subject for subject, meta in SUBJECT_META.items()}
+
+
+def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, object]) -> str:
     labels = [("all", "全部"), ("真题", "真题"), ("模拟", "模拟")]
-    axis_configs = {
-        "math1": (0.0, 150.0, 30.0),
-        "408": (0.0, 150.0, 30.0),
-        "english1": (0.0, 100.0, 20.0),
-    }
-    y_min, y_max, y_step = axis_configs[subject_key]
+    subject = SUBJECT_BY_TAB_ID[subject_key]
+    meta = SUBJECT_META[subject]
+    color = meta["color"]
+    y_min, y_max, y_step = 0.0, meta["total_score"], meta["y_step"]
     button_parts = ['<div class="chip-row">']
     panel_parts = []
     has_loss_metrics = bool(trend_data.get("has_loss_metrics"))
@@ -2336,13 +2332,13 @@ def render_html(payload: Mapping[str, object]) -> str:
         {render_total_score_panel(score_trends)}
       </div>
       <div id="score-tab-math1" class="trend-tab-panel">
-        {render_subject_filter_panels("math1", score_trends["math1"], "#b7791f")}
+        {render_subject_filter_panels("math1", score_trends["math1"])}
       </div>
       <div id="score-tab-408" class="trend-tab-panel">
-        {render_subject_filter_panels("408", score_trends["408"], "#1d4ed8")}
+        {render_subject_filter_panels("408", score_trends["408"])}
       </div>
       <div id="score-tab-english1" class="trend-tab-panel">
-        {render_subject_filter_panels("english1", score_trends["english1"], "#0f766e")}
+        {render_subject_filter_panels("english1", score_trends["english1"])}
       </div>
       <div id="score-tab-politics" class="trend-tab-panel">
         {render_politics_panel(score_trends)}

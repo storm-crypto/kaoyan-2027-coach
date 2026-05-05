@@ -60,16 +60,61 @@ def test_build_dashboard_outputs_payload_and_html(sample_archive, sample_card, k
         "不会",
         1,
     )
+    rc, _, err = run_script("record_paper_score.py", [
+        str(vault_root),
+        "408",
+        "--date", "2026-03-20",
+        "--paper", "王道8套卷1",
+        "--paper-type", "模拟",
+        "--total", "118",
+        "--issues", "OS 调度、CO 指令系统",
+        "--score-choice-ds", "8",
+        "--score-choice-co", "6",
+        "--score-choice-os", "5",
+        "--score-choice-cn", "7",
+        "--score-big-ds", "26",
+        "--score-big-co", "18",
+        "--score-big-os", "22",
+        "--score-big-cn", "26",
+        "--loss-choice-os", "2",
+        "--loss-big-os", "1",
+    ])
+    assert rc == 0, err
+    rc, _, err = run_script("record_paper_score.py", [
+        str(vault_root),
+        "数学一",
+        "--date", "2026-03-20",
+        "--paper", "2024 真题二刷",
+        "--paper-type", "真题",
+        "--total", "128",
+        "--issues", "中值定理、线积分",
+        "--score-objective", "44",
+        "--score-big", "84",
+    ])
+    assert rc == 0, err
+    rc, _, err = run_script("record_paper_score.py", [
+        str(vault_root),
+        "英语一",
+        "--date", "2026-03-19",
+        "--paper", "张剑黄皮书 2018",
+        "--paper-type", "真题",
+        "--total", "78",
+        "--issues", "翻译句子切分、作文表达单一",
+    ])
+    assert rc == 0, err
 
     rc, out, err = run_script("build_dashboard.py", [str(vault_root), "--today", "2026-03-20"])
     assert rc == 0, err
 
     data = json.loads(out)
-    assert {"overview", "subjects", "reviews", "knowledge_maps", "activity", "quality"}.issubset(data.keys())
+    assert {"overview", "subjects", "reviews", "score_trends", "knowledge_maps", "activity", "quality"}.issubset(data.keys())
     assert data["overview"]["due_total"] == 2
     assert data["overview"]["new_cards_this_week"] == 1
     assert data["reviews"]["due_total"] == 2
     assert data["reviews"]["by_subject"][0]["label"] == "数学一"
+    assert data["score_trends"]["408"]["has_loss_metrics"] is True
+    assert data["score_trends"]["math1"]["latest"]["paper"] == "2024 真题二刷"
+    assert data["score_trends"]["english1"]["latest"]["total_score"] == 78.0
     assert data["path"].endswith("可视化面板/index.html")
 
     output_path = vault_root / "可视化面板" / "index.html"
@@ -78,10 +123,14 @@ def test_build_dashboard_outputs_payload_and_html(sample_archive, sample_card, k
     assert "Kaoyan Coach 学习驾驶舱" in html
     assert "总览卡片" in html
     assert "科目进度总览" in html
+    assert "成绩趋势面板" in html
+    assert "实际得分" in html
+    assert "失分/错题数" in html
     assert "复习止损面板" in html
     assert "沉淀质量面板" in html
     assert "成果感面板" in html
     assert "到期卡按状态分布" in html
+    assert "最近 5 条卷子记录" in html
     assert "查看原始数据" in html
 
 

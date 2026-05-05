@@ -160,7 +160,7 @@ def latest_report_info(obsidian_root: Path) -> Optional[LatestReportInfo]:
 
 def latest_subject_score_info(archive_text: str) -> Optional[LatestSubjectScoreInfo]:
     latest: Optional[LatestSubjectScoreInfo] = None
-    for subject in ("数学一", "408"):
+    for subject in ("数学一", "408", "英语一"):
         for row in parse_subject_score_rows(archive_text, subject):
             try:
                 row_day = date.fromisoformat(row["date"])

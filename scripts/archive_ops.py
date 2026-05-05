@@ -11,17 +11,24 @@ MARKDOWN_TEMPLATE_RE = re.compile(r"```markdown\r?\n(.*?)\r?\n```", re.S)
 SUBJECT_SCORE_SECTION_CONFIG = {
     "数学一": {
         "heading": "数学一模拟成绩追踪",
-        "columns": ("date", "paper", "score", "issues", "note"),
-        "headers": ("日期", "卷子", "成绩", "主要问题", "备注"),
-        "separator": "|------|------|------|----------|------|",
-        "blank": "| | | | | |",
+        "columns": ("date", "paper_type", "paper", "total", "issues", "note"),
+        "headers": ("日期", "卷型", "卷子", "总分", "主要问题", "备注"),
+        "separator": "|------|------|------|------|----------|------|",
+        "blank": "| | | | | | |",
     },
     "408": {
         "heading": "408模拟成绩追踪",
-        "columns": ("date", "paper", "ds", "co", "os", "cn", "total", "issues", "note"),
-        "headers": ("日期", "卷子", "DS", "CO", "OS", "CN", "总分", "主要问题", "备注"),
-        "separator": "|------|------|----|----|----|----|------|----------|------|",
-        "blank": "| | | | | | | | | |",
+        "columns": ("date", "paper_type", "paper", "total", "issues", "note"),
+        "headers": ("日期", "卷型", "卷子", "总分", "主要问题", "备注"),
+        "separator": "|------|------|------|------|----------|------|",
+        "blank": "| | | | | | |",
+    },
+    "英语一": {
+        "heading": "英语一模拟成绩追踪",
+        "columns": ("date", "paper_type", "paper", "total", "issues", "note"),
+        "headers": ("日期", "卷型", "卷子", "总分", "主要问题", "备注"),
+        "separator": "|------|------|------|------|----------|------|",
+        "blank": "| | | | | | |",
     },
 }
 
@@ -221,13 +228,38 @@ def parse_subject_score_rows(text: str, subject: str) -> List[Dict[str, str]]:
         if not stripped.startswith("|"):
             continue
         cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
-        if len(cells) != len(config["columns"]):
-            continue
         if cells[0] in {"日期", "------"} or set("".join(cells)) <= {"-", " "}:
             continue
-        if not cells[0] or not cells[1]:
+        normalized: Dict[str, str]
+        if subject == "数学一" and len(cells) == 5:
+            normalized = {
+                "date": cells[0],
+                "paper_type": "真题" if "真题" in cells[1] else "模拟",
+                "paper": cells[1],
+                "total": cells[2],
+                "issues": cells[3],
+                "note": cells[4],
+            }
+        elif subject == "408" and len(cells) == 9:
+            normalized = {
+                "date": cells[0],
+                "paper_type": "真题" if "真题" in cells[1] else "模拟",
+                "paper": cells[1],
+                "total": cells[6],
+                "issues": cells[7],
+                "note": cells[8],
+                "ds": cells[2],
+                "co": cells[3],
+                "os": cells[4],
+                "cn": cells[5],
+            }
+        elif len(cells) == len(config["columns"]):
+            normalized = dict(zip(config["columns"], cells))
+        else:
             continue
-        rows.append(dict(zip(config["columns"], cells)))
+        if not normalized["date"] or not normalized["paper"]:
+            continue
+        rows.append(normalized)
     return rows
 
 
@@ -246,7 +278,7 @@ def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) ->
         next_section = len(text)
 
     section = text[section_start:next_section].rstrip("\n")
-    row_line = "| " + " | ".join(row[column] for column in config["columns"]) + " |"
+    row_line = "| " + " | ".join(row.get(column, "") for column in config["columns"]) + " |"
     section_lines = section.splitlines()
     updated_lines = []
     replaced = False
@@ -254,7 +286,23 @@ def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) ->
         stripped = line.strip()
         if stripped.startswith("|"):
             cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
-            if len(cells) == len(config["columns"]) and cells[0] == row["date"] and cells[1] == row["paper"]:
+            existing_date = cells[0] if cells else ""
+            existing_paper = ""
+            existing_paper_type = ""
+            if subject == "数学一" and len(cells) == 5:
+                existing_paper = cells[1]
+                existing_paper_type = "真题" if "真题" in cells[1] else "模拟"
+            elif subject == "408" and len(cells) == 9:
+                existing_paper = cells[1]
+                existing_paper_type = "真题" if "真题" in cells[1] else "模拟"
+            elif len(cells) == len(config["columns"]):
+                existing_paper_type = cells[1]
+                existing_paper = cells[2]
+            if (
+                existing_date == row["date"]
+                and existing_paper == row["paper"]
+                and (not existing_paper_type or existing_paper_type == row.get("paper_type", existing_paper_type))
+            ):
                 if not replaced:
                     updated_lines.append(row_line)
                     replaced = True

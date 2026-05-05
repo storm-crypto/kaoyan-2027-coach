@@ -20,7 +20,8 @@ def test_record_math_subject_score(sample_archive, vault_root):
     data = json.loads(out)
     assert data["subject"] == "数学一"
     archive_text = sample_archive.read_text(encoding="utf-8")
-    assert "| 2026-03-24 | 李林6套卷3 | 122 | 极值与驻点定义、幂级数敛散 | 基础盘稳了不少 |" in archive_text
+    assert "| 2026-03-24 | 模拟 | 李林6套卷3 | 122 | 极值与驻点定义、幂级数敛散 | 基础盘稳了不少 |" in archive_text
+    assert (vault_root / "成绩记录" / "数学一" / "2026-03-24-模拟-李林6套卷3.md").exists()
 
 
 def test_record_408_subject_score_same_day_upsert(sample_archive, vault_root):
@@ -56,8 +57,9 @@ def test_record_408_subject_score_same_day_upsert(sample_archive, vault_root):
     data = json.loads(out)
     assert data["subject"] == "408"
     archive_text = sample_archive.read_text(encoding="utf-8")
-    assert archive_text.count("| 2026-03-24 | 2024 真题 |") == 1
-    assert "| 2026-03-24 | 2024 真题 | 1 | 1 | 3 | 2 | 123 | OS 调度、CN 拥塞控制 | 修正版 |" in archive_text
+    assert archive_text.count("| 2026-03-24 | 真题 | 2024 真题 |") == 1
+    assert "| 2026-03-24 | 真题 | 2024 真题 | 123 | OS 调度、CN 拥塞控制 | 修正版 |" in archive_text
+    assert (vault_root / "成绩记录" / "408" / "2026-03-24-真题-2024-真题.md").exists()
 
 
 def test_record_subject_score_bootstraps_missing_sections(vault_root):
@@ -91,4 +93,5 @@ def test_record_subject_score_bootstraps_missing_sections(vault_root):
     content = archive.read_text(encoding="utf-8")
     assert "## 数学一模拟成绩追踪" in content
     assert "## 408模拟成绩追踪" in content
-    assert "| 2026-03-24 | 2024 真题二刷 | 130 | 二次型不等式、二重积分换序 | 真题二刷能看出基础回来了 |" in content
+    assert "## 英语一模拟成绩追踪" in content
+    assert "| 2026-03-24 | 真题 | 2024 真题二刷 | 130 | 二次型不等式、二重积分换序 | 真题二刷能看出基础回来了 |" in content

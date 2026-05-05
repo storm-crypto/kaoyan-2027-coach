@@ -15,6 +15,7 @@ from archive_ops import (
     upsert_subject_score_row,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
+from score_record_lib import build_summary_row_from_record, infer_paper_type
 
 
 def parse_args():
@@ -406,26 +407,15 @@ def main():
             args.archive_next_step,
         )
         for item in parsed_subject_scores:
-            if item["subject"] == "数学一":
-                row = {
-                    "date": log_day.isoformat(),
-                    "paper": item["paper"],
-                    "score": format_number(item["score"]),
-                    "issues": item["issues"],
-                    "note": item["note"] or "-",
-                }
-            else:
-                row = {
-                    "date": log_day.isoformat(),
-                    "paper": item["paper"],
-                    "ds": format_number(item["ds"]),
-                    "co": format_number(item["co"]),
-                    "os": format_number(item["os"]),
-                    "cn": format_number(item["cn"]),
-                    "total": format_number(item["total"]),
-                    "issues": item["issues"],
-                    "note": item["note"] or "-",
-                }
+            total_score = item["score"] if item["subject"] == "数学一" else item["total"]
+            row = build_summary_row_from_record({
+                "exam_date": log_day.isoformat(),
+                "paper_type": infer_paper_type(item["paper"]),
+                "paper": item["paper"],
+                "total_score": total_score,
+                "issues": item["issues"],
+                "note": item["note"] or "-",
+            })
             updated_archive = upsert_subject_score_row(updated_archive, item["subject"], row)
             section_name = f"{item['subject']}模拟成绩追踪"
             if section_name not in updated_sections:

@@ -109,10 +109,11 @@ def parse_score_records(text, log_day):
 
 
 def normalize_score_identity(record):
+    source = re.sub(r"^(真题|模拟)\s+", "", record["source"]).strip()
     return (
         record["date"],
         "数学一" if record["subject"] == "数学" else record["subject"],
-        re.sub(r"\s+", "", record["source"]),
+        re.sub(r"\s+", "", source),
         round(record["score"], 4),
         round(record["total"], 4),
     )
@@ -163,7 +164,8 @@ def collect_archive_subject_scores(obsidian_root, start, end):
         return []
 
     records = []
-    for subject in ("数学一", "408"):
+    subject_totals = {"数学一": 150.0, "408": 150.0, "英语一": 100.0}
+    for subject in ("数学一", "408", "英语一"):
         for row in parse_subject_score_rows(archive_text, subject):
             try:
                 row_day = date.fromisoformat(row["date"])
@@ -171,11 +173,11 @@ def collect_archive_subject_scores(obsidian_root, start, end):
                 continue
             if not (start <= row_day <= end):
                 continue
-            score_value = parse_score_cell(row["score"] if subject == "数学一" else row["total"])
+            score_value = parse_score_cell(row["total"])
             if score_value is None:
                 continue
             note_parts = []
-            if subject == "408":
+            if subject == "408" and all(key in row for key in ("ds", "co", "os", "cn")):
                 note_parts.append(
                     "模块错题：DS {ds} / CO {co} / OS {os} / CN {cn}".format(
                         ds=row["ds"],
@@ -192,9 +194,9 @@ def collect_archive_subject_scores(obsidian_root, start, end):
                 "date": row_day,
                 "subject": subject,
                 "kind": "模拟",
-                "source": row["paper"],
+                "source": f"{row.get('paper_type', '模拟')} {row['paper']}".strip(),
                 "score": score_value,
-                "total": 150.0,
+                "total": subject_totals[subject],
                 "note": "；".join(note_parts),
             })
     return records

@@ -13,7 +13,7 @@ import argparse
 import html
 import json
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -29,6 +29,7 @@ from archive_ops import (
 from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
+from score_record_lib import collect_score_records, format_optional_number, top_weakness_from_408_record
 from study_ops import iter_review_cards, parse_today
 
 SUBJECT_TO_KM_FILE = {
@@ -725,6 +726,233 @@ def build_overview_payload(
     }
 
 
+def build_overall_mock_trend(archive_text: str) -> Dict[str, object]:
+    colors = {
+        "政治": "#6b7280",
+        "数学一": "#b7791f",
+        "英语一": "#0f766e",
+        "408": "#1d4ed8",
+    }
+    rows = parse_mock_rows(archive_text) if archive_text else []
+    series = []
+    for subject in SCORE_SUBJECTS:
+        points = []
+        for row in rows:
+            score = parse_score_cell(row[subject])
+            if score is None:
+                continue
+            points.append({
+                "date": row["date"],
+                "paper": row.get("备注", "") or "模考",
+                "paper_type": "总模考",
+                "paper_label": row.get("备注", "") or "模考",
+                "score": score,
+            })
+        series.append({
+            "subject": subject,
+            "color": colors[subject],
+            "points": points,
+        })
+    return {
+        "series": series,
+        "has_data": any(item["points"] for item in series),
+    }
+
+
+def build_legacy_subject_points(archive_text: str, subject: str) -> List[Dict[str, object]]:
+    points = []
+    if not archive_text:
+        return points
+    for row in parse_subject_score_rows(archive_text, subject):
+        score = parse_score_cell(row["total"])
+        if score is None:
+            continue
+        points.append({
+            "subject": subject,
+            "exam_date": row["date"],
+            "paper_type": row.get("paper_type", "模拟"),
+            "paper": row["paper"],
+            "paper_label": f"{row.get('paper_type', '模拟')} / {row['paper']}",
+            "total_score": score,
+            "issues": row.get("issues", ""),
+            "note": row.get("note", ""),
+            "source": "archive_summary",
+            "score_objective": None,
+            "score_big": None,
+            "loss_objective": None,
+            "loss_big": None,
+            "score_choice_ds": None,
+            "score_choice_co": None,
+            "score_choice_os": None,
+            "score_choice_cn": None,
+            "score_big_ds": None,
+            "score_big_co": None,
+            "score_big_os": None,
+            "score_big_cn": None,
+            "loss_choice_ds": None,
+            "loss_choice_co": None,
+            "loss_choice_os": None,
+            "loss_choice_cn": None,
+            "loss_big_ds": None,
+            "loss_big_co": None,
+            "loss_big_os": None,
+            "loss_big_cn": None,
+            "score_cloze": None,
+            "score_reading": None,
+            "score_new_type": None,
+            "score_translation": None,
+            "score_short_essay": None,
+            "score_long_essay": None,
+        })
+    return points
+
+
+def merge_score_points(
+    detailed_records: Sequence[Mapping[str, object]],
+    archive_text: str,
+    subject: str,
+) -> List[Dict[str, object]]:
+    merged: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    for record in build_legacy_subject_points(archive_text, subject):
+        key = (record["exam_date"], record["paper_type"], record["paper"])
+        merged[key] = dict(record)
+
+    for record in detailed_records:
+        if record["subject"] != subject:
+            continue
+        key = (str(record["exam_date"]), str(record["paper_type"]), str(record["paper"]))
+        merged[key] = {
+            "subject": subject,
+            "exam_date": str(record["exam_date"]),
+            "paper_type": str(record["paper_type"]),
+            "paper": str(record["paper"]),
+            "paper_label": f"{record['paper_type']} / {record['paper']}",
+            "total_score": record["total_score"],
+            "issues": str(record.get("issues", "")),
+            "note": str(record.get("note", "")),
+            "source": "record",
+            "score_objective": record.get("score_objective"),
+            "score_big": record.get("score_big"),
+            "loss_objective": record.get("loss_objective"),
+            "loss_big": record.get("loss_big"),
+            "score_choice_ds": record.get("score_choice_ds"),
+            "score_choice_co": record.get("score_choice_co"),
+            "score_choice_os": record.get("score_choice_os"),
+            "score_choice_cn": record.get("score_choice_cn"),
+            "score_big_ds": record.get("score_big_ds"),
+            "score_big_co": record.get("score_big_co"),
+            "score_big_os": record.get("score_big_os"),
+            "score_big_cn": record.get("score_big_cn"),
+            "loss_choice_ds": record.get("loss_choice_ds"),
+            "loss_choice_co": record.get("loss_choice_co"),
+            "loss_choice_os": record.get("loss_choice_os"),
+            "loss_choice_cn": record.get("loss_choice_cn"),
+            "loss_big_ds": record.get("loss_big_ds"),
+            "loss_big_co": record.get("loss_big_co"),
+            "loss_big_os": record.get("loss_big_os"),
+            "loss_big_cn": record.get("loss_big_cn"),
+            "score_cloze": record.get("score_cloze"),
+            "score_reading": record.get("score_reading"),
+            "score_new_type": record.get("score_new_type"),
+            "score_translation": record.get("score_translation"),
+            "score_short_essay": record.get("score_short_essay"),
+            "score_long_essay": record.get("score_long_essay"),
+        }
+
+    rows = list(merged.values())
+    rows.sort(key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]))
+    return rows
+
+
+def filter_points_by_type(points: Sequence[Mapping[str, object]], paper_type: str) -> List[Dict[str, object]]:
+    if paper_type == "all":
+        return list(points)
+    return [dict(point) for point in points if point["paper_type"] == paper_type]
+
+
+def build_subject_score_trend(points: Sequence[Mapping[str, object]], subject: str) -> Dict[str, object]:
+    latest = points[-1] if points else None
+    recent_rows = []
+    for point in sorted(points, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:5]:
+        row = {
+            "date": point["exam_date"],
+            "paper_type": point["paper_type"],
+            "paper": point["paper"],
+            "paper_label": point["paper_label"],
+            "total_score": point["total_score"],
+            "issues": point["issues"],
+            "note": point["note"],
+        }
+        if subject == "数学一":
+            row["score_objective"] = point.get("score_objective")
+            row["score_big"] = point.get("score_big")
+        elif subject == "408":
+            row["main_weakness"] = top_weakness_from_408_record(point) or point["issues"]
+        elif subject == "英语一":
+            row["score_cloze"] = point.get("score_cloze")
+            row["score_reading"] = point.get("score_reading")
+            row["score_new_type"] = point.get("score_new_type")
+            row["score_translation"] = point.get("score_translation")
+            row["score_short_essay"] = point.get("score_short_essay")
+            row["score_long_essay"] = point.get("score_long_essay")
+        recent_rows.append(row)
+
+    return {
+        "points": list(points),
+        "has_data": bool(points),
+        "latest": latest,
+        "filters": {
+            "all": filter_points_by_type(points, "all"),
+            "真题": filter_points_by_type(points, "真题"),
+            "模拟": filter_points_by_type(points, "模拟"),
+        },
+        "recent_rows": recent_rows,
+    }
+
+
+def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[str, object]:
+    detailed_records = collect_score_records(obsidian_root, ("数学一", "408", "英语一"))
+    math_points = merge_score_points(detailed_records, archive_text, "数学一")
+    cs_points = merge_score_points(detailed_records, archive_text, "408")
+    english_points = merge_score_points(detailed_records, archive_text, "英语一")
+
+    recent_records = []
+    all_records = math_points + cs_points + english_points
+    for point in sorted(all_records, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:5]:
+        recent_records.append({
+            "subject": point["subject"],
+            "date": point["exam_date"],
+            "paper_type": point["paper_type"],
+            "paper": point["paper"],
+            "total_score": point["total_score"],
+            "paper_label": point["paper_label"],
+        })
+
+    return {
+        "overall": build_overall_mock_trend(archive_text),
+        "math1": build_subject_score_trend(math_points, "数学一"),
+        "408": {
+            **build_subject_score_trend(cs_points, "408"),
+            "has_loss_metrics": any(
+                point.get(field) is not None
+                for point in cs_points
+                for field in (
+                    "loss_choice_ds",
+                    "loss_choice_co",
+                    "loss_choice_os",
+                    "loss_choice_cn",
+                    "loss_big_ds",
+                    "loss_big_co",
+                    "loss_big_os",
+                    "loss_big_cn",
+                )
+            ),
+        },
+        "english1": build_subject_score_trend(english_points, "英语一"),
+        "recent_records": recent_records,
+    }
+
+
 def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
     archive_path = obsidian_root / "我的学习者档案.md"
     archive_exists = archive_path.exists()
@@ -760,6 +988,7 @@ def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
     reviews = build_review_payload(cards)
     knowledge_payload = build_knowledge_payload(knowledge_maps)
     activity = build_activity_payload(logs, cards, reports, chapter_reports, today)
+    score_trends = build_score_trends_payload(obsidian_root, archive_text)
     quality = build_quality_payload(
         archive_exists,
         logs,
@@ -783,6 +1012,7 @@ def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
             "blank_subjects": blank_subjects,
         },
         "reviews": reviews,
+        "score_trends": score_trends,
         "knowledge_maps": knowledge_payload,
         "activity": activity,
         "quality": quality,
@@ -835,6 +1065,320 @@ def render_bar_rows(rows: Sequence[Mapping[str, object]], empty_message: str) ->
         )
     parts.append("</div>")
     return "".join(parts)
+
+
+def render_line_chart(points: Sequence[Mapping[str, object]], color: str, empty_message: str) -> str:
+    valid_points = [point for point in points if isinstance(point.get("total_score"), (int, float))]
+    if not valid_points:
+        return render_empty_state(empty_message)
+
+    width = 720
+    height = 240
+    pad_x = 36
+    pad_y = 28
+    inner_width = width - pad_x * 2
+    inner_height = height - pad_y * 2
+    values = [float(point["total_score"]) for point in valid_points]
+    min_value = min(values)
+    max_value = max(values)
+    if abs(max_value - min_value) < 1e-9:
+        min_value -= 1
+        max_value += 1
+
+    def x_at(index: int) -> float:
+        if len(valid_points) == 1:
+            return width / 2
+        return pad_x + inner_width * index / (len(valid_points) - 1)
+
+    def y_at(value: float) -> float:
+        ratio = (value - min_value) / (max_value - min_value)
+        return pad_y + inner_height * (1 - ratio)
+
+    polyline = " ".join(f"{x_at(index):.1f},{y_at(float(point['total_score'])):.1f}" for index, point in enumerate(valid_points))
+    circles = []
+    for index, point in enumerate(valid_points):
+        x = x_at(index)
+        y = y_at(float(point["total_score"]))
+        circles.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}"><title>{e(point["exam_date"])} {e(point["paper_label"])} {e(format_number(point["total_score"]))}</title></circle>'
+        )
+
+    axis_labels = (
+        f'<text x="{pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11">{e(valid_points[0]["exam_date"])}</text>'
+        f'<text x="{width - pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(valid_points[-1]["exam_date"])}</text>'
+    )
+    return (
+        f'<svg class="trend-chart" viewBox="0 0 {width} {height}" role="img" aria-label="成绩趋势图">'
+        f'<line x1="{pad_x}" y1="{height - pad_y}" x2="{width - pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{polyline}" />'
+        + "".join(circles)
+        + axis_labels
+        + "</svg>"
+    )
+
+
+def render_multi_line_chart(series: Sequence[Mapping[str, object]], empty_message: str) -> str:
+    dated_scores: Dict[str, Dict[str, float]] = {}
+    for item in series:
+        for point in item["points"]:
+            dated_scores.setdefault(point["date"], {})[item["subject"]] = float(point["score"])
+    all_dates = sorted(dated_scores)
+    if not all_dates:
+        return render_empty_state(empty_message)
+
+    width = 720
+    height = 260
+    pad_x = 40
+    pad_y = 30
+    inner_width = width - pad_x * 2
+    inner_height = height - pad_y * 2
+    all_values = [value for scores in dated_scores.values() for value in scores.values()]
+    min_value = min(all_values)
+    max_value = max(all_values)
+    if abs(max_value - min_value) < 1e-9:
+        min_value -= 1
+        max_value += 1
+
+    date_to_index = {day: index for index, day in enumerate(all_dates)}
+
+    def x_at(day: str) -> float:
+        if len(all_dates) == 1:
+            return width / 2
+        return pad_x + inner_width * date_to_index[day] / (len(all_dates) - 1)
+
+    def y_at(value: float) -> float:
+        ratio = (value - min_value) / (max_value - min_value)
+        return pad_y + inner_height * (1 - ratio)
+
+    paths = []
+    circles = []
+    legends = []
+    for item in series:
+        points = item["points"]
+        if not points:
+            continue
+        polyline = " ".join(f"{x_at(point['date']):.1f},{y_at(float(point['score'])):.1f}" for point in points)
+        paths.append(f'<polyline fill="none" stroke="{item["color"]}" stroke-width="3" points="{polyline}" />')
+        legends.append(f'<span class="legend-pill"><span class="legend-dot" style="background:{item["color"]}"></span>{e(item["subject"])}</span>')
+        for point in points:
+            x = x_at(point["date"])
+            y = y_at(float(point["score"]))
+            circles.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{item["color"]}"><title>{e(item["subject"])} {e(point["date"])} {e(point["paper_label"])} {e(format_number(point["score"]))}</title></circle>'
+            )
+
+    svg = (
+        f'<svg class="trend-chart" viewBox="0 0 {width} {height}" role="img" aria-label="四科总模考趋势图">'
+        f'<line x1="{pad_x}" y1="{height - pad_y}" x2="{width - pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        + "".join(paths)
+        + "".join(circles)
+        + f'<text x="{pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11">{e(all_dates[0])}</text>'
+        + f'<text x="{width - pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(all_dates[-1])}</text>'
+        + "</svg>"
+    )
+    return '<div class="chart-with-legend">' + svg + '<div class="chart-legend">' + "".join(legends) + "</div></div>"
+
+
+def render_score_summary_cards(score_trends: Mapping[str, object]) -> str:
+    cards = []
+    for key, title, tone in (("math1", "数学一最近一次", "gold"), ("408", "408最近一次", "ink"), ("english1", "英语一最近一次", "mint")):
+        latest = score_trends[key]["latest"]
+        if latest:
+            value = format_number(latest["total_score"])
+            caption = f'{latest["paper_type"]} / {latest["paper"]}'
+        else:
+            value = "-"
+            caption = "还没有单科卷子记录"
+        cards.append(render_metric_card(title, value, caption, tone))
+    return "".join(cards)
+
+
+def render_recent_score_records(rows: Sequence[Mapping[str, object]]) -> str:
+    if not rows:
+        return render_empty_state("还没有卷子级成绩记录。")
+    parts = [
+        '<table class="score-table"><thead><tr><th>科目</th><th>日期</th><th>卷型</th><th>卷子</th><th>总分</th></tr></thead><tbody>'
+    ]
+    for row in rows:
+        parts.append(
+            f"<tr><td>{e(row['subject'])}</td><td>{e(row['date'])}</td><td>{e(row['paper_type'])}</td><td>{e(row['paper'])}</td><td>{e(format_number(row['total_score']))}</td></tr>"
+        )
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def render_math_breakdown_rows(points: Sequence[Mapping[str, object]]) -> str:
+    rows = [point for point in points if point.get("score_objective") is not None or point.get("score_big") is not None]
+    if not rows:
+        return render_empty_state("当前没有数学一的选填/大题细分得分。")
+    parts = ['<div class="breakdown-list">']
+    for point in rows:
+        objective = point.get("score_objective") or 0
+        big = point.get("score_big") or 0
+        total = objective + big or point["total_score"] or 1
+        parts.append(
+            '<article class="breakdown-card">'
+            f'<div class="breakdown-head"><strong>{e(point["paper_label"])}</strong><span>{e(point["exam_date"])}</span></div>'
+            '<div class="stack-track">'
+            f'<div class="stack-seg seg-objective" style="width:{objective / total * 100:.1f}%"></div>'
+            f'<div class="stack-seg seg-big" style="width:{big / total * 100:.1f}%"></div>'
+            '</div>'
+            f'<div class="breakdown-meta">选填 {e(format_optional_number(point.get("score_objective")) or "-")} · 大题 {e(format_optional_number(point.get("score_big")) or "-")} · 总分 {e(format_number(point["total_score"]))}</div>'
+            '</article>'
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def render_408_metric_rows(points: Sequence[Mapping[str, object]], metric_prefix: str) -> str:
+    labels = [("DS", "ds"), ("CO", "co"), ("OS", "os"), ("CN", "cn")]
+    if metric_prefix == "score":
+        choice_prefix = "score_choice_"
+        big_prefix = "score_big_"
+        empty_message = "当前没有 408 的实际得分细分。"
+    else:
+        choice_prefix = "loss_choice_"
+        big_prefix = "loss_big_"
+        empty_message = "当前没有 408 的失分/错题数细分。"
+
+    rows = []
+    for point in points:
+        if any(point.get(f"{choice_prefix}{suffix}") is not None for _, suffix in labels) or any(point.get(f"{big_prefix}{suffix}") is not None for _, suffix in labels):
+            rows.append(point)
+    if not rows:
+        return render_empty_state(empty_message)
+
+    parts = ['<div class="breakdown-list">']
+    for point in rows:
+        choice_text = " / ".join(
+            f"{label} {format_optional_number(point.get(f'{choice_prefix}{suffix}')) or '-'}"
+            for label, suffix in labels
+        )
+        big_text = " / ".join(
+            f"{label} {format_optional_number(point.get(f'{big_prefix}{suffix}')) or '-'}"
+            for label, suffix in labels
+        )
+        parts.append(
+            '<article class="breakdown-card">'
+            f'<div class="breakdown-head"><strong>{e(point["paper_label"])}</strong><span>{e(point["exam_date"])}</span></div>'
+            f'<div class="breakdown-meta">选择题：{e(choice_text)}</div>'
+            f'<div class="breakdown-meta">大题：{e(big_text)}</div>'
+            f'<div class="breakdown-meta">总分 {e(format_number(point["total_score"]))}</div>'
+            '</article>'
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def render_english_breakdown_rows(points: Sequence[Mapping[str, object]]) -> str:
+    rows = [
+        point for point in points
+        if any(point.get(field) is not None for field in ("score_cloze", "score_reading", "score_new_type", "score_translation", "score_short_essay", "score_long_essay"))
+    ]
+    if not rows:
+        return render_empty_state("当前没有英语一的六板块细分得分。")
+    parts = ['<div class="breakdown-list">']
+    for point in rows:
+        detail = " / ".join([
+            f"完形 {format_optional_number(point.get('score_cloze')) or '-'}",
+            f"阅读 {format_optional_number(point.get('score_reading')) or '-'}",
+            f"新题型 {format_optional_number(point.get('score_new_type')) or '-'}",
+            f"翻译 {format_optional_number(point.get('score_translation')) or '-'}",
+            f"小作文 {format_optional_number(point.get('score_short_essay')) or '-'}",
+            f"大作文 {format_optional_number(point.get('score_long_essay')) or '-'}",
+        ])
+        parts.append(
+            '<article class="breakdown-card">'
+            f'<div class="breakdown-head"><strong>{e(point["paper_label"])}</strong><span>{e(point["exam_date"])}</span></div>'
+            f'<div class="breakdown-meta">{e(detail)}</div>'
+            f'<div class="breakdown-meta">总分 {e(format_number(point["total_score"]))}</div>'
+            '</article>'
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def render_subject_score_table(subject_key: str, rows: Sequence[Mapping[str, object]]) -> str:
+    if not rows:
+        return render_empty_state("还没有可展示的卷子记录。")
+    if subject_key == "math1":
+        parts = ['<table class="score-table"><thead><tr><th>日期</th><th>卷型</th><th>卷子</th><th>总分</th><th>选填</th><th>大题</th><th>主要问题</th></tr></thead><tbody>']
+        for row in rows:
+            row_date = row.get("date") or row.get("exam_date") or "-"
+            parts.append(
+                f"<tr><td>{e(row_date)}</td><td>{e(row['paper_type'])}</td><td>{e(row['paper'])}</td><td>{e(format_number(row['total_score']))}</td><td>{e(format_optional_number(row.get('score_objective')) or '-')}</td><td>{e(format_optional_number(row.get('score_big')) or '-')}</td><td>{e(row['issues'])}</td></tr>"
+            )
+        parts.append("</tbody></table>")
+        return "".join(parts)
+    if subject_key == "408":
+        parts = ['<table class="score-table"><thead><tr><th>日期</th><th>卷型</th><th>卷子</th><th>总分</th><th>主要薄弱科</th><th>备注</th></tr></thead><tbody>']
+        for row in rows:
+            row_date = row.get("date") or row.get("exam_date") or "-"
+            main_weakness = row.get("main_weakness") or top_weakness_from_408_record(row) or row.get("issues", "")
+            parts.append(
+                f"<tr><td>{e(row_date)}</td><td>{e(row['paper_type'])}</td><td>{e(row['paper'])}</td><td>{e(format_number(row['total_score']))}</td><td>{e(main_weakness)}</td><td>{e(row['note'])}</td></tr>"
+            )
+        parts.append("</tbody></table>")
+        return "".join(parts)
+    parts = ['<table class="score-table"><thead><tr><th>日期</th><th>卷型</th><th>卷子</th><th>总分</th><th>六项分解</th></tr></thead><tbody>']
+    for row in rows:
+        row_date = row.get("date") or row.get("exam_date") or "-"
+        detail = " / ".join([
+            f"完形 {format_optional_number(row.get('score_cloze')) or '-'}",
+            f"阅读 {format_optional_number(row.get('score_reading')) or '-'}",
+            f"新题型 {format_optional_number(row.get('score_new_type')) or '-'}",
+            f"翻译 {format_optional_number(row.get('score_translation')) or '-'}",
+            f"小作文 {format_optional_number(row.get('score_short_essay')) or '-'}",
+            f"大作文 {format_optional_number(row.get('score_long_essay')) or '-'}",
+        ])
+        parts.append(
+            f"<tr><td>{e(row_date)}</td><td>{e(row['paper_type'])}</td><td>{e(row['paper'])}</td><td>{e(format_number(row['total_score']))}</td><td>{e(detail)}</td></tr>"
+        )
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, object], color: str) -> str:
+    labels = [("all", "全部"), ("真题", "真题"), ("模拟", "模拟")]
+    button_parts = ['<div class="chip-row">']
+    panel_parts = []
+    has_loss_metrics = bool(trend_data.get("has_loss_metrics"))
+    for index, (filter_key, label) in enumerate(labels):
+        target = f"{subject_key}-{filter_key}"
+        button_parts.append(
+            f'<button type="button" class="chip-button{" active" if index == 0 else ""}" data-chip-group="{subject_key}" data-target="{target}">{e(label)}</button>'
+        )
+        rows = trend_data["filters"][filter_key]
+        chart = render_line_chart(rows, color, "当前筛选下还没有成绩记录。")
+        if subject_key == "math1":
+            breakdown = render_math_breakdown_rows(rows)
+        elif subject_key == "408":
+            score_view = render_408_metric_rows(rows, "score")
+            if has_loss_metrics:
+                loss_view = render_408_metric_rows(rows, "loss")
+                breakdown = (
+                    f'<div class="chip-row compact">'
+                    f'<button type="button" class="chip-button active" data-chip-group="{target}-metric" data-target="{target}-score">实际得分</button>'
+                    f'<button type="button" class="chip-button" data-chip-group="{target}-metric" data-target="{target}-loss">失分/错题数</button>'
+                    f'</div>'
+                    f'<div id="{target}-score" class="metric-subpanel active">{score_view}</div>'
+                    f'<div id="{target}-loss" class="metric-subpanel">{loss_view}</div>'
+                )
+            else:
+                breakdown = score_view
+        else:
+            breakdown = render_english_breakdown_rows(rows)
+        panel_parts.append(
+            f'<div id="{target}" class="subject-filter-panel{" active" if index == 0 else ""}">'
+            f'<div class="mini-panel"><h3>总分趋势</h3>{chart}</div>'
+            f'<div class="mini-panel"><h3>板块分解</h3>{breakdown}</div>'
+            f'<div class="mini-panel"><h3>最近卷子成绩</h3>{render_subject_score_table(subject_key, sorted(rows, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:6])}</div>'
+            '</div>'
+        )
+    button_parts.append("</div>")
+    return "".join(button_parts) + "".join(panel_parts)
 
 
 def render_subject_progress(rows: Sequence[Mapping[str, object]]) -> str:
@@ -991,6 +1535,7 @@ def render_html(payload: Mapping[str, object]) -> str:
     overview = payload["overview"]
     subjects = payload["subjects"]
     reviews = payload["reviews"]
+    score_trends = payload["score_trends"]
     knowledge_maps = payload["knowledge_maps"]
     activity = payload["activity"]
     quality = payload["quality"]
@@ -1009,6 +1554,8 @@ def render_html(payload: Mapping[str, object]) -> str:
         render_metric_card("本周新卡", str(overview["new_cards_this_week"]), "这一周新增的结构化错题", "rose"),
         render_metric_card("报告状态", recap_status, "复盘与模考是否在推进", "slate"),
     ])
+    score_metric_cards = render_score_summary_cards(score_trends)
+    overall_mock_chart = render_multi_line_chart(score_trends["overall"]["series"], "还没有四科完整模考趋势数据。")
 
     payload_json = json.dumps(payload, ensure_ascii=False, indent=2).replace("</", "<\\/")
 
@@ -1257,6 +1804,136 @@ def render_html(payload: Mapping[str, object]) -> str:
       margin: 0 0 10px;
       font-size: 19px;
     }}
+    .trend-chart {{
+      width: 100%;
+      height: auto;
+      display: block;
+    }}
+    .chart-with-legend {{
+      display: grid;
+      gap: 12px;
+    }}
+    .chart-legend {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+    .legend-pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(20, 33, 61, 0.06);
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    .legend-dot {{
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }}
+    .score-table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 18px;
+      overflow: hidden;
+    }}
+    .score-table th, .score-table td {{
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+    }}
+    .score-table th {{
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .score-summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }}
+    .subject-tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0;
+    }}
+    .tab-button, .chip-button {{
+      border: 1px solid rgba(20, 33, 61, 0.12);
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+    }}
+    .tab-button.active, .chip-button.active {{
+      background: var(--ink);
+      color: #fff8ef;
+      border-color: var(--ink);
+    }}
+    .trend-tab-panel, .subject-filter-panel, .metric-subpanel {{
+      display: none;
+    }}
+    .trend-tab-panel.active, .subject-filter-panel.active, .metric-subpanel.active {{
+      display: block;
+    }}
+    .trend-tab-panel {{
+      margin-top: 12px;
+    }}
+    .chip-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }}
+    .chip-row.compact {{
+      margin-top: 4px;
+    }}
+    .breakdown-list {{
+      display: grid;
+      gap: 10px;
+    }}
+    .breakdown-card {{
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(20, 33, 61, 0.04);
+      border: 1px solid rgba(20, 33, 61, 0.06);
+    }}
+    .breakdown-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }}
+    .breakdown-meta {{
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 8px;
+    }}
+    .stack-track {{
+      display: flex;
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(20, 33, 61, 0.08);
+    }}
+    .stack-seg {{
+      height: 100%;
+    }}
+    .seg-objective {{
+      background: #b7791f;
+    }}
+    .seg-big {{
+      background: #1d4ed8;
+    }}
     .heatmap {{
       display: grid;
       grid-template-columns: repeat(10, minmax(0, 1fr));
@@ -1406,6 +2083,7 @@ def render_html(payload: Mapping[str, object]) -> str:
       <div class="nav">
         <a href="#overview">总览</a>
         <a href="#subjects">科目进度</a>
+        <a href="#score-trends">成绩趋势</a>
         <a href="#reviews">复习止损</a>
         <a href="#quality">沉淀质量</a>
         <a href="#results">成果感</a>
@@ -1434,6 +2112,36 @@ def render_html(payload: Mapping[str, object]) -> str:
           <p>{e("、".join(subjects["structured_subjects"]) if subjects["structured_subjects"] else "尚无结构化沉淀")}</p>
           <p style="color: var(--muted);">{e("空白科目：" + "、".join(subjects["blank_subjects"]) if subjects["blank_subjects"] else "当前四科都至少有一层结构化数据。")}</p>
         </div>
+      </div>
+    </section>
+
+    <section class="section" id="score-trends">
+      <h2>成绩趋势面板</h2>
+      <p class="lede">总分必须能看见趋势，卷子名必须能对上分数；细分得分有就展开，没有就诚实留空。</p>
+      <div class="score-summary-grid">{score_metric_cards}</div>
+      <div class="panel-grid">
+        <div class="mini-panel">
+          <h3>四科总模考趋势</h3>
+          {overall_mock_chart}
+        </div>
+        <div class="mini-panel">
+          <h3>最近 5 条卷子记录</h3>
+          {render_recent_score_records(score_trends["recent_records"])}
+        </div>
+      </div>
+      <div class="subject-tabs">
+        <button type="button" class="tab-button active" data-chip-group="score-tabs" data-target="score-tab-math1">数学一</button>
+        <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-408">408</button>
+        <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-english1">英语一</button>
+      </div>
+      <div id="score-tab-math1" class="trend-tab-panel active">
+        {render_subject_filter_panels("math1", score_trends["math1"], "#b7791f")}
+      </div>
+      <div id="score-tab-408" class="trend-tab-panel">
+        {render_subject_filter_panels("408", score_trends["408"], "#1d4ed8")}
+      </div>
+      <div id="score-tab-english1" class="trend-tab-panel">
+        {render_subject_filter_panels("english1", score_trends["english1"], "#0f766e")}
       </div>
     </section>
 
@@ -1516,6 +2224,26 @@ def render_html(payload: Mapping[str, object]) -> str:
     drawer.textContent = payload;
     toggle.addEventListener("click", () => {{
       drawer.classList.toggle("open");
+    }});
+    document.querySelectorAll("[data-chip-group]").forEach((button) => {{
+      button.addEventListener("click", () => {{
+        const group = button.dataset.chipGroup;
+        const target = button.dataset.target;
+        document.querySelectorAll(`[data-chip-group="${{group}}"]`).forEach((peer) => peer.classList.remove("active"));
+        button.classList.add("active");
+        if (!target) return;
+        if (group === "score-tabs") {{
+          document.querySelectorAll(".trend-tab-panel").forEach((panel) => panel.classList.remove("active"));
+        }} else if (group.endsWith("-metric")) {{
+          document.querySelectorAll(`#${{CSS.escape(group.replace("-metric", ""))}} .metric-subpanel`).forEach((panel) => panel.classList.remove("active"));
+        }} else {{
+          document.querySelectorAll(".subject-filter-panel").forEach((panel) => {{
+            if (panel.id.startsWith(group + "-")) panel.classList.remove("active");
+          }});
+        }}
+        const targetEl = document.getElementById(target);
+        if (targetEl) targetEl.classList.add("active");
+      }});
     }});
   </script>
 </body>

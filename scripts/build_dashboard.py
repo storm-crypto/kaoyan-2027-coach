@@ -741,11 +741,12 @@ def build_overall_mock_trend(archive_text: str) -> Dict[str, object]:
             score = parse_score_cell(row[subject])
             if score is None:
                 continue
+            note = row.get("备注", "") or "总模考"
             points.append({
                 "date": row["date"],
-                "paper": row.get("备注", "") or "模考",
+                "paper": "总模考",
                 "paper_type": "总模考",
-                "paper_label": row.get("备注", "") or "模考",
+                "paper_label": f"总模考 / {note}",
                 "score": score,
             })
         series.append({
@@ -753,8 +754,24 @@ def build_overall_mock_trend(archive_text: str) -> Dict[str, object]:
             "color": colors[subject],
             "points": points,
         })
+    total_points = []
+    for row in rows:
+        total_score = parse_score_cell(row["总分"])
+        if total_score is None:
+            continue
+        note = row.get("备注", "") or "总模考"
+        total_points.append({
+            "exam_date": row["date"],
+            "paper_type": "总模考",
+            "paper": "总分",
+            "paper_label": f"总模考 / {note}",
+            "total_score": total_score,
+            "issues": note,
+            "note": note,
+        })
     return {
         "series": series,
+        "total_points": total_points,
         "has_data": any(item["points"] for item in series),
     }
 
@@ -915,6 +932,20 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
     math_points = merge_score_points(detailed_records, archive_text, "数学一")
     cs_points = merge_score_points(detailed_records, archive_text, "408")
     english_points = merge_score_points(detailed_records, archive_text, "英语一")
+    overall = build_overall_mock_trend(archive_text)
+    politics_series = next((item for item in overall["series"] if item["subject"] == "政治"), {"points": []})
+    politics_points = [
+        {
+            "exam_date": point["date"],
+            "paper_type": point["paper_type"],
+            "paper": point["paper"],
+            "paper_label": point["paper_label"],
+            "total_score": point["score"],
+            "issues": point["paper_label"],
+            "note": point["paper_label"],
+        }
+        for point in politics_series["points"]
+    ]
 
     recent_records = []
     all_records = math_points + cs_points + english_points
@@ -929,7 +960,8 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
         })
 
     return {
-        "overall": build_overall_mock_trend(archive_text),
+        "overall": overall,
+        "total": build_subject_score_trend(overall["total_points"], "总分"),
         "math1": build_subject_score_trend(math_points, "数学一"),
         "408": {
             **build_subject_score_trend(cs_points, "408"),
@@ -949,6 +981,7 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
             ),
         },
         "english1": build_subject_score_trend(english_points, "英语一"),
+        "politics": build_subject_score_trend(politics_points, "政治"),
         "recent_records": recent_records,
     }
 
@@ -1066,24 +1099,48 @@ def render_bar_rows(rows: Sequence[Mapping[str, object]], empty_message: str) ->
     parts.append("</div>")
     return "".join(parts)
 
+def build_axis_ticks(min_value: float, max_value: float, tick_count: int) -> List[float]:
+    if tick_count <= 1:
+        return [min_value, max_value]
+    if abs(max_value - min_value) < 1e-9:
+        return [min_value]
+    step = (max_value - min_value) / (tick_count - 1)
+    return [min_value + step * index for index in range(tick_count)]
 
-def render_line_chart(points: Sequence[Mapping[str, object]], color: str, empty_message: str) -> str:
+
+def build_x_tick_labels(labels: Sequence[str]) -> List[Tuple[int, str]]:
+    if not labels:
+        return []
+    if len(labels) <= 6:
+        return list(enumerate(labels))
+    candidates = [0, len(labels) // 2, len(labels) - 1]
+    unique_indexes: List[int] = []
+    for index in candidates:
+        if index not in unique_indexes:
+            unique_indexes.append(index)
+    return [(index, labels[index]) for index in unique_indexes]
+
+
+def render_line_chart(
+    points: Sequence[Mapping[str, object]],
+    color: str,
+    empty_message: str,
+    y_min: float,
+    y_max: float,
+    y_step: float,
+) -> str:
     valid_points = [point for point in points if isinstance(point.get("total_score"), (int, float))]
     if not valid_points:
         return render_empty_state(empty_message)
 
     width = 720
-    height = 240
-    pad_x = 36
-    pad_y = 28
+    height = 280
+    pad_x = 48
+    pad_y = 24
+    bottom_pad = 54
     inner_width = width - pad_x * 2
-    inner_height = height - pad_y * 2
-    values = [float(point["total_score"]) for point in valid_points]
-    min_value = min(values)
-    max_value = max(values)
-    if abs(max_value - min_value) < 1e-9:
-        min_value -= 1
-        max_value += 1
+    inner_height = height - pad_y - bottom_pad
+    labels = [point["exam_date"] for point in valid_points]
 
     def x_at(index: int) -> float:
         if len(valid_points) == 1:
@@ -1091,7 +1148,7 @@ def render_line_chart(points: Sequence[Mapping[str, object]], color: str, empty_
         return pad_x + inner_width * index / (len(valid_points) - 1)
 
     def y_at(value: float) -> float:
-        ratio = (value - min_value) / (max_value - min_value)
+        ratio = (value - y_min) / (y_max - y_min)
         return pad_y + inner_height * (1 - ratio)
 
     polyline = " ".join(f"{x_at(index):.1f},{y_at(float(point['total_score'])):.1f}" for index, point in enumerate(valid_points))
@@ -1099,26 +1156,44 @@ def render_line_chart(points: Sequence[Mapping[str, object]], color: str, empty_
     for index, point in enumerate(valid_points):
         x = x_at(index)
         y = y_at(float(point["total_score"]))
+        tooltip = f'{point["exam_date"]} {point["paper_label"]} {format_number(point["total_score"])}'
         circles.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}"><title>{e(point["exam_date"])} {e(point["paper_label"])} {e(format_number(point["total_score"]))}</title></circle>'
+            f'<circle class="tooltip-point" data-tooltip="{e(tooltip)}" cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}"><title>{e(tooltip)}</title></circle>'
         )
 
-    axis_labels = (
-        f'<text x="{pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11">{e(valid_points[0]["exam_date"])}</text>'
-        f'<text x="{width - pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(valid_points[-1]["exam_date"])}</text>'
-    )
+    y_grid = []
+    for tick in build_axis_ticks(y_min, y_max, int((y_max - y_min) / y_step) + 1):
+        y = y_at(tick)
+        y_grid.append(f'<line x1="{pad_x}" y1="{y:.1f}" x2="{width - pad_x}" y2="{y:.1f}" stroke="rgba(20,33,61,0.08)" stroke-width="1" />')
+        y_grid.append(f'<text x="{pad_x - 8}" y="{y + 4:.1f}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(format_number(tick))}</text>')
+
+    x_labels = []
+    baseline_y = height - bottom_pad
+    for index, label in build_x_tick_labels(labels):
+        x = x_at(index)
+        x_labels.append(f'<line x1="{x:.1f}" y1="{baseline_y}" x2="{x:.1f}" y2="{baseline_y + 4}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />')
+        x_labels.append(f'<text x="{x:.1f}" y="{height - 18}" fill="#5f6b7a" font-size="11" text-anchor="middle">{e(label)}</text>')
     return (
         f'<svg class="trend-chart" viewBox="0 0 {width} {height}" role="img" aria-label="成绩趋势图">'
-        f'<line x1="{pad_x}" y1="{height - pad_y}" x2="{width - pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
-        f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        + "".join(y_grid)
+        + f'<line x1="{pad_x}" y1="{baseline_y}" x2="{width - pad_x}" y2="{baseline_y}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />'
+        + f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{baseline_y}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />'
         f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{polyline}" />'
         + "".join(circles)
-        + axis_labels
+        + "".join(x_labels)
+        + f'<text x="{width / 2:.1f}" y="{height - 2}" fill="#5f6b7a" font-size="11" text-anchor="middle">日期</text>'
+        + f'<text x="16" y="{pad_y + inner_height / 2:.1f}" fill="#5f6b7a" font-size="11" text-anchor="middle" transform="rotate(-90 16 {pad_y + inner_height / 2:.1f})">分数</text>'
         + "</svg>"
     )
 
 
-def render_multi_line_chart(series: Sequence[Mapping[str, object]], empty_message: str) -> str:
+def render_multi_line_chart(
+    series: Sequence[Mapping[str, object]],
+    empty_message: str,
+    y_min: float,
+    y_max: float,
+    y_step: float,
+) -> str:
     dated_scores: Dict[str, Dict[str, float]] = {}
     for item in series:
         for point in item["points"]:
@@ -1128,17 +1203,12 @@ def render_multi_line_chart(series: Sequence[Mapping[str, object]], empty_messag
         return render_empty_state(empty_message)
 
     width = 720
-    height = 260
-    pad_x = 40
-    pad_y = 30
+    height = 300
+    pad_x = 52
+    pad_y = 24
+    bottom_pad = 54
     inner_width = width - pad_x * 2
-    inner_height = height - pad_y * 2
-    all_values = [value for scores in dated_scores.values() for value in scores.values()]
-    min_value = min(all_values)
-    max_value = max(all_values)
-    if abs(max_value - min_value) < 1e-9:
-        min_value -= 1
-        max_value += 1
+    inner_height = height - pad_y - bottom_pad
 
     date_to_index = {day: index for index, day in enumerate(all_dates)}
 
@@ -1148,7 +1218,7 @@ def render_multi_line_chart(series: Sequence[Mapping[str, object]], empty_messag
         return pad_x + inner_width * date_to_index[day] / (len(all_dates) - 1)
 
     def y_at(value: float) -> float:
-        ratio = (value - min_value) / (max_value - min_value)
+        ratio = (value - y_min) / (y_max - y_min)
         return pad_y + inner_height * (1 - ratio)
 
     paths = []
@@ -1164,35 +1234,36 @@ def render_multi_line_chart(series: Sequence[Mapping[str, object]], empty_messag
         for point in points:
             x = x_at(point["date"])
             y = y_at(float(point["score"]))
+            tooltip = f'{item["subject"]} {point["date"]} {point["paper_label"]} {format_number(point["score"])}'
             circles.append(
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{item["color"]}"><title>{e(item["subject"])} {e(point["date"])} {e(point["paper_label"])} {e(format_number(point["score"]))}</title></circle>'
+                f'<circle class="tooltip-point" data-tooltip="{e(tooltip)}" cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{item["color"]}"><title>{e(tooltip)}</title></circle>'
             )
+
+    y_grid = []
+    for tick in build_axis_ticks(y_min, y_max, int((y_max - y_min) / y_step) + 1):
+        y = y_at(tick)
+        y_grid.append(f'<line x1="{pad_x}" y1="{y:.1f}" x2="{width - pad_x}" y2="{y:.1f}" stroke="rgba(20,33,61,0.08)" stroke-width="1" />')
+        y_grid.append(f'<text x="{pad_x - 8}" y="{y + 4:.1f}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(format_number(tick))}</text>')
+    baseline_y = height - bottom_pad
+    x_labels = []
+    for index, label in build_x_tick_labels(all_dates):
+        x = x_at(label)
+        x_labels.append(f'<line x1="{x:.1f}" y1="{baseline_y}" x2="{x:.1f}" y2="{baseline_y + 4}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />')
+        x_labels.append(f'<text x="{x:.1f}" y="{height - 18}" fill="#5f6b7a" font-size="11" text-anchor="middle">{e(label)}</text>')
 
     svg = (
         f'<svg class="trend-chart" viewBox="0 0 {width} {height}" role="img" aria-label="四科总模考趋势图">'
-        f'<line x1="{pad_x}" y1="{height - pad_y}" x2="{width - pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
-        f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{height - pad_y}" stroke="rgba(20,33,61,0.12)" stroke-width="1" />'
+        + "".join(y_grid)
+        + f'<line x1="{pad_x}" y1="{baseline_y}" x2="{width - pad_x}" y2="{baseline_y}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />'
+        + f'<line x1="{pad_x}" y1="{pad_y}" x2="{pad_x}" y2="{baseline_y}" stroke="rgba(20,33,61,0.16)" stroke-width="1" />'
         + "".join(paths)
         + "".join(circles)
-        + f'<text x="{pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11">{e(all_dates[0])}</text>'
-        + f'<text x="{width - pad_x}" y="{height - 8}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(all_dates[-1])}</text>'
+        + "".join(x_labels)
+        + f'<text x="{width / 2:.1f}" y="{height - 2}" fill="#5f6b7a" font-size="11" text-anchor="middle">日期</text>'
+        + f'<text x="18" y="{pad_y + inner_height / 2:.1f}" fill="#5f6b7a" font-size="11" text-anchor="middle" transform="rotate(-90 18 {pad_y + inner_height / 2:.1f})">分数</text>'
         + "</svg>"
     )
     return '<div class="chart-with-legend">' + svg + '<div class="chart-legend">' + "".join(legends) + "</div></div>"
-
-
-def render_score_summary_cards(score_trends: Mapping[str, object]) -> str:
-    cards = []
-    for key, title, tone in (("math1", "数学一最近一次", "gold"), ("408", "408最近一次", "ink"), ("english1", "英语一最近一次", "mint")):
-        latest = score_trends[key]["latest"]
-        if latest:
-            value = format_number(latest["total_score"])
-            caption = f'{latest["paper_type"]} / {latest["paper"]}'
-        else:
-            value = "-"
-            caption = "还没有单科卷子记录"
-        cards.append(render_metric_card(title, value, caption, tone))
-    return "".join(cards)
 
 
 def render_recent_score_records(rows: Sequence[Mapping[str, object]]) -> str:
@@ -1207,6 +1278,50 @@ def render_recent_score_records(rows: Sequence[Mapping[str, object]]) -> str:
         )
     parts.append("</tbody></table>")
     return "".join(parts)
+
+
+def render_total_score_panel(score_trends: Mapping[str, object]) -> str:
+    chart = render_line_chart(
+        score_trends["total"]["points"],
+        "#8b5e34",
+        "还没有四科完整模考总分趋势数据。",
+        0.0,
+        500.0,
+        100.0,
+    )
+    recent_rows = [
+        {
+            "subject": "总分",
+            "date": row["date"],
+            "paper_type": row["paper_type"],
+            "paper": row["paper_label"],
+            "total_score": row["total_score"],
+        }
+        for row in score_trends["total"]["recent_rows"]
+    ]
+    return (
+        '<div class="panel-grid">'
+        f'<div class="mini-panel"><h3>总分趋势</h3>{chart}</div>'
+        f'<div class="mini-panel"><h3>最近完整模考</h3>{render_recent_score_records(recent_rows)}</div>'
+        '</div>'
+    )
+
+
+def render_politics_panel(score_trends: Mapping[str, object]) -> str:
+    chart = render_line_chart(
+        score_trends["politics"]["points"],
+        "#6b7280",
+        "还没有政治套卷趋势数据。",
+        0.0,
+        100.0,
+        20.0,
+    )
+    return (
+        '<div class="panel-grid">'
+        f'<div class="mini-panel"><h3>政治总分趋势</h3>{chart}</div>'
+        f'<div class="mini-panel"><h3>最近政治成绩</h3>{render_subject_score_table("politics", score_trends["politics"]["recent_rows"])}</div>'
+        '</div>'
+    )
 
 
 def render_math_breakdown_rows(points: Sequence[Mapping[str, object]]) -> str:
@@ -1303,6 +1418,15 @@ def render_english_breakdown_rows(points: Sequence[Mapping[str, object]]) -> str
 def render_subject_score_table(subject_key: str, rows: Sequence[Mapping[str, object]]) -> str:
     if not rows:
         return render_empty_state("还没有可展示的卷子记录。")
+    if subject_key == "politics":
+        parts = ['<table class="score-table"><thead><tr><th>日期</th><th>卷型</th><th>卷子</th><th>分数</th></tr></thead><tbody>']
+        for row in rows:
+            row_date = row.get("date") or row.get("exam_date") or "-"
+            parts.append(
+                f"<tr><td>{e(row_date)}</td><td>{e(row['paper_type'])}</td><td>{e(row['paper'])}</td><td>{e(format_number(row['total_score']))}</td></tr>"
+            )
+        parts.append("</tbody></table>")
+        return "".join(parts)
     if subject_key == "math1":
         parts = ['<table class="score-table"><thead><tr><th>日期</th><th>卷型</th><th>卷子</th><th>总分</th><th>选填</th><th>大题</th><th>主要问题</th></tr></thead><tbody>']
         for row in rows:
@@ -1342,6 +1466,12 @@ def render_subject_score_table(subject_key: str, rows: Sequence[Mapping[str, obj
 
 def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, object], color: str) -> str:
     labels = [("all", "全部"), ("真题", "真题"), ("模拟", "模拟")]
+    axis_configs = {
+        "math1": (0.0, 150.0, 30.0),
+        "408": (0.0, 150.0, 30.0),
+        "english1": (0.0, 100.0, 20.0),
+    }
+    y_min, y_max, y_step = axis_configs[subject_key]
     button_parts = ['<div class="chip-row">']
     panel_parts = []
     has_loss_metrics = bool(trend_data.get("has_loss_metrics"))
@@ -1351,7 +1481,7 @@ def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, obje
             f'<button type="button" class="chip-button{" active" if index == 0 else ""}" data-chip-group="{subject_key}" data-target="{target}">{e(label)}</button>'
         )
         rows = trend_data["filters"][filter_key]
-        chart = render_line_chart(rows, color, "当前筛选下还没有成绩记录。")
+        chart = render_line_chart(rows, color, "当前筛选下还没有成绩记录。", y_min, y_max, y_step)
         if subject_key == "math1":
             breakdown = render_math_breakdown_rows(rows)
         elif subject_key == "408":
@@ -1554,9 +1684,6 @@ def render_html(payload: Mapping[str, object]) -> str:
         render_metric_card("本周新卡", str(overview["new_cards_this_week"]), "这一周新增的结构化错题", "rose"),
         render_metric_card("报告状态", recap_status, "复盘与模考是否在推进", "slate"),
     ])
-    score_metric_cards = render_score_summary_cards(score_trends)
-    overall_mock_chart = render_multi_line_chart(score_trends["overall"]["series"], "还没有四科完整模考趋势数据。")
-
     payload_json = json.dumps(payload, ensure_ascii=False, indent=2).replace("</", "<\\/")
 
     return f"""<!DOCTYPE html>
@@ -2034,6 +2161,26 @@ def render_html(payload: Mapping[str, object]) -> str:
       max-height: 420px;
       font-size: 13px;
     }}
+    .tooltip-floating {{
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      max-width: 320px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(20, 33, 61, 0.94);
+      color: #fff8ef;
+      box-shadow: 0 10px 30px rgba(20, 33, 61, 0.2);
+      font-size: 12px;
+      line-height: 1.4;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }}
+    .tooltip-floating.visible {{
+      opacity: 1;
+      transform: translateY(0);
+    }}
     .payload-drawer.open {{
       display: block;
     }}
@@ -2117,24 +2264,18 @@ def render_html(payload: Mapping[str, object]) -> str:
 
     <section class="section" id="score-trends">
       <h2>成绩趋势面板</h2>
-      <p class="lede">总分必须能看见趋势，卷子名必须能对上分数；细分得分有就展开，没有就诚实留空。</p>
-      <div class="score-summary-grid">{score_metric_cards}</div>
-      <div class="panel-grid">
-        <div class="mini-panel">
-          <h3>四科总模考趋势</h3>
-          {overall_mock_chart}
-        </div>
-        <div class="mini-panel">
-          <h3>最近 5 条卷子记录</h3>
-          {render_recent_score_records(score_trends["recent_records"])}
-        </div>
-      </div>
+      <p class="lede">一次只看一个维度：总分、单科趋势和模块分数分开读，图表才不会挤成一团。</p>
       <div class="subject-tabs">
-        <button type="button" class="tab-button active" data-chip-group="score-tabs" data-target="score-tab-math1">数学一</button>
+        <button type="button" class="tab-button active" data-chip-group="score-tabs" data-target="score-tab-total">总分</button>
+        <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-math1">数学一</button>
         <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-408">408</button>
         <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-english1">英语一</button>
+        <button type="button" class="tab-button" data-chip-group="score-tabs" data-target="score-tab-politics">政治</button>
       </div>
-      <div id="score-tab-math1" class="trend-tab-panel active">
+      <div id="score-tab-total" class="trend-tab-panel active">
+        {render_total_score_panel(score_trends)}
+      </div>
+      <div id="score-tab-math1" class="trend-tab-panel">
         {render_subject_filter_panels("math1", score_trends["math1"], "#b7791f")}
       </div>
       <div id="score-tab-408" class="trend-tab-panel">
@@ -2142,6 +2283,9 @@ def render_html(payload: Mapping[str, object]) -> str:
       </div>
       <div id="score-tab-english1" class="trend-tab-panel">
         {render_subject_filter_panels("english1", score_trends["english1"], "#0f766e")}
+      </div>
+      <div id="score-tab-politics" class="trend-tab-panel">
+        {render_politics_panel(score_trends)}
       </div>
     </section>
 
@@ -2222,6 +2366,9 @@ def render_html(payload: Mapping[str, object]) -> str:
     const drawer = document.getElementById("payload-drawer");
     const payload = document.getElementById("payload-json").textContent;
     drawer.textContent = payload;
+    const tooltip = document.createElement("div");
+    tooltip.className = "tooltip-floating";
+    document.body.appendChild(tooltip);
     toggle.addEventListener("click", () => {{
       drawer.classList.toggle("open");
     }});
@@ -2243,6 +2390,21 @@ def render_html(payload: Mapping[str, object]) -> str:
         }}
         const targetEl = document.getElementById(target);
         if (targetEl) targetEl.classList.add("active");
+      }});
+    }});
+    const moveTooltip = (event) => {{
+      tooltip.style.left = (event.clientX + 14) + "px";
+      tooltip.style.top = (event.clientY + 14) + "px";
+    }};
+    document.querySelectorAll(".tooltip-point").forEach((point) => {{
+      point.addEventListener("mouseenter", (event) => {{
+        tooltip.textContent = point.dataset.tooltip || "";
+        tooltip.classList.add("visible");
+        moveTooltip(event);
+      }});
+      point.addEventListener("mousemove", moveTooltip);
+      point.addEventListener("mouseleave", () => {{
+        tooltip.classList.remove("visible");
       }});
     }});
   </script>

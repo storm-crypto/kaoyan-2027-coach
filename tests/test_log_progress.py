@@ -112,7 +112,7 @@ def test_log_progress_subject_score_syncs_archive_and_log(sample_archive, vault_
     assert "| 408 | 模拟 | 2024 真题 | 120 | 150 | 80.0% |" not in log_text
     archive_text = sample_archive.read_text(encoding="utf-8")
     assert "| 2026-03-23 | 模拟 | 李林6套卷2 | 118 | 级数、矩阵对角化、积分不等式 | 细节会崩但比上周稳 |" in archive_text
-    assert "| 2026-03-23 | 真题 | 2024 真题 | 120 | DS 排序综合、CN 运输层 | 真题二刷依然有盲区 |" in archive_text
+    assert "| 2026-03-23 | 真题 | 2024 真题 | 3 | 2 | 1 | 3 | 120 | DS 排序综合、CN 运输层 | 真题二刷依然有盲区 |" in archive_text
 
 
 def test_log_progress_subject_score_requires_complete_fields(sample_archive, vault_root):

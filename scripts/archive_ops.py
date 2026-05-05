@@ -18,10 +18,10 @@ SUBJECT_SCORE_SECTION_CONFIG = {
     },
     "408": {
         "heading": "408模拟成绩追踪",
-        "columns": ("date", "paper_type", "paper", "total", "issues", "note"),
-        "headers": ("日期", "卷型", "卷子", "总分", "主要问题", "备注"),
-        "separator": "|------|------|------|------|----------|------|",
-        "blank": "| | | | | | |",
+        "columns": ("date", "paper_type", "paper", "ds", "co", "os", "cn", "total", "issues", "note"),
+        "headers": ("日期", "卷型", "卷子", "DS", "CO", "OS", "CN", "总分", "主要问题", "备注"),
+        "separator": "|------|------|------|----|----|----|----|------|----------|------|",
+        "blank": "| | | | | | | | | | |",
     },
     "英语一": {
         "heading": "英语一模拟成绩追踪",
@@ -253,6 +253,19 @@ def parse_subject_score_rows(text: str, subject: str) -> List[Dict[str, str]]:
                 "os": cells[4],
                 "cn": cells[5],
             }
+        elif subject == "408" and len(cells) == 6:
+            normalized = {
+                "date": cells[0],
+                "paper_type": cells[1],
+                "paper": cells[2],
+                "ds": "",
+                "co": "",
+                "os": "",
+                "cn": "",
+                "total": cells[3],
+                "issues": cells[4],
+                "note": cells[5],
+            }
         elif len(cells) == len(config["columns"]):
             normalized = dict(zip(config["columns"], cells))
         else:
@@ -295,6 +308,9 @@ def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) ->
             elif subject == "408" and len(cells) == 9:
                 existing_paper = cells[1]
                 existing_paper_type = "真题" if "真题" in cells[1] else "模拟"
+            elif subject == "408" and len(cells) == 6:
+                existing_paper_type = cells[1]
+                existing_paper = cells[2]
             elif len(cells) == len(config["columns"]):
                 existing_paper_type = cells[1]
                 existing_paper = cells[2]

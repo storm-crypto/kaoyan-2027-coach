@@ -58,7 +58,7 @@ def test_record_408_subject_score_same_day_upsert(sample_archive, vault_root):
     assert data["subject"] == "408"
     archive_text = sample_archive.read_text(encoding="utf-8")
     assert archive_text.count("| 2026-03-24 | 真题 | 2024 真题 |") == 1
-    assert "| 2026-03-24 | 真题 | 2024 真题 | 123 | OS 调度、CN 拥塞控制 | 修正版 |" in archive_text
+    assert "| 2026-03-24 | 真题 | 2024 真题 | 1 | 1 | 3 | 2 | 123 | OS 调度、CN 拥塞控制 | 修正版 |" in archive_text
     assert (vault_root / "成绩记录" / "408" / "2026-03-24-真题-2024-真题.md").exists()
 
 

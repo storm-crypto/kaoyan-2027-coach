@@ -409,12 +409,17 @@ def main():
         for item in parsed_subject_scores:
             total_score = item["score"] if item["subject"] == "数学一" else item["total"]
             row = build_summary_row_from_record({
+                "subject": item["subject"],
                 "exam_date": log_day.isoformat(),
                 "paper_type": infer_paper_type(item["paper"]),
                 "paper": item["paper"],
                 "total_score": total_score,
                 "issues": item["issues"],
                 "note": item["note"] or "-",
+                "score_choice_ds": item.get("ds"),
+                "score_choice_co": item.get("co"),
+                "score_choice_os": item.get("os"),
+                "score_choice_cn": item.get("cn"),
             })
             updated_archive = upsert_subject_score_row(updated_archive, item["subject"], row)
             section_name = f"{item['subject']}模拟成绩追踪"

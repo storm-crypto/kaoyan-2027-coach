@@ -118,12 +118,14 @@ def main() -> None:
         updated,
         subject,
         build_summary_row_from_record({
+            "subject": subject,
             "exam_date": exam_day,
             "paper_type": args.paper_type,
             "paper": args.paper,
             "total_score": total_score,
             "issues": args.issues,
             "note": args.note or "-",
+            **extra_fields,
         }),
     )
     atomic_write(archive_path, updated)

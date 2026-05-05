@@ -130,7 +130,9 @@ def test_build_dashboard_outputs_payload_and_html(sample_archive, sample_card, k
     assert "沉淀质量面板" in html
     assert "成果感面板" in html
     assert "到期卡按状态分布" in html
-    assert "最近 5 条卷子记录" in html
+    assert "最近完整模考" in html
+    assert "总分" in html
+    assert "政治" in html
     assert "查看原始数据" in html
 
 
@@ -188,3 +190,22 @@ def test_build_dashboard_buckets_overdue_reviews(sample_card, vault_root):
     top_chapters = data["reviews"]["top_chapters"]
     assert any(item["subject"] == "数学一" for item in top_chapters)
     assert any(item["subject"] == "408" for item in top_chapters)
+
+
+def test_build_dashboard_does_not_use_log_scores_in_score_trends(vault_root):
+    _write_log(vault_root, "2026-03-23", "408 计组章节训练", "2", "总线", "计算题")
+    log_path = vault_root / "学习日志" / "2026-03-23.md"
+    log_path.write_text(log_path.read_text(encoding="utf-8") + textwrap.dedent("""\
+
+        ## 训练成绩记录
+        | 科目 | 类型 | 来源 | 得分 | 满分 | 完成率 | 备注 |
+        |------|------|------|------|------|--------|------|
+        | 408 | 章节训练 | 老汤计组 ch2 总线真题练习 | 20 | 32 | 62.5% | 总线相关计算题不熟练，需要多复盘。 |
+    """), encoding="utf-8")
+
+    rc, out, err = run_script("build_dashboard.py", [str(vault_root), "--today", "2026-03-23"])
+    assert rc == 0, err
+
+    data = json.loads(out)
+    assert data["score_trends"]["408"]["has_data"] is False
+    assert data["score_trends"]["recent_records"] == []

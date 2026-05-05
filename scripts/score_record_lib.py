@@ -291,13 +291,42 @@ def collect_score_records(obsidian_root: Path, subjects: Optional[Sequence[str]]
 
 
 def build_summary_row_from_record(record: Mapping[str, object]) -> Dict[str, str]:
-    return {
+    subject = str(record.get("subject", "")).strip()
+    base = {
         "date": str(record["exam_date"]),
         "paper_type": str(record["paper_type"]),
         "paper": str(record["paper"]),
         "total": format_number(float(record["total_score"])),
         "issues": str(record["issues"]),
         "note": str(record["note"] or "-"),
+    }
+    if subject != "408":
+        return base
+
+    module_totals = {}
+    for label, choice_field, big_field in (
+        ("ds", "score_choice_ds", "score_big_ds"),
+        ("co", "score_choice_co", "score_big_co"),
+        ("os", "score_choice_os", "score_big_os"),
+        ("cn", "score_choice_cn", "score_big_cn"),
+    ):
+        choice = record.get(choice_field)
+        big = record.get(big_field)
+        total = 0.0
+        has_value = False
+        if isinstance(choice, (int, float)):
+            total += float(choice)
+            has_value = True
+        if isinstance(big, (int, float)):
+            total += float(big)
+            has_value = True
+        module_totals[label] = format_number(total) if has_value else ""
+    return {
+        **base,
+        "ds": module_totals["ds"],
+        "co": module_totals["co"],
+        "os": module_totals["os"],
+        "cn": module_totals["cn"],
     }
 
 

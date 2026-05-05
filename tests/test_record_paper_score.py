@@ -58,7 +58,7 @@ def test_record_408_paper_score_with_loss_metrics(sample_archive, vault_root):
     assert "loss_big_os: 1" in record_text
     assert data["paper_type"] == "模拟"
     archive_text = sample_archive.read_text(encoding="utf-8")
-    assert "| 2026-03-24 | 模拟 | 王道8套卷1 | 118 | OS 调度、CO 指令系统 | 结构还不稳 |" in archive_text
+    assert "| 2026-03-24 | 模拟 | 王道8套卷1 | 34 | 24 | 27 | 33 | 118 | OS 调度、CO 指令系统 | 结构还不稳 |" in archive_text
 
 
 def test_record_english_paper_score(sample_archive, vault_root):

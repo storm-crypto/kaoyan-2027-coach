@@ -11,6 +11,7 @@
 - `/plan_today`、`/plan_week` 负责学习节奏安排
 - `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、单科总表、复盘和策略校准
 - `/grill` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告（兼容旧写法 `/chapter_grill_import`）
+- `build_dashboard.py` 可把现有档案、日志、错题卡和知识地图导出成可直接打开的静态 HTML 学习驾驶舱
 - 所有学习状态都外置到本地文件，跨 AI 工具可恢复
 
 ## 适合谁
@@ -68,6 +69,14 @@ source ~/.zshrc
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
+
+如果你想把当前沉淀下来的学习状态变成一个可双击打开的可视化面板，可以额外运行：
+
+```bash
+python3 scripts/build_dashboard.py "$KAOYAN_OBSIDIAN_ROOT"
+```
+
+默认会生成到 `Kaoyan_2027_Prep/可视化面板/index.html`。
 
 ## 文档
 

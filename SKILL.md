@@ -135,6 +135,7 @@ Kaoyan_2027_Prep/
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
+| `build_dashboard.py` | 导出静态 HTML 学习驾驶舱；只读档案、日志、错题卡、知识地图和报告 | `python3 scripts/build_dashboard.py [$OBSIDIAN_ROOT] [--output path] [--today YYYY-MM-DD]` |
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
 | `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |

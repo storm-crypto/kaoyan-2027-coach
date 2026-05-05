@@ -1099,26 +1099,51 @@ def render_bar_rows(rows: Sequence[Mapping[str, object]], empty_message: str) ->
     parts.append("</div>")
     return "".join(parts)
 
-def build_axis_ticks(min_value: float, max_value: float, tick_count: int) -> List[float]:
-    if tick_count <= 1:
-        return [min_value, max_value]
-    if abs(max_value - min_value) < 1e-9:
+def build_axis_ticks(min_value: float, max_value: float, step: float) -> List[float]:
+    """按固定步长生成轴刻度,保证 min/max 都被覆盖。
+
+    与"均分 N 段"的 linspace 不同:这里语义是"每隔 step 一个刻度"。
+    当 (max - min) 不能被 step 整除时,最后一个刻度会被钳制为 max,
+    避免生成 [0, 32.5, 65, 97.5, 130] 这类非整数刻度。
+    """
+    if step <= 0 or max_value <= min_value:
         return [min_value]
-    step = (max_value - min_value) / (tick_count - 1)
-    return [min_value + step * index for index in range(tick_count)]
+    ticks: List[float] = []
+    value = min_value
+    while value < max_value - 1e-9:
+        ticks.append(value)
+        value += step
+    ticks.append(max_value)
+    return ticks
 
 
 def build_x_tick_labels(labels: Sequence[str]) -> List[Tuple[int, str]]:
-    if not labels:
+    """从一串日期标签中均匀挑出 3-6 个用于 X 轴显示。
+
+    保证首尾被选中,中间均匀采样,标签数随序列长度自适应:
+    - 6 条以内全显示
+    - 7-12 条显示 4 个
+    - 13-24 条显示 5 个
+    - 25 条以上显示 6 个
+    """
+    n = len(labels)
+    if n == 0:
         return []
-    if len(labels) <= 6:
+    if n <= 6:
         return list(enumerate(labels))
-    candidates = [0, len(labels) // 2, len(labels) - 1]
-    unique_indexes: List[int] = []
-    for index in candidates:
-        if index not in unique_indexes:
-            unique_indexes.append(index)
-    return [(index, labels[index]) for index in unique_indexes]
+    if n <= 12:
+        target = 4
+    elif n <= 24:
+        target = 5
+    else:
+        target = 6
+
+    indexes: List[int] = []
+    for k in range(target):
+        index = round(k * (n - 1) / (target - 1))
+        if index not in indexes:
+            indexes.append(index)
+    return [(index, labels[index]) for index in indexes]
 
 
 def render_line_chart(
@@ -1162,7 +1187,7 @@ def render_line_chart(
         )
 
     y_grid = []
-    for tick in build_axis_ticks(y_min, y_max, int((y_max - y_min) / y_step) + 1):
+    for tick in build_axis_ticks(y_min, y_max, y_step):
         y = y_at(tick)
         y_grid.append(f'<line x1="{pad_x}" y1="{y:.1f}" x2="{width - pad_x}" y2="{y:.1f}" stroke="rgba(20,33,61,0.08)" stroke-width="1" />')
         y_grid.append(f'<text x="{pad_x - 8}" y="{y + 4:.1f}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(format_number(tick))}</text>')
@@ -1240,7 +1265,7 @@ def render_multi_line_chart(
             )
 
     y_grid = []
-    for tick in build_axis_ticks(y_min, y_max, int((y_max - y_min) / y_step) + 1):
+    for tick in build_axis_ticks(y_min, y_max, y_step):
         y = y_at(tick)
         y_grid.append(f'<line x1="{pad_x}" y1="{y:.1f}" x2="{width - pad_x}" y2="{y:.1f}" stroke="rgba(20,33,61,0.08)" stroke-width="1" />')
         y_grid.append(f'<text x="{pad_x - 8}" y="{y + 4:.1f}" fill="#5f6b7a" font-size="11" text-anchor="end">{e(format_number(tick))}</text>')

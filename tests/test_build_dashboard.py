@@ -1,8 +1,14 @@
 """test build_dashboard.py"""
 import json
+import sys
 import textwrap
+from pathlib import Path
 
 from helpers import run_script
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+from build_dashboard import build_axis_ticks, build_x_tick_labels
 
 
 def _write_log(vault_root, day, topic, hours, learned="", blocker=""):
@@ -209,3 +215,47 @@ def test_build_dashboard_does_not_use_log_scores_in_score_trends(vault_root):
     data = json.loads(out)
     assert data["score_trends"]["408"]["has_data"] is False
     assert data["score_trends"]["recent_records"] == []
+
+
+def test_build_axis_ticks_step_based_includes_endpoints():
+    # 整除场景:0..150,step=30 → 0,30,60,90,120,150
+    ticks = build_axis_ticks(0.0, 150.0, 30.0)
+    assert ticks == [0.0, 30.0, 60.0, 90.0, 120.0, 150.0]
+
+
+def test_build_axis_ticks_clamps_last_tick_when_not_evenly_divisible():
+    # 不能整除场景:0..130,step=30 → 0,30,60,90,120,130(最后一个钳到 max)
+    ticks = build_axis_ticks(0.0, 130.0, 30.0)
+    assert ticks[0] == 0.0
+    assert ticks[-1] == 130.0
+    # 不会出现非整数的中间刻度
+    for value in ticks[:-1]:
+        assert value % 30 == 0
+
+
+def test_build_axis_ticks_handles_degenerate_inputs():
+    assert build_axis_ticks(0.0, 0.0, 10.0) == [0.0]
+    assert build_axis_ticks(0.0, 100.0, 0.0) == [0.0]
+
+
+def test_build_x_tick_labels_short_series_returns_all():
+    labels = ["d1", "d2", "d3"]
+    assert build_x_tick_labels(labels) == [(0, "d1"), (1, "d2"), (2, "d3")]
+
+
+def test_build_x_tick_labels_long_series_picks_endpoints():
+    labels = [f"d{i}" for i in range(20)]
+    ticks = build_x_tick_labels(labels)
+    assert ticks[0] == (0, "d0")
+    assert ticks[-1] == (19, "d19")
+    # 13-24 条范围,目标 5 个 tick
+    assert len(ticks) == 5
+
+
+def test_build_x_tick_labels_does_not_collapse_to_three_for_seven_items():
+    labels = [f"d{i}" for i in range(7)]
+    ticks = build_x_tick_labels(labels)
+    # 7 条记录至少要 4 个 tick,不再像旧版只剩头/中/尾
+    assert len(ticks) >= 4
+    assert ticks[0][0] == 0
+    assert ticks[-1][0] == 6

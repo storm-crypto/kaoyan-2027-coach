@@ -45,7 +45,7 @@ def test_qid_exact_match_finds_card_in_multilevel_math1_dir(vault_root):
         / "错题本"
         / "数学一"
         / "高等数学"
-        / "第一章函数、极限、连续"
+        / "01第一章函数、极限、连续"
         / "数列极限"
         / "递推数列-李林-qid-998877665544.md"
     )

@@ -71,33 +71,49 @@ def main():
         print(json.dumps({"error": True, "message": f"文件不存在: {filepath}"}, ensure_ascii=False))
         sys.exit(1)
 
-    lines = filepath.read_text(encoding="utf-8").split("\n")
-    keywords = [k.lower() for k in keyword.split()]
+    if subject in {"数学一", "数学"}:
+        from wrong_card_path_map import resolve_math1_knowledge_map_alias
+        aliased_keyword = resolve_math1_knowledge_map_alias(keyword)
+    else:
+        aliased_keyword = keyword
 
-    candidates = []
-    for i, line in enumerate(lines):
-        if "|" not in line:
-            continue
-        cells = [c.strip() for c in line.split("|")]
-        if len(cells) < 5:
-            continue
-        topic_cell = cells[1]
-        if not is_leaf_row(topic_cell):
-            continue
-        if all(kw in topic_cell.lower() for kw in keywords):
-            candidates.append((i, topic_cell, cells))
+    lines = filepath.read_text(encoding="utf-8").split("\n")
+
+    def find_candidates(query):
+        kws = [k.lower() for k in query.split()]
+        out = []
+        for i, line in enumerate(lines):
+            if "|" not in line:
+                continue
+            cells = [c.strip() for c in line.split("|")]
+            if len(cells) < 5:
+                continue
+            topic_cell = cells[1]
+            if not is_leaf_row(topic_cell):
+                continue
+            if all(kw in topic_cell.lower() for kw in kws):
+                out.append((i, topic_cell, cells))
+        return out
+
+    # 先按 alias 后的关键词匹配；命中不为 0 时直接采用。
+    # 否则回退到原始关键词，让仍在使用旧结构的知识地图也能命中。
+    candidates = find_candidates(aliased_keyword)
+    keyword_used = aliased_keyword
+    if not candidates and aliased_keyword != keyword:
+        candidates = find_candidates(keyword)
+        keyword_used = keyword
 
     if len(candidates) == 0:
         print(json.dumps({
             "error": True,
-            "message": f"未找到包含 '{keyword}' 的叶子考点行"
+            "message": f"未找到包含 '{keyword_used}' 的叶子考点行"
         }, ensure_ascii=False))
         sys.exit(1)
 
     if len(candidates) > 1:
         print(json.dumps({
             "error": True,
-            "message": f"关键词 '{keyword}' 匹配到 {len(candidates)} 行，请提供更精确的关键词",
+            "message": f"关键词 '{keyword_used}' 匹配到 {len(candidates)} 行，请提供更精确的关键词",
             "candidates": [topic.strip() for _, topic, _ in candidates]
         }, ensure_ascii=False))
         sys.exit(1)

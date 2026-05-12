@@ -49,7 +49,7 @@ def test_reset_vault_soft_preserves_profile_and_clears_generated_data(
 
     knowledge_text = (vault_root / "知识地图" / "数学一.md").read_text(encoding="utf-8")
     assert "二重积分 | 会 | 高 | 已经刷完" not in knowledge_text
-    assert "05.5 二重积分（直角坐标/极坐标）" in knowledge_text
+    assert "10.02 第二节 二重积分的计算" in knowledge_text
 
 
 def test_reset_vault_hard_clears_profile(vault_root, sample_archive):

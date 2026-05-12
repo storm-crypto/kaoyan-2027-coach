@@ -14,6 +14,12 @@ from archive_ops import extract_heading_block, replace_heading_block
 TEXTBOOK_HEADING = "本周教材进度目标"
 TEXTBOOK_HEADERS = ("教材", "起点", "终点", "当前", "备注")
 TEXTBOOK_SEPARATOR = "|------|------|------|------|------|"
+TEXTBOOK_HEADER_ROW = "| 教材 | 起点 | 终点 | 当前 | 备注 |"
+TEXTBOOK_HELP_COMMENT = (
+    "<!-- 自行填写。脚本不会自动算每日页数，由 /plan_today 读取本表后给出今日任务；"
+    "/progress 报告进度时会更新「当前」列。每行格式：教材 | 起点 | 终点 | 当前 | 备注。"
+    "「当前」初始可与「起点」相同。-->"
+)
 PLACEHOLDER_ROW = "| | | | | |"
 
 
@@ -108,6 +114,18 @@ def render_textbook_rows(rows: Sequence[TextbookRow]) -> str:
     if not rows:
         return PLACEHOLDER_ROW
     return "\n".join(row.to_md() for row in rows)
+
+
+def render_textbook_full_block(rows: Sequence[TextbookRow], help_comment: Optional[str] = TEXTBOOK_HELP_COMMENT) -> str:
+    """渲染完整的「本周教材进度目标」区块正文（注释 + 空行 + 表头 + 分隔 + 数据行）。"""
+    lines: List[str] = []
+    if help_comment:
+        lines.append(help_comment)
+        lines.append("")
+    lines.append(TEXTBOOK_HEADER_ROW)
+    lines.append(TEXTBOOK_SEPARATOR)
+    lines.append(render_textbook_rows(rows))
+    return "\n".join(lines)
 
 
 def week_plan_path(obsidian_root: Path, today: date) -> Path:
@@ -214,10 +232,20 @@ def update_current_page(plan_path: Path, textbook_name: str, new_current: str) -
     if matched is None:
         return False, f"未在表中找到教材：{textbook_name}（可在周计划文件里先加一行）"
     matched.current = new_current.strip()
-    new_block = render_textbook_rows(rows)
+    new_block = render_textbook_full_block(rows, _detect_existing_comment(block))
     try:
         new_text = replace_heading_block(text, TEXTBOOK_HEADING, new_block)
     except ValueError as exc:
         return False, f"更新失败：{exc}"
     plan_path.write_text(new_text, encoding="utf-8")
     return True, f"已更新「{matched.name}」当前进度为 {matched.current}"
+
+
+def _detect_existing_comment(block_text: str) -> str:
+    """如果区块里已经有 HTML 注释（用户可能改过），保留原注释；否则用默认。"""
+    if not block_text:
+        return TEXTBOOK_HELP_COMMENT
+    match = re.search(r"<!--.*?-->", block_text, flags=re.S)
+    if match:
+        return match.group(0)
+    return TEXTBOOK_HELP_COMMENT

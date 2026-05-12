@@ -268,14 +268,31 @@ def main():
         json_error(f"知识地图不存在: {knowledge_map_path}")
 
     rows = parse_knowledge_map(knowledge_map_path)
-    candidates = [
-        row for row in rows
-        if mastery_priority(row["mastery"]) < 2 and matches_filter(row, args.chapter)
-    ]
-    candidates.sort(key=lambda item: (mastery_priority(item["mastery"]), item["line_no"]))
+
+    # 数学一场景:旧通用桶名 → 新李林叶子;alias 命中为 0 时回退原始过滤词,
+    # 让旧结构知识地图或用户自由输入仍能工作。
+    chapter_filter = args.chapter
+    aliased_chapter = chapter_filter
+    if chapter_filter and canonical_subject == "数学一":
+        from wrong_card_path_map import resolve_math1_knowledge_map_alias
+        aliased_chapter = resolve_math1_knowledge_map_alias(chapter_filter)
+
+    def pick_candidates(filter_text):
+        items = [
+            row for row in rows
+            if mastery_priority(row["mastery"]) < 2 and matches_filter(row, filter_text)
+        ]
+        items.sort(key=lambda item: (mastery_priority(item["mastery"]), item["line_no"]))
+        return items
+
+    candidates = pick_candidates(aliased_chapter)
+    chapter_filter_used = aliased_chapter
+    if not candidates and aliased_chapter != chapter_filter:
+        candidates = pick_candidates(chapter_filter)
+        chapter_filter_used = chapter_filter
 
     if not candidates:
-        scope = args.chapter or canonical_subject
+        scope = chapter_filter or canonical_subject
         json_error(f"在 {scope} 范围内未找到“不会/半会”的叶子考点")
 
     selected = candidates[:args.count]
@@ -283,7 +300,8 @@ def main():
 
     print(json.dumps({
         "subject": canonical_subject,
-        "chapter_filter": args.chapter or None,
+        "chapter_filter": chapter_filter or None,
+        "chapter_filter_resolved": chapter_filter_used or None,
         "knowledge_map_path": str(knowledge_map_path),
         "candidate_total": len(candidates),
         "question_count": len(questions),

@@ -273,6 +273,14 @@ def has_nonempty_values(values: Sequence[str]) -> bool:
     return bool(merge_repeated_lines(values))
 
 
+def validate_chapter_argument(chapter: str) -> None:
+    normalized = chapter.strip()
+    if "/" in normalized or "\\" in normalized:
+        json_error(
+            "--chapter 应传章节键而不是目录路径，例如传“数列极限”，不要传“高等数学/01 第一章 函数、极限、连续/03 第三节 数列极限”"
+        )
+
+
 def validate_required_detail_fields(subject: str, args: argparse.Namespace) -> None:
     if subject == "数学一":
         checks = [
@@ -472,6 +480,7 @@ def build_card_body(
 def main() -> None:
     obsidian_root, args = parse_args()
     subject = normalize_subject(args.subject)
+    validate_chapter_argument(args.chapter)
     if not QUESTION_ID_RE.match(args.question_id):
         json_error(f"question_id 格式非法: {args.question_id}")
 

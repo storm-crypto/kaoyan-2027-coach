@@ -137,8 +137,8 @@ def test_create_wrong_card_uses_multilevel_path_mapping_for_math1(vault_root):
         / "错题本"
         / "数学一"
         / "高等数学"
-        / "第一章函数、极限与连续"
-        / "数列极限"
+        / "第一章函数、极限、连续"
+        / "第三节数列极限"
     )
 
 

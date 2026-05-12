@@ -23,6 +23,11 @@ from constants import (
 )
 from env_util import json_error, resolve_obsidian_root, split_optional_root_and_value
 from study_ops import DueCard, PLAN_SUBJECTS, collect_due_cards, format_hours, parse_today
+from textbook_progress import (
+    build_plan_items,
+    load_week_textbook_rows,
+    render_today_textbook_section,
+)
 
 
 class PlanTask(TypedDict):
@@ -163,12 +168,18 @@ def main() -> None:
     else:
         due_summary = "今天没有到期旧题，可以把整块时间留给新内容"
 
+    _, textbook_rows = load_week_textbook_rows(obsidian_root, today)
+    textbook_items = build_plan_items(textbook_rows, today)
+    textbook_section_md = render_today_textbook_section(textbook_items)
+    textbook_section_block = (textbook_section_md + "\n\n") if textbook_section_md else ""
+
     content = load_template_markdown("今日计划模板.md")
     replacements = {
         "today": today.isoformat(),
         "available_hours": format_hours(available_hours),
         "due_summary": due_summary,
         "focus_subjects": " / ".join(ranked_subjects[:2]),
+        "textbook_section": textbook_section_block,
         "tasks": render_tasks(tasks),
         "closing_notes": "\n".join([
             "- 每个科目时段都先清旧题，再进新内容。",
@@ -184,6 +195,19 @@ def main() -> None:
         "due_total": len(due_cards),
         "due_selected": len(selected_due),
         "tasks": tasks,
+        "textbooks": [
+            {
+                "name": item.name,
+                "current": item.current_page,
+                "end": item.end_page,
+                "remaining_pages": item.remaining_pages,
+                "remaining_days": item.remaining_days,
+                "today_pages": item.today_pages,
+                "done": item.done,
+                "note": item.note,
+            }
+            for item in textbook_items
+        ],
         "markdown": content + "\n",
     }, ensure_ascii=False, indent=2))
 

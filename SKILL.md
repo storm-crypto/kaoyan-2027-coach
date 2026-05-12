@@ -133,7 +133,8 @@ Kaoyan_2027_Prep/
 | `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
-| `build_weekly_plan.py` | 生成周计划 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长]` |
+| `build_weekly_plan.py` | 生成周计划；可用 `--textbook` 注入「本周教材进度目标」行，并保留已存在的教材行 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
+| `update_textbook_progress.py` | 更新本周计划里某本教材的「当前」进度页码 | `python3 scripts/update_textbook_progress.py [$OBSIDIAN_ROOT] --textbook 教材 --current pXX` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
 | `build_dashboard.py` | 导出静态 HTML 学习驾驶舱；只读档案、日志、错题卡、知识地图和报告 | `python3 scripts/build_dashboard.py [$OBSIDIAN_ROOT] [--output path] [--today YYYY-MM-DD]` |
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
@@ -225,14 +226,16 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 运行 `build_daily_plan.py` 生成今日计划；脚本内部会读取聚焦问题并筛出到期错题
 2. 到期 > 10 道时取 interval 最小的 10 道
 3. 复习任务排在每个科目时段开头；无到期错题时提醒专注新内容
-4. 结尾提醒 `/progress` 归档
+4. 脚本会读取本周计划文件里的「本周教材进度目标」表，按 `(终点 - 当前) ÷ 剩余天数(含今日)` 渲染今日教材任务；本周计划缺该区块或表为空时跳过
+5. 结尾提醒 `/progress` 归档
 
 ### `/plan_week [本周总时长]` — 周计划
 
 1. 运行 `build_weekly_plan.py`，读取档案中的聚焦问题 + 本周到期复习
 2. 输出科目分配、每日节奏和 3 个周内检查点
-3. 周计划写入 `周计划/YYYY-Www.md`
-4. 结尾提醒用户周末执行 `/recap week`
+3. 周计划写入 `周计划/YYYY-Www.md`，包含「本周教材进度目标」空表占位；同周再次执行时会保留用户已填的教材行，不会覆盖
+4. 需要直接注入教材进度时，传 `--textbook "教材|起点|终点|当前|备注"`，可重复；重名行按教材名替换
+5. 结尾提醒用户周末执行 `/recap week`
 
 ### `/progress [今天学了什么]` — 今日收尾
 
@@ -240,9 +243,10 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
 3. 若用户提到单科测试/专项训练/真题得分，提取为结构化成绩并通过 `--score 科目|类型|来源|得分|满分|备注` 写入；允许只记录数学、408、英语阅读、政治选择等部分科目/部分模块
 4. 若用户明确给出了数学一或 408 的单科模拟结构化信息（卷子、分数/模块错题、主要问题、备注），再追加 `--subject-score`，同步写入 `我的学习者档案.md` 的对应单科摘要表；字段不全时只写日志，不强行同步总表
-5. 明日建议 1-3 条
-6. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
-7. 不重写知识地图
+5. 若用户提到教材进度（"今天刷到 pXX"、"看完第 X 章"），按教材调用 `update_textbook_progress.py --textbook 名称 --current pXX`，把本周计划文件中对应「当前」列改写；同一教材一次只更新到最新页码
+6. 明日建议 1-3 条
+7. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
+8. 不重写知识地图
 
 ### `/score [科目]` — 卷子级成绩记录
 

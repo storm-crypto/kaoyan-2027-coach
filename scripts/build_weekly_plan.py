@@ -17,6 +17,13 @@ from archive_ops import (
 from constants import WEEKLY_PLAN_DUE_WEIGHT, WEEKLY_PLAN_DUE_WEIGHT_CAP, WEEKLY_PLAN_FOCUS_WEIGHT
 from env_util import atomic_write, json_error, resolve_obsidian_root, split_optional_root_and_value
 from study_ops import PLAN_SUBJECTS, count_due_reviews, format_hours, parse_today
+from textbook_progress import (
+    PLACEHOLDER_ROW,
+    TEXTBOOK_HEADING,
+    TextbookRow,
+    load_week_textbook_rows,
+    render_textbook_rows,
+)
 
 
 def iso_week(today: date) -> Tuple[date, date, str]:
@@ -70,6 +77,12 @@ def main() -> None:
     parser.add_argument("arg1", nargs="?", default=None, help="Obsidian vault 根目录或总时长")
     parser.add_argument("arg2", nargs="?", default=None, help="总时长（小时）")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
+    parser.add_argument(
+        "--textbook",
+        action="append",
+        default=[],
+        help='新增/替换教材进度行，格式 "教材|起点|终点|当前(可省略,默认=起点)|备注(可省略)"，可重复',
+    )
     args = parser.parse_args()
 
     obsidian_root_arg, total_hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
@@ -114,12 +127,32 @@ def main() -> None:
         "3. 周末执行一次 `/recap week`，把产出和卡点沉淀下来。",
     ])
 
+    _, existing_textbooks = load_week_textbook_rows(obsidian_root, today)
+    merged_textbooks = list(existing_textbooks)
+    for raw in args.textbook:
+        parts = [segment.strip() for segment in raw.split("|")]
+        if len(parts) < 3 or not parts[0]:
+            json_error(f"--textbook 参数格式错误：{raw}（应为 教材|起点|终点[|当前][|备注]）")
+        name, start, end = parts[0], parts[1], parts[2]
+        current = parts[3] if len(parts) >= 4 and parts[3] else start
+        note = parts[4] if len(parts) >= 5 else ""
+        new_row = TextbookRow(name=name, start=start, end=end, current=current, note=note)
+        replaced = False
+        for idx, existing in enumerate(merged_textbooks):
+            if existing.name == name:
+                merged_textbooks[idx] = new_row
+                replaced = True
+                break
+        if not replaced:
+            merged_textbooks.append(new_row)
+
     content = render_weekly_plan(load_template_markdown("周计划模板.md"), {
         "week_label": week_label,
         "week_range": f"{monday.isoformat()} ~ {sunday.isoformat()}",
         "total_hours": format_hours(total_hours),
         "priority_summary": priority_summary,
         "subject_rows": "\n".join(subject_rows),
+        "textbook_rows": render_textbook_rows(merged_textbooks),
         "daily_rhythm": daily_rhythm,
         "checkpoints": checkpoints,
     })
@@ -135,6 +168,7 @@ def main() -> None:
         "week_range": f"{monday.isoformat()} ~ {sunday.isoformat()}",
         "total_hours": round(total_hours, 2),
         "due_total": sum(due_counts.values()),
+        "textbook_count": len(merged_textbooks),
     }, ensure_ascii=False, indent=2))
 
 

@@ -119,10 +119,14 @@ def main():
         sys.exit(1)
 
     idx, topic_cell, cells = candidates[0]
-    cells[2] = f" {mastery} "
-    if note:
-        cells[4] = f" {note} "
-    lines[idx] = "|".join(cells)
+    # 写回前去掉历史调用残留的两侧空格，再用统一的 `| cell |` 格式渲染，
+    # 避免 cells[0]/[5] 的边界空字符串与 cells[2]/[4] 的人工填充空格被一起 join，
+    # 产出 `|topic| 不会 ||  note |` 这种丑陋但仍可解析的行。
+    new_mastery = mastery.strip()
+    new_note = note.strip() if note else cells[4].strip()
+    topic = cells[1].strip()
+    confidence = cells[3].strip()
+    lines[idx] = f"| {topic} | {new_mastery} | {confidence} | {new_note} |"
     atomic_write(filepath, "\n".join(lines))
     print(json.dumps({
         "updated": topic_cell.strip(),

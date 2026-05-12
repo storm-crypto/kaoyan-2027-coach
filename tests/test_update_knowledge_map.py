@@ -131,3 +131,15 @@ def test_alias_split_linear_equations_three_leaves(lilang_knowledge_map, vault_r
     assert json.loads(out1)["updated"] == "04.01 第一节 齐次线性方程组"
     assert json.loads(out2)["updated"] == "04.02 第二节 非齐次线性方程组"
     assert json.loads(out3)["updated"] == "04.03 第三节 线性方程组的综合应用"
+
+
+def test_write_back_keeps_clean_pipe_spacing(lilang_knowledge_map, vault_root):
+    """写回后表格行应保持 `| cell | cell | cell | cell |` 干净格式，
+    不能产生 `|topic| 不会 ||  note |` 这种连续 pipe 或缺失两侧空格的行。"""
+    rc, _, _ = run_script("update_knowledge_map.py", [
+        str(vault_root), "数学一", "数列极限", "半会", "测试备注"
+    ])
+    assert rc == 0
+    content = (lilang_knowledge_map / "数学一.md").read_text(encoding="utf-8")
+    target_line = next(line for line in content.splitlines() if "01.03 第三节 数列极限" in line)
+    assert target_line == "| 01.03 第三节 数列极限 | 半会 |  | 测试备注 |"

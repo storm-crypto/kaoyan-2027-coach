@@ -198,6 +198,44 @@ def test_build_dashboard_buckets_overdue_reviews(sample_card, vault_root):
     assert any(item["subject"] == "408" for item in top_chapters)
 
 
+def test_build_dashboard_handles_lilang_math1_knowledge_map(vault_root):
+    """新李林结构数学一知识地图应被 dashboard 正确解析为叶子数 + 状态分布。"""
+    km_path = vault_root / "知识地图" / "数学一.md"
+    km_path.write_text(textwrap.dedent("""\
+        ## 高等数学 (约 56%)
+        | 考点 | 掌握度 | 信心 | 备注 |
+        |------|--------|------|------|
+        | **01 第一章 函数、极限、连续** | | | |
+        | 01.01 第一节 函数 | 不会 | | 周期性不稳 |
+        | 01.02 第二节 函数极限 | 不会 | | 左右极限 |
+        | 01.03 第三节 数列极限 | 半会 | | 递推数列 |
+        | 01.04 第四节 函数的连续性 | | | |
+        | **04 第四章 导数的应用** | | | |
+        | 04.01 第一节 单调性与极值 | 会 | | 已熟 |
+
+        ## 线性代数 (约 22%)
+        | 考点 | 掌握度 | 信心 | 备注 |
+        |------|--------|------|------|
+        | **04 第四章 线性方程组** | | | |
+        | 04.01 第一节 齐次线性方程组 | | | |
+        | 04.02 第二节 非齐次线性方程组 | | | |
+        | 04.03 第三节 线性方程组的综合应用 | | | |
+    """), encoding="utf-8")
+
+    rc, out, err = run_script("build_dashboard.py", [str(vault_root), "--today", "2026-05-12"])
+    assert rc == 0, err
+
+    data = json.loads(out)
+    km_math = next(row for row in data["knowledge_maps"]["by_subject"] if row["subject"] == "数学一")
+    # 章节标题行（**...**）应被跳过，只数叶子。
+    assert km_math["total_topics"] == 8
+    assert km_math["不会"] == 2
+    assert km_math["半会"] == 1
+    assert km_math["会"] == 1
+    assert km_math["unmarked"] == 4
+    assert km_math["marked_topics"] == 4
+
+
 def test_build_dashboard_does_not_use_log_scores_in_score_trends(vault_root):
     _write_log(vault_root, "2026-03-23", "408 计组章节训练", "2", "总线", "计算题")
     log_path = vault_root / "学习日志" / "2026-03-23.md"

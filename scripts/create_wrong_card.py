@@ -54,6 +54,7 @@ from constants import (
 from env_util import atomic_write, json_error, resolve_obsidian_root
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
+from wrong_card_path_map import get_wrong_card_relative_dir
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 LETTER_OPTION_RE = re.compile(
@@ -486,12 +487,10 @@ def main() -> None:
     review_interval, ease_factor = compute_initial_review_schedule(args.status)
     next_review = (today_obj + timedelta(days=review_interval)).isoformat()
 
-    card_dir = (
-        Path(obsidian_root)
-        / "错题本"
-        / subject
-        / sanitize_path_segment(args.chapter)
-    )
+    relative_dir = get_wrong_card_relative_dir(subject, args.chapter)
+    card_dir = Path(obsidian_root) / "错题本" / subject
+    for segment in Path(relative_dir).parts:
+        card_dir /= sanitize_path_segment(segment)
     card_dir.mkdir(parents=True, exist_ok=True)
     filename = (
         f"{sanitize_path_segment(args.topic)}-"

@@ -39,6 +39,39 @@ review_interval: 1
     assert "错题本/408/" in data["matches"][0]["path"]
 
 
+def test_qid_exact_match_finds_card_in_multilevel_math1_dir(vault_root):
+    card = (
+        vault_root
+        / "错题本"
+        / "数学一"
+        / "高等数学"
+        / "第一章函数、极限与连续"
+        / "数列极限"
+        / "递推数列-李林-qid-998877665544.md"
+    )
+    card.parent.mkdir(parents=True, exist_ok=True)
+    card.write_text("""---
+source: 李林
+question_id: qid-998877665544
+topic: 递推数列极限
+status: 不会
+next_review: 2026-03-20
+review_interval: 1
+---
+
+#subject/math1 #status/不会 #source/李林
+""", encoding="utf-8")
+
+    rc, out, _ = run_script("find_card.py", [
+        str(vault_root), "数学一", "--question-id", "qid-998877665544"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["verdict"] == "found"
+    assert data["search_mode"] == "question_id"
+    assert data["count"] == 1
+
+
 def test_keyword_match(sample_card, vault_root):
     rc, out, _ = run_script("find_card.py", [
         str(vault_root), "数学一", "二重积分", "极坐标"

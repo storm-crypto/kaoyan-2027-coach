@@ -115,6 +115,52 @@ def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
     assert Path(data["path"]).is_relative_to(vault_root)
 
 
+def test_create_wrong_card_uses_multilevel_path_mapping_for_math1(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "递推数列不动点",
+        "--source", "李林",
+        "--question-id", "qid-001122334455",
+        "--question", "设递推数列满足给定关系，求极限。",
+        *required_detail_args("数学一"),
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    card_path = Path(data["path"])
+    assert card_path.is_relative_to(vault_root)
+    assert card_path.parent == (
+        vault_root
+        / "错题本"
+        / "数学一"
+        / "高等数学"
+        / "第一章函数、极限与连续"
+        / "数列极限"
+    )
+
+
+def test_create_wrong_card_falls_back_to_single_level_when_chapter_unmapped(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "未配置章节",
+        "--topic", "未配置路径",
+        "--source", "李林",
+        "--question-id", "qid-112211221122",
+        "--question", "设函数满足条件，求结论。",
+        *required_detail_args("数学一"),
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    card_path = Path(data["path"])
+    assert card_path.parent == vault_root / "错题本" / "数学一" / "未配置章节"
+
+
 def test_create_wrong_card_reports_unknown_subject_instead_of_treating_it_as_root(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         "数学二",

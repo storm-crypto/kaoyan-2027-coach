@@ -33,7 +33,7 @@ HISTORY_LINE_RE = re.compile(
 @dataclass
 class TodayCardInfo:
     path: Path
-    relative_path: str
+    wikilink_target: str   # 相对 vault 根的卡片路径，不含 .md 后缀，用于 Obsidian wikilink
     subject: str
     chapter: str
     topic: str
@@ -123,14 +123,15 @@ def scan_today_wrong_cards(obsidian_root: Path, today: date) -> List[TodayCardIn
 
         chapter = _infer_chapter(item["path"], Path(obsidian_root))
         try:
-            relative_path = str(item["path"].relative_to(Path(obsidian_root)))
+            rel_to_vault = item["path"].relative_to(Path(obsidian_root))
+            wikilink_target = str(rel_to_vault.with_suffix(""))
         except ValueError:
-            relative_path = item["path"].name
+            wikilink_target = item["path"].stem
 
         results.append(
             TodayCardInfo(
                 path=item["path"],
-                relative_path=relative_path,
+                wikilink_target=wikilink_target,
                 subject=item["subject"],
                 chapter=chapter,
                 topic=str(item["topic"]),
@@ -178,7 +179,7 @@ def render_today_wrong_section(cards: List[TodayCardInfo]) -> str:
         lines.append("")
         lines.append(f"### {subject}·{chapter_label}（{len(group_cards)} 道）")
         for card in group_cards:
-            lines.append(f"- [{card.topic}]({card.relative_path}) — {card.status}")
+            lines.append(f"- [[{card.wikilink_target}|{card.topic}]] — {card.status}")
             if card.takeaway:
                 lines.append(f"  → 学到：{card.takeaway}")
     return "\n".join(lines)

@@ -79,12 +79,18 @@ def extract_takeaway(body: str, subject: str) -> str:
 
 
 def _infer_chapter(card_path: Path, obsidian_root: Path) -> str:
-    """从 `错题本/<subject>/<chapter>/...md` 推断章节名。"""
+    """从 `错题本/<subject>/.../<最深章节>/<file>.md` 推断章节。
+
+    真实 vault 中目录可能深嵌套（科目/模块/章/节/文件），取卡片直接父目录作为
+    章节名，保留最具体的聚类粒度。没有章节目录时返回空串。
+    """
     try:
         rel = card_path.relative_to(Path(obsidian_root) / "错题本")
     except ValueError:
         return ""
-    return rel.parts[1] if len(rel.parts) >= 2 else ""
+    if len(rel.parts) <= 2:
+        return ""
+    return rel.parts[-2]
 
 
 def scan_today_wrong_cards(obsidian_root: Path, today: date) -> List[TodayCardInfo]:

@@ -16,6 +16,7 @@ from archive_ops import (
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
 from score_record_lib import build_summary_row_from_record, infer_paper_type
+from today_wrong_ops import render_today_wrong_section, scan_today_wrong_cards
 
 
 def parse_args():
@@ -135,10 +136,10 @@ def render_scores(items):
     return "\n".join(rows)
 
 
-def render_log_content(log_day, args):
+def render_log_content(log_day, args, today_wrong_section=""):
     coach_note = args.coach_note or "今天有沉淀，明天继续围绕最卡的那 1 个点做收口。"
     hours = args.hours or "未记录"
-    return "\n".join([
+    sections = [
         f"# Session: {log_day.isoformat()}",
         "",
         "## 今日概览",
@@ -158,6 +159,11 @@ def render_log_content(log_day, args):
         "## 训练成绩记录",
         render_scores(args.score),
         "",
+    ]
+    if today_wrong_section:
+        sections.append(today_wrong_section)
+        sections.append("")
+    sections.extend([
         "## 下次需要复习",
         bullet_list(args.review, "暂未指定复习点，建议先回看今天最容易再次出错的内容。"),
         "",
@@ -165,6 +171,7 @@ def render_log_content(log_day, args):
         f"- {coach_note}",
         "",
     ])
+    return "\n".join(sections)
 def parse_table_rows(section_body, column_count):
     rows = []
     for line in section_body.splitlines():
@@ -394,7 +401,10 @@ def main():
         except (OSError, UnicodeDecodeError) as exc:
             json_error(f"已有日志读取失败，已停止写入以避免覆盖: {output_path} ({exc})")
 
-    atomic_write(output_path, render_log_content(log_day, merged_args))
+    today_wrong_cards = scan_today_wrong_cards(Path(obsidian_root), log_day)
+    today_wrong_section = render_today_wrong_section(today_wrong_cards)
+
+    atomic_write(output_path, render_log_content(log_day, merged_args, today_wrong_section))
 
     updated_sections = []
     if args.weakness or args.error_pattern or args.archive_next_step or parsed_subject_scores:
@@ -435,6 +445,8 @@ def main():
         "updated_sections": updated_sections,
         "score_count": len(merged_args.score),
         "subject_score_count": len(parsed_subject_scores),
+        "today_wrong_count": len(today_wrong_cards),
+        "today_wrong_new": sum(1 for card in today_wrong_cards if card.is_new),
     }, ensure_ascii=False, indent=2))
 
 

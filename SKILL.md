@@ -64,7 +64,7 @@ Kaoyan_2027_Prep/
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
 3. 调用 `update_knowledge_map.py` 回写掌握度
-4. 不触发日志和档案更新
+4. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
 
@@ -139,7 +139,7 @@ Kaoyan_2027_Prep/
 | `build_dashboard.py` | 导出静态 HTML 学习驾驶舱；只读档案、日志、错题卡、知识地图和报告 | `python3 scripts/build_dashboard.py [$OBSIDIAN_ROOT] [--output path] [--today YYYY-MM-DD]` |
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
 | `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
-| `log_progress.py` | 写学习日志、记录单科/模块训练成绩，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
+| `log_progress.py` | 写学习日志、记录单科/模块训练成绩、自动汇总今日错题归档，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `record_paper_score.py` | 记录完整卷子的详细成绩，并同步档案里的单科摘要表 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [总分] --issues [主要问题] [--date YYYY-MM-DD] [科目细分参数...]` |
 | `record_subject_score.py` | 数学一/408 旧版兼容入口；内部转调新的卷子级成绩记录逻辑 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
@@ -242,11 +242,12 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 2-3 句话总结质量
 2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
 3. 若用户提到单科测试/专项训练/真题得分，提取为结构化成绩并通过 `--score 科目|类型|来源|得分|满分|备注` 写入；允许只记录数学、408、英语阅读、政治选择等部分科目/部分模块
-4. 若用户明确给出了数学一或 408 的单科模拟结构化信息（卷子、分数/模块错题、主要问题、备注），再追加 `--subject-score`，同步写入 `我的学习者档案.md` 的对应单科摘要表；字段不全时只写日志，不强行同步总表
-5. 若用户提到教材进度（"今天刷到 pXX"、"看完第 X 章"），按教材调用 `update_textbook_progress.py --textbook 名称 --current pXX`，把本周计划文件中对应「当前」列改写；同一教材一次只更新到最新页码
-6. 明日建议 1-3 条
-7. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
-8. 不重写知识地图
+4. 脚本会自动扫描今日新建或今日复习降级（不会/半会）的错题卡，按「科目·章节」聚合写入「今日错题归档」区块；每条附迁移总结（数学一=下次怎么做 / 408=记忆钩子 / 其他=正确思路），复习对了的卡整张跳过
+5. 若用户明确给出了数学一或 408 的单科模拟结构化信息（卷子、分数/模块错题、主要问题、备注），再追加 `--subject-score`，同步写入 `我的学习者档案.md` 的对应单科摘要表；字段不全时只写日志，不强行同步总表
+6. 若用户提到教材进度（"今天刷到 pXX"、"看完第 X 章"），按教材调用 `update_textbook_progress.py --textbook 名称 --current pXX`，把本周计划文件中对应「当前」列改写；同一教材一次只更新到最新页码
+7. 明日建议 1-3 条
+8. 仅当暴露稳定短板时，通过 `log_progress.py` 回写档案（短板雷达+错误模式+下一步）
+9. 不重写知识地图
 
 ### `/score [科目]` — 卷子级成绩记录
 

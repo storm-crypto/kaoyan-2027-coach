@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""创建新的错题追踪卡，并尽量完整保留题干与选项。
+"""创建新的错题追踪卡，并尽量完整保留题面原文。
 
 用法:
   python3 create_wrong_card.py [OBSIDIAN_ROOT] [科目]
@@ -32,8 +32,8 @@
       [--today YYYY-MM-DD]
 
 说明:
-- 若未显式传入 --options/--option，会尝试从 --question 中自动拆出 A/B/C/D 等选项。
-- 非选择题会在“### 选项（如有）”下写入“无”，保持卡片结构稳定。
+- 题面统一只写入“### 题目”，不再单独生成“### 选项（如有）”区块。
+- 若传入 --options/--option，会直接按原顺序拼接到题目正文末尾。
 - 新建卡片时必须一次性传入完整解析；脚本会拒绝写出“待补充”占位符。
 - 题干、选项与详解中的数学公式必须使用 $...$ 或 $$...$$ 包裹。
 """
@@ -57,11 +57,6 @@ from study_ops import parse_today
 from wrong_card_path_map import get_wrong_card_relative_dir
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
-LETTER_OPTION_RE = re.compile(
-    r"^[ \t]{0,4}(?:(?P<plain>[A-D])[\.．、:：\)]|[（(](?P<paren>[A-D])[）\)])(?P<text>.*)$",
-    re.I,
-)
-BOOLEAN_OPTION_RE = re.compile(r"^[ \t]{0,4}(?P<label>正确|错误|True|False)(?:\s*[:：]\s*.*)?$", re.I)
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
 LATEX_SEGMENT_RE = re.compile(r"\$\$.*?\$\$|\$(?!\$).*?(?<!\$)\$", re.S)
@@ -113,7 +108,7 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
     parser.add_argument("--topic", required=True, help="考点关键词")
     parser.add_argument("--source", required=True, help="来源，如 900题 / 王道")
     parser.add_argument("--question-id", required=True, help="题卡主键 qid-xxxxxxxxxxxx")
-    parser.add_argument("--question", required=True, help="题干文本；若包含选项且未显式传 options，会自动拆分")
+    parser.add_argument("--question", required=True, help="题面原文；如有选项，建议直接一起传入")
     parser.add_argument("--options", default="", help="多行选项文本，可选")
     parser.add_argument("--option", action="append", default=[], help="单个选项，可重复传入")
     parser.add_argument("--error-tag", action="append", default=[], help="错因标签，可重复传入")
@@ -200,52 +195,12 @@ def merge_explicit_options(options_text: str, option_args: Sequence[str]) -> Lis
     return lines
 
 
-def extract_option_label(line: str) -> Optional[str]:
-    match = LETTER_OPTION_RE.match(line)
-    if match and match.group("text").strip():
-        return (match.group("plain") or match.group("paren") or "").upper()
-
-    match = BOOLEAN_OPTION_RE.match(line)
-    if not match:
-        return None
-
-    label = match.group("label")
-    if label.lower() == "true" or label == "正确":
-        return "TRUE"
-    return "FALSE"
-
-
-def is_detected_option_block(lines: Sequence[str]) -> bool:
-    if len(lines) < 2:
-        return False
-
-    labels: List[str] = []
-    for line in lines:
-        label = extract_option_label(line)
-        if label is None:
-            return False
-        labels.append(label)
-
-    if all(label in {"A", "B", "C", "D"} for label in labels):
-        return labels == ["A", "B", "C", "D"][:len(labels)]
-
-    if set(labels).issubset({"TRUE", "FALSE"}):
-        return len(labels) == 2 and set(labels) == {"TRUE", "FALSE"}
-
-    return False
-
-
-def split_question_and_options(question_text: str, explicit_options: Sequence[str]) -> Tuple[List[str], List[str], str]:
+def build_question_lines(question_text: str, explicit_options: Sequence[str]) -> Tuple[List[str], str]:
     question_lines = split_nonempty_lines(question_text)
     if explicit_options:
-        return question_lines, list(explicit_options), "explicit"
-
-    for index in range(1, len(question_lines)):
-        candidate_lines = question_lines[index:]
-        if is_detected_option_block(candidate_lines):
-            return question_lines[:index], list(candidate_lines), "detected"
-
-    return question_lines, [], "none"
+        question_lines = [*question_lines, *explicit_options]
+        return question_lines, "explicit"
+    return question_lines, "none"
 
 
 def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
@@ -457,7 +412,6 @@ def build_card_body(
     source: str,
     question_id: str,
     question_lines: Sequence[str],
-    option_lines: Sequence[str],
     detail_sections: str,
     status: str,
     comment: str,
@@ -471,7 +425,6 @@ def build_card_body(
         f"\n#subject/{subject_tag} #topic/{topic_tag} #status/{status} #source/{source_tag}\n\n"
         f"## {topic} — {source} — {question_id}\n\n"
         f"### 题目\n{render_bullet_block(question_lines, '待补题干')}\n\n"
-        f"### 选项（如有）\n{render_bullet_block(option_lines, '无')}\n\n"
         f"{detail_sections}\n\n"
         f"### 历史记录\n- {today} - {status} - {comment.strip() or '首次归档'}\n"
     )
@@ -485,9 +438,9 @@ def main() -> None:
         json_error(f"question_id 格式非法: {args.question_id}")
 
     explicit_options = merge_explicit_options(args.options, args.option)
-    question_lines, option_lines, options_source = split_question_and_options(args.question, explicit_options)
+    question_lines, options_source = build_question_lines(args.question, explicit_options)
     if not question_lines:
-        json_error("题干不能为空；如果题目里包含选项，请至少保留选项前的题干描述")
+        json_error("题目不能为空")
     validate_required_detail_fields(subject, args)
     validate_latex_wrapping(args, explicit_options)
 
@@ -544,7 +497,6 @@ def main() -> None:
         source=args.source.strip(),
         question_id=args.question_id,
         question_lines=question_lines,
-        option_lines=option_lines,
         detail_sections=detail_sections,
         status=args.status,
         comment=args.comment,
@@ -561,7 +513,7 @@ def main() -> None:
         "topic": args.topic.strip(),
         "question_id": args.question_id,
         "question_line_count": len(question_lines),
-        "option_count": len(option_lines),
+        "option_count": len(explicit_options),
         "options_source": options_source,
     }, ensure_ascii=False, indent=2))
 

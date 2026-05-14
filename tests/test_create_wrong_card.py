@@ -63,14 +63,15 @@ def test_create_wrong_card_preserves_all_explicit_options(vault_root):
     assert data["options_source"] == "explicit"
     card_path = Path(data["path"])
     content = card_path.read_text(encoding="utf-8")
-    options_block = extract_heading_block(content, "选项（如有）", level=3)
-    assert "A. FCFS 总能让平均周转时间最小" in options_block
-    assert "B. 时间片轮转适合交互式系统" in options_block
-    assert "C. SJF 一定不会饥饿" in options_block
-    assert "D. 高响应比优先综合考虑等待时间和服务时间" in options_block
+    question_block = extract_heading_block(content, "题目", level=3)
+    assert "### 选项（如有）" not in content
+    assert "A. FCFS 总能让平均周转时间最小" in question_block
+    assert "B. 时间片轮转适合交互式系统" in question_block
+    assert "C. SJF 一定不会饥饿" in question_block
+    assert "D. 高响应比优先综合考虑等待时间和服务时间" in question_block
 
 
-def test_create_wrong_card_detects_options_inside_question_text(vault_root):
+def test_create_wrong_card_keeps_inline_options_inside_question_block(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
@@ -86,16 +87,15 @@ def test_create_wrong_card_detects_options_inside_question_text(vault_root):
 
     assert rc == 0
     data = json.loads(out)
-    assert data["option_count"] == 4
-    assert data["options_source"] == "detected"
+    assert data["option_count"] == 0
+    assert data["options_source"] == "none"
     card_path = Path(data["path"])
     content = card_path.read_text(encoding="utf-8")
     question_block = extract_heading_block(content, "题目", level=3)
-    options_block = extract_heading_block(content, "选项（如有）", level=3)
     assert "下列关于二叉树遍历的说法，正确的是：" in question_block
-    assert "A. 先序遍历一定有序" not in question_block
-    assert "A. 先序遍历一定有序" in options_block
-    assert "D. 层序遍历不需要队列" in options_block
+    assert "A. 先序遍历一定有序" in question_block
+    assert "D. 层序遍历不需要队列" in question_block
+    assert "### 选项（如有）" not in content
 
 
 def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
@@ -178,7 +178,7 @@ def test_create_wrong_card_reports_unknown_subject_instead_of_treating_it_as_roo
     assert "数学二" in data["message"]
 
 
-def test_create_wrong_card_detects_real_options_after_option_like_stem(vault_root):
+def test_create_wrong_card_keeps_option_like_stem_and_following_lines_together(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
@@ -194,17 +194,17 @@ def test_create_wrong_card_detects_real_options_after_option_like_stem(vault_roo
 
     assert rc == 0
     data = json.loads(out)
-    assert data["options_source"] == "detected"
+    assert data["option_count"] == 0
+    assert data["options_source"] == "none"
     content = Path(data["path"]).read_text(encoding="utf-8")
     question_block = extract_heading_block(content, "题目", level=3)
-    options_block = extract_heading_block(content, "选项（如有）", level=3)
     assert "A.教授提出的调度观点最符合下列哪一项？" in question_block
-    assert "A. FCFS 总能让平均周转时间最小" not in question_block
-    assert "A. FCFS 总能让平均周转时间最小" in options_block
-    assert "D. 高响应比优先综合考虑等待时间和服务时间" in options_block
+    assert "A. FCFS 总能让平均周转时间最小" in question_block
+    assert "D. 高响应比优先综合考虑等待时间和服务时间" in question_block
+    assert "### 选项（如有）" not in content
 
 
-def test_create_wrong_card_writes_none_for_non_choice_question(vault_root):
+def test_create_wrong_card_omits_legacy_option_section_for_non_choice_question(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
@@ -223,8 +223,7 @@ def test_create_wrong_card_writes_none_for_non_choice_question(vault_root):
     assert data["options_source"] == "none"
     card_path = Path(data["path"])
     content = card_path.read_text(encoding="utf-8")
-    options_block = extract_heading_block(content, "选项（如有）", level=3)
-    assert options_block == "- 无"
+    assert "### 选项（如有）" not in content
     assert "### 考点判断" in content
     assert "### 第一步怎么想到" in content
     assert "### 规范解法" in content

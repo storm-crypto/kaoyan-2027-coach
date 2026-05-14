@@ -41,10 +41,6 @@ def test_extract_heading_block_supports_level_two_and_three():
     card = textwrap.dedent("""\
         ### 题目
         - 这是题干
-
-        ### 选项（如有）
-        - A
-        - B
     """)
     assert extract_heading_block(card, "题目", level=3) == "- 这是题干"
 
@@ -231,4 +227,3 @@ def test_load_archive_text_persists_migration(tmp_path):
     assert "| DS | CO | OS | CN |" in text
     # 已经原子写回到文件
     assert "| DS | CO | OS | CN |" in archive.read_text(encoding="utf-8")
-

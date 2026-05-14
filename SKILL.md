@@ -70,11 +70,11 @@ Kaoyan_2027_Prep/
 
 **题面保留规则：**
 - 新建错题卡时，正文必须保留 `### 题目`
-- 选择题/判断题/带备选项的题，正文还应保留 `### 选项（如有）`
-- 调用 `create_wrong_card.py` 时，优先显式传 `--options/--option`；若只传整段题面，脚本也会尝试自动拆出 A/B/C/D 等选项
+- 选择题/判断题/带备选项的题，选项直接并入 `### 题目`，不再单独生成 `### 选项（如有）`
+- 调用 `create_wrong_card.py` 时，若有选项可继续传 `--options/--option`，脚本会把它们原样并入题面正文
 - 数学一和 408 的新卡，`create_wrong_card.py` 还应把详解区按对应参考模板写进卡片，而不是只留通用摘要
 - 如果用户发的是截图，也要尽量把题干和选项转成文字写进卡片，避免后续 `/review` 只能看到模糊截图
-- `/review` 优先展示卡片中的 `题目/选项`；老卡没有这些区块时，再退化为 `topic`
+- `/review` 优先展示卡片中的 `题目`；如果是历史旧卡且还保留 `选项（如有）`，读取时再兼容拼回预览；都没有时再退化为 `topic`
 
 **LaTeX 渲染规则（硬约束）：**
 - 传给 `create_wrong_card.py` 的 `--question`、`--option`、以及所有详解参数（`--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等）中，**所有数学公式必须用 `$...$` 或 `$$...$$` 包裹**，以确保 Obsidian 能正确渲染
@@ -126,7 +126,7 @@ Kaoyan_2027_Prep/
 | `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
-| `create_wrong_card.py` | 新建错题卡，并保留题干/选项 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
+| `create_wrong_card.py` | 新建错题卡，并保留完整题面原文 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
@@ -182,7 +182,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. **科目专项分析**（见下方）—— 在内部先完成全部解析文本
 3. **易错点** + **追问检查**（每次必追问 1-2 题检验理解）
 4. **归档（解析+建卡一步到位）**：按「错题归档流程」执行。调用 `create_wrong_card.py` 时，**必须同时传入所有详解参数**（如 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等），确保卡片创建时解析已完整落盘。禁止先建空壳卡片再手动补写
-5. **保留题面**：归档时把题干写入 `### 题目`；有选项时一起写入 `### 选项（如有）`
+5. **保留题面**：归档时把完整题面写入 `### 题目`；有选项时直接并入同一区块
    数学一与 408 的详解区分别按对应参考模板写入固定小节
 6. **落盘校验**：建卡脚本返回后，如果解析内容因 CLI 长度限制未完整写入，立即用文件编辑工具补齐，不得等用户提醒
 
@@ -262,7 +262,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/review` — 间隔复习
 
-在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目/选项`；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
+在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目`；如果是旧卡，历史 `选项（如有）` 会兼容拼回预览；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
 
 ### `/recap [week|month]` — 周/月复盘
 

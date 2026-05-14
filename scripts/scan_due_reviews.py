@@ -28,12 +28,21 @@ def normalize_block(text: str) -> str:
     return "\n".join(lines)
 
 
+def merge_question_and_legacy_options(question_text: str, options_text: str) -> str:
+    if not options_text:
+        return question_text
+    if not question_text:
+        return options_text
+    return f"{question_text}\n{options_text}"
+
+
 def build_question_payload(body: str, topic: str) -> Tuple[str, str, str]:
     question_text = normalize_block(extract_heading_block(body, "题目", level=3))
     options_text = normalize_block(extract_heading_block(body, "选项（如有）", level=3))
-    preview_source = question_text or topic or "未记录题目"
+    merged_question_text = merge_question_and_legacy_options(question_text, options_text)
+    preview_source = merged_question_text or topic or "未记录题目"
     preview = "\n".join(preview_source.splitlines()[:QUESTION_PREVIEW_LINE_LIMIT])
-    return question_text, options_text, preview
+    return merged_question_text, options_text, preview
 
 
 def main() -> None:

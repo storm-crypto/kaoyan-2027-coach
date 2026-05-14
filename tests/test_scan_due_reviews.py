@@ -72,8 +72,34 @@ def test_due_card_includes_options(vault_root):
     data = json.loads(out)
     item = next(card for card in data["due"] if card["filename"] == "with-options")
     assert "进程调度" in item["question_text"]
+    assert "A. FCFS" in item["question_text"]
+    assert "B. 带权周转时间越小越好" in item["question_text"]
     assert "A. FCFS" in item["options_text"]
     assert "B. 带权周转时间越小越好" in item["options_text"]
+
+
+def test_due_card_with_new_structure_reads_options_from_question_block(vault_root):
+    _make_card(
+        vault_root,
+        "new-structure.md",
+        TODAY,
+        2,
+        question_lines=[
+            "- 下列关于进程调度的说法，正确的是：",
+            "- A. FCFS 一定优于短作业优先",
+            "- B. 带权周转时间越小越好",
+            "- C. 时间片轮转不会发生上下文切换",
+            "- D. 周转时间与服务时间总是相等",
+        ],
+        option_lines=None,
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY])
+    assert rc == 0
+    data = json.loads(out)
+    item = next(card for card in data["due"] if card["filename"] == "new-structure")
+    assert "A. FCFS" in item["question_text"]
+    assert "B. 带权周转时间越小越好" in item["question_text"]
+    assert item["options_text"] == ""
 
 
 def test_not_yet_due(vault_root):
@@ -145,6 +171,7 @@ def test_plain_converts_latex(vault_root):
     assert "$" not in item["question_preview"]
     # Unicode 转写后应包含可读内容
     assert "1/2" in item["question_text"]       # \frac{1}{2} → 1/2
+    assert "x² + 1" in item["question_text"]
     assert "\u221a" in item["options_text"]      # \sqrt → √
 
 
@@ -182,4 +209,5 @@ def test_plain_handles_nested_math_readably(vault_root):
     assert "\\frac" not in item["options_text"]
     assert "≤ft" not in item["question_text"]
     assert "((x+1)/(x-1))²" in item["question_text"]
+    assert "√(1+1/x)" in item["question_text"]
     assert "√(1+1/x)" in item["options_text"]

@@ -123,6 +123,11 @@ def test_import_chapter_grill_success(vault_root, tmp_path):
     km_content = knowledge_map_path.read_text(encoding="utf-8")
     assert "性能指标（CPI/MIPS/主频） | 半会 |" in km_content
     assert "Cache（映射方式/替换策略/写策略） | 不会 |" in km_content
+    # 章节拷打的备注应该以 Finding 格式落盘（qid-grill-xxxxxxxxxx 主键）
+    perf_line = next(line for line in km_content.splitlines() if "性能指标（CPI/MIPS/主频）" in line and "|" in line)
+    assert "(qid-grill-" in perf_line
+    assert "1. [" in perf_line
+    assert "把 CPI 和执行时间关系说反" in perf_line
 
 
 def test_import_chapter_grill_rejects_invalid_format(vault_root, tmp_path):

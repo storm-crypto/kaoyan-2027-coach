@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 """导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图。"""
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from archive_ops import load_template_markdown
 from env_util import atomic_write, json_error, resolve_obsidian_root, resolve_skill_root
+from knowledge_findings import (
+    DEFAULT_FOLD_THRESHOLD,
+    DEFAULT_MASTERY_THRESHOLD_DAYS,
+    merge_findings,
+    parse_findings,
+    render_findings,
+    sync_mastered_status,
+)
 
 STRUCTURED_SECTIONS = (
     "章节信息",
@@ -407,6 +416,17 @@ def match_knowledge_row(rows: Sequence[Dict[str, object]], module: str, target_t
     return None, "近似匹配分数并列，无法安全回写"
 
 
+def _grill_qid(module: str, topic: str, evidence: str) -> str:
+    """为章节拷打条目生成稳定伪 qid（用于 Finding 主键）。
+
+    输入相同的 (module, topic, evidence) 永远产生同一个 qid，
+    这样同一段证据多次回写时按 qid 去重而不是重复堆积。
+    """
+    payload = f"{module}\x1f{topic}\x1f{evidence}".encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()[:10]
+    return f"qid-grill-{digest}"
+
+
 def update_knowledge_map(
     obsidian_root: Path,
     module: str,
@@ -424,6 +444,11 @@ def update_knowledge_map(
             "reason": f"知识地图不存在: {map_path}",
         } for item in mapping_items]
 
+    try:
+        session_day = date.fromisoformat(session_date)
+    except ValueError:
+        session_day = date.today()
+
     lines, rows = parse_knowledge_map_rows(map_path)
     updated: List[Dict[str, str]] = []
     skipped: List[Dict[str, str]] = []
@@ -439,13 +464,30 @@ def update_knowledge_map(
             continue
         cells = list(row["cells"])
         cells[1] = item["mastery"]
-        note = f"章节拷打 {session_date}：{item['evidence']}"
-        cells[3] = note[:40]
+
+        existing_note = cells[3]
+        findings, _legacy_text = parse_findings(existing_note)
+        qid = _grill_qid(module, str(row["topic"]), item["evidence"])
+        findings = merge_findings(
+            findings,
+            qid,
+            session_day,
+            item["evidence"],
+            source="grill",
+        )
+        findings = sync_mastered_status(
+            findings,
+            obsidian_root,
+            threshold_days=DEFAULT_MASTERY_THRESHOLD_DAYS,
+        )
+        cells[3] = render_findings(findings, fold_threshold=DEFAULT_FOLD_THRESHOLD)
+
         lines[row["line_index"]] = "| " + " | ".join(cells) + " |"
         updated.append({
             "topic": item["topic"],
             "mastery": item["mastery"],
             "matched_topic": str(row["topic"]),
+            "qid": qid,
         })
 
     atomic_write(map_path, "\n".join(lines) + "\n")

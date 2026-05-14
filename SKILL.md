@@ -63,7 +63,7 @@ Kaoyan_2027_Prep/
    - `new` → 调用 `create_wrong_card.py` 新建卡片到 `错题本/[科目]/[章节]/[关键词]-[来源]-[qid].md`
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
-3. 调用 `update_knowledge_map.py` 回写掌握度
+3. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
 4. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
@@ -96,6 +96,19 @@ Kaoyan_2027_Prep/
 - 只要传入了 `question_id`，就先把它当成唯一主键，并跨科全库检索
 - `question_id` 未命中时，默认按 `new` 处理，避免把新题误合并到旧卡
 - 只有迁移旧库时，才允许显式加 `--legacy-fallback` 做关键词兼容命中
+
+**知识地图备注字段规范（结构化卡点）：**
+
+每个考点行的备注列存的是「卡点列表」，单元格里多条用 `<br>` 分隔。
+
+- **每条卡点格式**：`N. [YYYY-MM-DD] 一句话描述 (qid-xxxxxxxxxxxx)`，描述 ≤ 40 字符
+- **已掌握的条目**：自动加删除线 + 解决日期，形如 `~~[2026-04-01 → 2026-05-01] 描述 (qid-xxx)~~`
+- **掌握判定**：错题卡 `review_interval ≥ 14 天` 时，对应 finding 自动划掉
+- **qid 主键**：每条卡点绑定具体错题卡 qid（章节拷打条目用 `qid-grill-xxxxxxxxxx` 区分），用于跨次去重和联动划线
+- **写入入口**：永远走 `update_knowledge_map.py --finding-add "qid|YYYY-MM-DD|描述"`，**禁止再传 free-form NOTE 位置参数**（旧用法仍向后兼容，但会覆盖结构）
+- **长尾折叠**：同一考点已掌握 ≥ 3 条时，自动包 `<details><summary>已掌握 N 条</summary>...</details>` 折叠
+- **老备注首次切到新格式时整段覆盖**；需要保留时显式加 `--keep-legacy-note`
+
 
 ### 间隔复习（改进版 SRS）
 
@@ -130,7 +143,7 @@ Kaoyan_2027_Prep/
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
-| `update_knowledge_map.py` | 更新知识地图掌握度 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [备注...]` |
+| `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划；可用 `--textbook` 注入「本周教材进度目标」行，并保留已存在的教材行 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
@@ -262,7 +275,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/review` — 间隔复习
 
-在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目`；如果是旧卡，历史 `选项（如有）` 会兼容拼回预览；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写
+在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目`；如果是旧卡，历史 `选项（如有）` 会兼容拼回预览；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写。即使本次复习"会"了，也要调用 `update_knowledge_map.py`（不带 `--finding-add` 即可），脚本会自动扫描所有 qid 对应错题卡，把 `review_interval` ≥ 14 天的备注条目划掉
 
 ### `/recap [week|month]` — 周/月复盘
 
@@ -291,7 +304,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 先确定科目；用户只给章节时，可以结合上下文推断，但不确定时先确认科目
 2. 运行 `build_knowledge_test.py`，从知识地图里优先抽取"不会/空白"叶子考点，再补"半会"考点，生成 3-5 题题单和判定要点
 3. 按脚本返回的题单逐题发问，优先围绕判断轴、核心方法、易错点和变式理解来测
-4. 逐题判对错后，按脚本里的判定要点将结果归为 `不会 / 半会 / 会`，再调用 `update_knowledge_map.py` 回写
+4. 逐题判对错后，按脚本里的判定要点将结果归为 `不会 / 半会 / 会`，再调用 `update_knowledge_map.py` 回写。`/test` 不绑定具体错题卡 qid，所以**不传 `--finding-add`**，只更新掌握度
 5. `/test` 只回写知识地图，不创建错题卡
 
 ### `/recalibrate 政治=62 数学一=118 英语一=80 408=95` — 模考记录+策略校准

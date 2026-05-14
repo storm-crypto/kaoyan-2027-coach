@@ -41,6 +41,10 @@ def test_extract_heading_block_supports_level_two_and_three():
     card = textwrap.dedent("""\
         ### 题目
         - 这是题干
+
+        ### 历史记录
+        - 2026-03-01 - 不会 - 首次
+        - 2026-03-10 - 半会 - 思路对了但算错
     """)
     assert extract_heading_block(card, "题目", level=3) == "- 这是题干"
 

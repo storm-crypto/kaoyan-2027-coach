@@ -37,6 +37,17 @@ def merge_question_and_legacy_options(question_text: str, options_text: str) -> 
 
 
 def build_question_payload(body: str, topic: str) -> Tuple[str, str, str]:
+    """从卡片正文构造 (question_text, options_text, preview)。
+
+    字段语义（ccce449 之后）：
+    - `question_text`：题目正文，含选项。新卡选项直接写在 `### 题目` 区块里；
+      老卡若仍保留独立的 `### 选项（如有）` 区块，会被自动拼到题目末尾，
+      所以调用方拿到的 `question_text` 已经是完整可读题面，不需要再拼
+      `options_text`。
+    - `options_text`：仅对老卡（仍有 `### 选项（如有）` 区块）非空，新卡固定为 ""。
+      保留字段是为了向后兼容直接消费它的下游；新代码不应再依赖它。
+    - `preview`：基于 merged 题面取前 N 行，给 CLI/对话框预览用。
+    """
     question_text = normalize_block(extract_heading_block(body, "题目", level=3))
     options_text = normalize_block(extract_heading_block(body, "选项（如有）", level=3))
     merged_question_text = merge_question_and_legacy_options(question_text, options_text)

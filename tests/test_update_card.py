@@ -187,3 +187,55 @@ def test_rename_preserves_single_updated_file(sample_card_no_qid):
     content = new_path.read_text(encoding="utf-8")
     assert "question_id: qid-aabbccddeeff" in content
     assert f"- {TODAY} - 半会 - 回填后继续复习" in content
+
+
+def test_update_card_preserves_legacy_option_section(vault_root):
+    """老卡（ccce449 前建的）仍可能保留 `### 选项（如有）` 区块，update_card.py 不应清掉它。"""
+    card_dir = vault_root / "错题本" / "408" / "数据结构"
+    card_dir.mkdir(parents=True, exist_ok=True)
+    legacy_card = card_dir / "二叉树遍历-王道-qid-1234567890ab.md"
+    legacy_card.write_text(textwrap.dedent("""\
+        ---
+        source: 王道
+        question_id: qid-1234567890ab
+        topic: 二叉树遍历
+        error_tags: []
+        first_wrong_at: 2026-04-01
+        last_review_at: 2026-04-01
+        wrong_count: 1
+        status: 不会
+        next_review: 2026-04-02
+        review_interval: 1
+        ease_factor: 2.50
+        ---
+
+        #subject/408 #topic/树 #status/不会 #source/王道
+
+        ## 二叉树遍历 — 王道 — qid-1234567890ab
+
+        ### 题目
+        - 下列关于二叉树遍历的说法，正确的是：
+
+        ### 选项（如有）
+        - A. 先序遍历一定有序
+        - B. 中序遍历可还原任意二叉树
+        - C. 后序遍历需要栈
+        - D. 层序遍历不需要队列
+
+        ### 历史记录
+        - 2026-04-01 - 不会 - 首次
+    """), encoding="utf-8")
+
+    rc, _, _ = run_script("update_card.py", [
+        str(legacy_card), "--status", "半会", "--comment", "再做一遍", "--today", TODAY
+    ])
+
+    assert rc == 0
+    content = legacy_card.read_text(encoding="utf-8")
+    # 老的选项区块必须原样保留
+    assert "### 选项（如有）" in content
+    assert "A. 先序遍历一定有序" in content
+    assert "D. 层序遍历不需要队列" in content
+    # 同时正常完成 update_card 的本职：status + 历史记录
+    assert "status: 半会" in content
+    assert f"- {TODAY} - 半会 - 再做一遍" in content

@@ -195,6 +195,20 @@ def merge_explicit_options(options_text: str, option_args: Sequence[str]) -> Lis
     return lines
 
 
+def detect_duplicate_options(question_text: str, explicit_options: Sequence[str]) -> List[str]:
+    """检测 --question 是否已包含与 --option/--options 完全相同的选项行。
+
+    返回重复出现的选项列表（按字面 strip 后比较）。空表示无冲突。
+    调用方应在拼接前检查并 fail fast，避免双传导致选项在 ### 题目 区块重复落盘。
+    """
+    if not explicit_options:
+        return []
+    question_lines = split_nonempty_lines(question_text)
+    question_set = {line.strip() for line in question_lines if line.strip()}
+    explicit_set = {opt.strip() for opt in explicit_options if opt.strip()}
+    return sorted(question_set & explicit_set)
+
+
 def build_question_lines(question_text: str, explicit_options: Sequence[str]) -> Tuple[List[str], str]:
     question_lines = split_nonempty_lines(question_text)
     if explicit_options:
@@ -438,6 +452,15 @@ def main() -> None:
         json_error(f"question_id 格式非法: {args.question_id}")
 
     explicit_options = merge_explicit_options(args.options, args.option)
+    duplicates = detect_duplicate_options(args.question, explicit_options)
+    if duplicates:
+        listing = "\n".join(f"  - {item}" for item in duplicates)
+        json_error(
+            "题面与显式选项重复：以下选项同时出现在 --question 和 --option/--options 中：\n"
+            f"{listing}\n"
+            "题面输入只能二选一：要么 --question 传完整题面（含选项），"
+            "要么 --question 只传题干、选项走 --option/--options。禁止同一组选项两边都传。"
+        )
     question_lines, options_source = build_question_lines(args.question, explicit_options)
     if not question_lines:
         json_error("题目不能为空")

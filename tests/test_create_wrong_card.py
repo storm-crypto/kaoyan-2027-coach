@@ -452,3 +452,36 @@ def test_sanitize_tag_value_truncates_long_values():
     value = sanitize_tag_value("Queue Scheduling Breadth First Search Fairness Analysis")
 
     assert len(value) <= 32
+
+
+def test_create_wrong_card_rejects_duplicate_options_double_passed(vault_root):
+    """题面已含 A/B/C/D，又通过 --option 显式传同一组选项 → 必须 fail fast，
+    否则同一组选项会在 ### 题目 区块重复落盘。"""
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "408",
+        "--chapter", "操作系统",
+        "--topic", "进程调度",
+        "--source", "王道",
+        "--question-id", "qid-ddee7788ee99",
+        "--question", (
+            "下列关于进程调度的说法，正确的是：\n"
+            "A. FCFS 总能让平均周转时间最小\n"
+            "B. 时间片轮转适合交互式系统\n"
+            "C. SJF 一定不会饥饿\n"
+            "D. 高响应比优先综合考虑等待时间和服务时间"
+        ),
+        "--option", "A. FCFS 总能让平均周转时间最小",
+        "--option", "B. 时间片轮转适合交互式系统",
+        "--option", "C. SJF 一定不会饥饿",
+        "--option", "D. 高响应比优先综合考虑等待时间和服务时间",
+        "--today", "2026-05-14",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert data.get("error") is True
+    msg = data.get("message", "")
+    assert "题面与显式选项重复" in msg
+    assert "二选一" in msg
+    assert "A. FCFS 总能让平均周转时间最小" in msg

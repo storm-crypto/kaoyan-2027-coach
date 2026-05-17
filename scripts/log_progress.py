@@ -16,7 +16,12 @@ from archive_ops import (
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
 from score_record_lib import build_summary_row_from_record, infer_paper_type
-from today_wrong_ops import render_today_wrong_section, scan_today_wrong_cards
+from today_wrong_ops import (
+    render_review_effectiveness_section,
+    render_today_wrong_section,
+    scan_today_review_stats,
+    scan_today_wrong_cards,
+)
 
 
 def parse_args():
@@ -136,7 +141,7 @@ def render_scores(items):
     return "\n".join(rows)
 
 
-def render_log_content(log_day, args, today_wrong_section=""):
+def render_log_content(log_day, args, today_wrong_section="", review_effectiveness_section=""):
     coach_note = args.coach_note or "今天有沉淀，明天继续围绕最卡的那 1 个点做收口。"
     hours = args.hours or "未记录"
     sections = [
@@ -160,6 +165,9 @@ def render_log_content(log_day, args, today_wrong_section=""):
         render_scores(args.score),
         "",
     ]
+    if review_effectiveness_section:
+        sections.append(review_effectiveness_section)
+        sections.append("")
     if today_wrong_section:
         sections.append(today_wrong_section)
         sections.append("")
@@ -403,8 +411,13 @@ def main():
 
     today_wrong_cards = scan_today_wrong_cards(Path(obsidian_root), log_day)
     today_wrong_section = render_today_wrong_section(today_wrong_cards)
+    review_stats = scan_today_review_stats(Path(obsidian_root), log_day)
+    review_effectiveness_section = render_review_effectiveness_section(review_stats)
 
-    atomic_write(output_path, render_log_content(log_day, merged_args, today_wrong_section))
+    atomic_write(
+        output_path,
+        render_log_content(log_day, merged_args, today_wrong_section, review_effectiveness_section),
+    )
 
     updated_sections = []
     if args.weakness or args.error_pattern or args.archive_next_step or parsed_subject_scores:
@@ -447,6 +460,16 @@ def main():
         "subject_score_count": len(parsed_subject_scores),
         "today_wrong_count": len(today_wrong_cards),
         "today_wrong_new": sum(1 for card in today_wrong_cards if card.is_new),
+        "review_effectiveness": {
+            "reviewed_today": review_stats.reviewed_today,
+            "mastered_today": review_stats.mastered_today,
+            "partial_today": review_stats.partial_today,
+            "failed_today": review_stats.failed_today,
+            "new_today": review_stats.new_today,
+            "due_remaining": review_stats.due_remaining,
+            "mastery_rate": review_stats.mastery_rate,
+            "coverage_rate": review_stats.coverage_rate,
+        },
     }, ensure_ascii=False, indent=2))
 
 

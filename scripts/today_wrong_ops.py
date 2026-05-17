@@ -12,11 +12,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from archive_ops import extract_heading_block
-from constants import PLAN_SUBJECTS
+from constants import PLAN_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
 from study_ops import iter_review_cards
 
 
 TODAY_WRONG_HEADING = "今日错题归档"
+REVIEW_EFFECTIVENESS_HEADING = "复习效果"
 PLACEHOLDER_TOKEN = "待补充"
 
 TAKEAWAY_HEADINGS = {
@@ -40,6 +41,43 @@ class TodayCardInfo:
     status: str
     is_new: bool
     takeaway: str
+
+
+@dataclass
+class ReviewEffectiveness:
+    """今日复习的量化效果。
+
+    - `reviewed_today`：今日有复习记录的旧卡数量（不含今日新增卡的初次落库）
+    - `mastered_today` / `partial_today` / `failed_today`：今日复习结果分布
+    - `new_today`：今日新增的错题卡（first_wrong_at == today）
+    - `due_remaining`：今日仍到期但尚未复习的卡数（已"会"则未来不再到期，已复习则 next_review 已推后）
+    """
+
+    reviewed_today: int = 0
+    mastered_today: int = 0
+    partial_today: int = 0
+    failed_today: int = 0
+    new_today: int = 0
+    due_remaining: int = 0
+
+    @property
+    def has_activity(self) -> bool:
+        return self.reviewed_today > 0 or self.new_today > 0 or self.due_remaining > 0
+
+    @property
+    def mastery_rate(self) -> Optional[float]:
+        """掌握转化率 = 会 / 今日复习总数；无复习则 None。"""
+        if self.reviewed_today == 0:
+            return None
+        return self.mastered_today / self.reviewed_today
+
+    @property
+    def coverage_rate(self) -> Optional[float]:
+        """复习覆盖率 = 今日复习数 / (今日复习数 + 仍到期未复习)。"""
+        denom = self.reviewed_today + self.due_remaining
+        if denom == 0:
+            return None
+        return self.reviewed_today / denom
 
 
 def _last_history_entry(body: str) -> Optional[tuple]:
@@ -182,4 +220,86 @@ def render_today_wrong_section(cards: List[TodayCardInfo]) -> str:
             lines.append(f"- [[{card.wikilink_target}|{card.topic}]] — {card.status}")
             if card.takeaway:
                 lines.append(f"  → 学到：{card.takeaway}")
+    return "\n".join(lines)
+
+
+def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffectiveness:
+    """统计今日复习活动，用于在学习日志里量化「复习效果」。
+
+    定义：
+    - 今日新增（new_today）= first_wrong_at == today 的卡，不计入复习池
+    - 今日复习（reviewed_today）= 历史记录最后一行落在今日的旧卡（first_wrong_at != today）
+    - 仍到期未复习（due_remaining）= 今日未触碰 + next_review ≤ today + 未毕业
+    """
+    today_iso = today.isoformat()
+    stats = ReviewEffectiveness()
+
+    for item in iter_review_cards(obsidian_root):
+        if item["icloud_placeholder"]:
+            continue
+
+        fm = item["frontmatter"]
+        first_wrong_at = str(fm.get("first_wrong_at", "")).strip()
+        is_new = first_wrong_at == today_iso
+
+        last_entry = _last_history_entry(item["body"])
+        today_status: Optional[str] = None
+        if last_entry and last_entry[0] == today_iso:
+            today_status = last_entry[1]
+
+        if is_new:
+            stats.new_today += 1
+            continue
+
+        if today_status in {"会", "半会", "不会"}:
+            stats.reviewed_today += 1
+            if today_status == "会":
+                stats.mastered_today += 1
+            elif today_status == "半会":
+                stats.partial_today += 1
+            else:
+                stats.failed_today += 1
+            continue
+
+        next_review = item["next_review"]
+        interval = item["review_interval"]
+        if next_review is not None and interval is not None:
+            if next_review <= today and interval < SRS_GRADUATED_INTERVAL_DAYS:
+                stats.due_remaining += 1
+
+    return stats
+
+
+def render_review_effectiveness_section(stats: ReviewEffectiveness) -> str:
+    """渲染「复习效果」区块。无任何今日活动时返回空串。"""
+    if not stats.has_activity:
+        return ""
+
+    lines = [f"## {REVIEW_EFFECTIVENESS_HEADING}"]
+
+    summary_parts: List[str] = []
+    if stats.reviewed_today > 0:
+        summary_parts.append(f"今日复习 **{stats.reviewed_today}** 道")
+    if stats.new_today > 0:
+        summary_parts.append(f"今日新增 **{stats.new_today}** 道")
+    if summary_parts:
+        lines.append(f"- {' ｜ '.join(summary_parts)}")
+
+    if stats.reviewed_today > 0:
+        breakdown = f"会 {stats.mastered_today} / 半会 {stats.partial_today} / 不会 {stats.failed_today}"
+        lines.append(f"- **复习结果**：{breakdown}")
+        rate = stats.mastery_rate
+        if rate is not None:
+            lines.append(f"- **掌握转化率**：{rate * 100:.1f}%（会 / 今日复习总数）")
+
+    coverage = stats.coverage_rate
+    if coverage is not None and stats.reviewed_today > 0:
+        coverage_pct = coverage * 100
+        if stats.due_remaining > 0:
+            lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（仍有 {stats.due_remaining} 道到期未复习）")
+        else:
+            lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（今日到期已全部复习）")
+    elif stats.due_remaining > 0:
+        lines.append(f"- 当前仍有 **{stats.due_remaining}** 道到期未复习")
+
     return "\n".join(lines)

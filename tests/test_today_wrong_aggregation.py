@@ -380,3 +380,117 @@ def test_log_progress_missing_takeaway_is_silent(vault_root):
     # 卡片下面不能出现 → 学到 行
     card_block = log_text.split("缺迁移总结的题]] — 不会")[1].splitlines()[:3]
     assert not any("→ 学到" in line for line in card_block)
+
+
+def _due_unreviewed_card(vault_root):
+    """卡 E：已到期但今日没复习的旧卡，应计入 due_remaining。"""
+    return _write_card(
+        vault_root,
+        "数学一",
+        "概率统计",
+        "二维正态-660题-qid-eeee11112222.md",
+        """\
+        ---
+        source: 660题
+        question_id: qid-eeee11112222
+        topic: 二维正态分布的边缘分布
+        error_tags: []
+        first_wrong_at: 2026-04-01
+        last_review_at: 2026-04-10
+        wrong_count: 2
+        status: 半会
+        next_review: 2026-05-10
+        review_interval: 4
+        ease_factor: 2.50
+        ---
+
+        #subject/math1 #topic/概率 #status/半会 #source/660题
+
+        ## 二维正态 — 660题 — qid-eeee11112222
+
+        ### 历史记录
+        - 2026-04-01 - 不会 - 首次
+        - 2026-04-10 - 半会 - 还差一步
+        """,
+    )
+
+
+def test_log_progress_writes_review_effectiveness_section(vault_root):
+    """复习效果区块应反映今日复习分布、新增、未触碰的到期卡。"""
+    today = "2026-05-14"
+    _new_math_card(vault_root, today)             # 新增 +1
+    _downgraded_408_card(vault_root, today)       # 复习半会 +1
+    _passed_math_card(vault_root, today)          # 复习会 +1
+    _due_unreviewed_card(vault_root)              # 到期未复习 +1
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", today,
+        "--topic", "复习效果测试",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    eff = data["review_effectiveness"]
+    assert eff["reviewed_today"] == 2
+    assert eff["mastered_today"] == 1
+    assert eff["partial_today"] == 1
+    assert eff["failed_today"] == 0
+    assert eff["new_today"] == 1
+    assert eff["due_remaining"] == 1
+    assert eff["mastery_rate"] == 0.5
+    # coverage = 2 / (2+1) ≈ 0.667
+    assert eff["coverage_rate"] is not None
+    assert abs(eff["coverage_rate"] - 2 / 3) < 1e-6
+
+    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    assert "## 复习效果" in log_text
+    assert "今日复习 **2** 道" in log_text
+    assert "今日新增 **1** 道" in log_text
+    assert "会 1 / 半会 1 / 不会 0" in log_text
+    assert "**掌握转化率**：50.0%" in log_text
+    assert "**复习覆盖率**：66.7%（仍有 1 道到期未复习）" in log_text
+
+
+def test_log_progress_skips_review_effectiveness_when_no_activity(vault_root):
+    """完全没有今日活动 + 没到期未复习卡时，不写复习效果区块。"""
+    _inactive_card(vault_root)  # next_review=2026-04-20，相对 2026-05-14 已超期 7+ 天，会被降级为今日到期
+
+    today = "2026-05-14"
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", today,
+        "--topic", "无活动",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    eff = data["review_effectiveness"]
+    # 卡 D 的 next_review 是 2026-04-20，但 log_progress 不会主动降级，
+    # scan 时它仍按原 next_review 计算：2026-04-20 ≤ 2026-05-14 且 interval=5<90 → due_remaining=1
+    # 所以会写一条"仍有 1 道到期未复习"的提示
+    assert eff["reviewed_today"] == 0
+    assert eff["new_today"] == 0
+    assert eff["due_remaining"] == 1
+    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    assert "## 复习效果" in log_text
+    assert "仍有 **1** 道到期未复习" in log_text
+
+
+def test_log_progress_omits_review_effectiveness_on_empty_vault(vault_root):
+    """空 vault：没有任何错题卡时，复习效果区块完全省略。"""
+    today = "2026-05-14"
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", today,
+        "--topic", "空 vault",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    eff = data["review_effectiveness"]
+    assert eff["reviewed_today"] == 0
+    assert eff["new_today"] == 0
+    assert eff["due_remaining"] == 0
+    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    assert "## 复习效果" not in log_text

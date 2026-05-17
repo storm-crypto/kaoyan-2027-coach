@@ -2,18 +2,24 @@
 
 「今日活跃」= 今日新建 + 今日复习且 status ∈ {不会, 半会}。
 复习对了的卡（今日历史记录 status=会）不算活跃，整张跳过。
+
+所有统计都按 `log_day` 当天快照计算：从「### 历史记录」逐行重放 SRS，
+得到「截至当天 24:00」的 next_review / interval / status。补跑历史日期
+不会被后续复习覆盖。
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from archive_ops import extract_heading_block
 from constants import PLAN_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
+from create_wrong_card import compute_initial_review_schedule
 from study_ops import iter_review_cards
+from update_card import compute_review_schedule
 
 
 TODAY_WRONG_HEADING = "今日错题归档"
@@ -50,7 +56,7 @@ class ReviewEffectiveness:
     - `reviewed_today`：今日有复习记录的旧卡数量（不含今日新增卡的初次落库）
     - `mastered_today` / `partial_today` / `failed_today`：今日复习结果分布
     - `new_today`：今日新增的错题卡（first_wrong_at == today）
-    - `due_remaining`：今日仍到期但尚未复习的卡数（已"会"则未来不再到期，已复习则 next_review 已推后）
+    - `due_remaining`：当天到期但未在当天复习的卡数（由历史 SRS 重放推算）
     """
 
     reviewed_today: int = 0
@@ -62,7 +68,8 @@ class ReviewEffectiveness:
 
     @property
     def has_activity(self) -> bool:
-        return self.reviewed_today > 0 or self.new_today > 0 or self.due_remaining > 0
+        """是否有当天的复习/新增动作。积压不算今日活动。"""
+        return self.reviewed_today > 0 or self.new_today > 0
 
     @property
     def mastery_rate(self) -> Optional[float]:
@@ -80,18 +87,59 @@ class ReviewEffectiveness:
         return self.reviewed_today / denom
 
 
-def _last_history_entry(body: str) -> Optional[tuple]:
-    """返回卡片「### 历史记录」最后一行的 (date_str, status)，没有则 None。"""
+def _parse_history_entries(body: str) -> List[Tuple[date, str]]:
+    """解析「### 历史记录」下所有 `YYYY-MM-DD - 不会/半会/会 - ...` 行。"""
     block = extract_heading_block(body, "历史记录", level=3)
     if not block:
-        return None
-    last: Optional[tuple] = None
+        return []
+    entries: List[Tuple[date, str]] = []
     for line in block.splitlines():
         stripped = line.strip()
         match = HISTORY_LINE_RE.match(stripped)
-        if match:
-            last = (match.group(1), match.group(2))
-    return last
+        if not match:
+            continue
+        try:
+            entry_date = date.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        entries.append((entry_date, match.group(2)))
+    return entries
+
+
+def _history_status_on(entries: List[Tuple[date, str]], target_day: date) -> Optional[str]:
+    """返回 `target_day` 当天最后一次复习的 status；当天无记录返回 None。
+
+    使用所有历史条目，而不是只看最后一行——这样补跑历史日期时，后续日期的
+    复习记录不会"挤掉"当天的记录。
+    """
+    today_status: Optional[str] = None
+    for entry_date, status in entries:
+        if entry_date == target_day:
+            today_status = status
+    return today_status
+
+
+def _replay_state_before(
+    entries: List[Tuple[date, str]],
+    target_day: date,
+) -> Optional[Tuple[date, int]]:
+    """重放 `target_day` 之前的历史，返回 (next_review_at_start_of_target_day, interval)。
+
+    - 无任何先前条目时返回 None（无法判定当天前的状态）。
+    - 第一条历史按 `compute_initial_review_schedule` 处理（建卡当时的初始状态）；
+      后续每条按 `compute_review_schedule` 推进；不模拟 SRS_OVERDUE_DEGRADE。
+    """
+    prior = sorted([(d, s) for d, s in entries if d < target_day], key=lambda x: x[0])
+    if not prior:
+        return None
+
+    first_date, first_status = prior[0]
+    interval, ease = compute_initial_review_schedule(first_status)
+    next_review = first_date + timedelta(days=interval)
+    for entry_date, status in prior[1:]:
+        interval, ease = compute_review_schedule(status, interval, ease)
+        next_review = entry_date + timedelta(days=interval)
+    return next_review, interval
 
 
 def _first_bullet(block: str) -> str:
@@ -143,13 +191,11 @@ def scan_today_wrong_cards(obsidian_root: Path, today: date) -> List[TodayCardIn
         first_wrong_at = str(fm.get("first_wrong_at", "")).strip()
         is_new = first_wrong_at == today_iso
 
-        last_entry = _last_history_entry(item["body"])
-        today_review_status: Optional[str] = None
-        if last_entry and last_entry[0] == today_iso:
-            today_review_status = last_entry[1]
+        history = _parse_history_entries(item["body"])
+        today_review_status = _history_status_on(history, today)
 
         if today_review_status == "会":
-            # 今日复习对了，整张跳过——不算暴露面
+            # 当天复习对了，整张跳过——不算暴露面
             continue
 
         if not is_new and today_review_status not in {"不会", "半会"}:
@@ -224,14 +270,14 @@ def render_today_wrong_section(cards: List[TodayCardInfo]) -> str:
 
 
 def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffectiveness:
-    """统计今日复习活动，用于在学习日志里量化「复习效果」。
+    """统计 `today` 当天的复习活动，按当日快照算，不依赖 frontmatter 当前值。
 
     定义：
-    - 今日新增（new_today）= first_wrong_at == today 的卡，不计入复习池
-    - 今日复习（reviewed_today）= 历史记录最后一行落在今日的旧卡（first_wrong_at != today）
-    - 仍到期未复习（due_remaining）= 今日未触碰 + next_review ≤ today + 未毕业
+    - 今日新增（new_today）= first_wrong_at == today；不计入复习池
+    - 今日复习（reviewed_today）= 历史记录里 date == today 的条目（取最后一条 status）
+    - 仍到期未复习（due_remaining）= 当天未复习 + 重放历史得到的 next_review ≤ today
+      + interval < 90（未毕业）
     """
-    today_iso = today.isoformat()
     stats = ReviewEffectiveness()
 
     for item in iter_review_cards(obsidian_root):
@@ -239,13 +285,20 @@ def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffective
             continue
 
         fm = item["frontmatter"]
-        first_wrong_at = str(fm.get("first_wrong_at", "")).strip()
-        is_new = first_wrong_at == today_iso
+        first_wrong_at_str = str(fm.get("first_wrong_at", "")).strip()
+        try:
+            first_wrong_at = date.fromisoformat(first_wrong_at_str) if first_wrong_at_str else None
+        except ValueError:
+            first_wrong_at = None
 
-        last_entry = _last_history_entry(item["body"])
-        today_status: Optional[str] = None
-        if last_entry and last_entry[0] == today_iso:
-            today_status = last_entry[1]
+        # 卡当时尚未存在，不纳入任何统计
+        if first_wrong_at is not None and first_wrong_at > today:
+            continue
+
+        is_new = first_wrong_at == today
+
+        history = _parse_history_entries(item["body"])
+        today_status = _history_status_on(history, today)
 
         if is_new:
             stats.new_today += 1
@@ -261,17 +314,18 @@ def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffective
                 stats.failed_today += 1
             continue
 
-        next_review = item["next_review"]
-        interval = item["review_interval"]
-        if next_review is not None and interval is not None:
-            if next_review <= today and interval < SRS_GRADUATED_INTERVAL_DAYS:
-                stats.due_remaining += 1
+        prior_state = _replay_state_before(history, today)
+        if prior_state is None:
+            continue
+        next_review_at, interval_at = prior_state
+        if next_review_at <= today and interval_at < SRS_GRADUATED_INTERVAL_DAYS:
+            stats.due_remaining += 1
 
     return stats
 
 
 def render_review_effectiveness_section(stats: ReviewEffectiveness) -> str:
-    """渲染「复习效果」区块。无任何今日活动时返回空串。"""
+    """渲染「复习效果」区块。没有当天复习/新增活动时整段省略，避免空噪声。"""
     if not stats.has_activity:
         return ""
 
@@ -292,14 +346,12 @@ def render_review_effectiveness_section(stats: ReviewEffectiveness) -> str:
         if rate is not None:
             lines.append(f"- **掌握转化率**：{rate * 100:.1f}%（会 / 今日复习总数）")
 
-    coverage = stats.coverage_rate
-    if coverage is not None and stats.reviewed_today > 0:
-        coverage_pct = coverage * 100
-        if stats.due_remaining > 0:
-            lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（仍有 {stats.due_remaining} 道到期未复习）")
-        else:
-            lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（今日到期已全部复习）")
-    elif stats.due_remaining > 0:
-        lines.append(f"- 当前仍有 **{stats.due_remaining}** 道到期未复习")
+        coverage = stats.coverage_rate
+        if coverage is not None:
+            coverage_pct = coverage * 100
+            if stats.due_remaining > 0:
+                lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（仍有 {stats.due_remaining} 道到期未复习）")
+            else:
+                lines.append(f"- **复习覆盖率**：{coverage_pct:.1f}%（今日到期已全部复习）")
 
     return "\n".join(lines)

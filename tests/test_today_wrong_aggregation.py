@@ -452,9 +452,9 @@ def test_log_progress_writes_review_effectiveness_section(vault_root):
     assert "**复习覆盖率**：66.7%（仍有 1 道到期未复习）" in log_text
 
 
-def test_log_progress_skips_review_effectiveness_when_no_activity(vault_root):
-    """完全没有今日活动 + 没到期未复习卡时，不写复习效果区块。"""
-    _inactive_card(vault_root)  # next_review=2026-04-20，相对 2026-05-14 已超期 7+ 天，会被降级为今日到期
+def test_log_progress_skips_review_effectiveness_when_no_today_activity(vault_root):
+    """只有积压卡、没有当天复习/新增时，复习效果区块整段省略——积压不算今日活动。"""
+    _inactive_card(vault_root)  # next_review=2026-04-20，已积压；当天没有任何动作
 
     today = "2026-05-14"
     rc, out, _ = run_script("log_progress.py", [
@@ -466,15 +466,11 @@ def test_log_progress_skips_review_effectiveness_when_no_activity(vault_root):
     assert rc == 0
     data = json.loads(out)
     eff = data["review_effectiveness"]
-    # 卡 D 的 next_review 是 2026-04-20，但 log_progress 不会主动降级，
-    # scan 时它仍按原 next_review 计算：2026-04-20 ≤ 2026-05-14 且 interval=5<90 → due_remaining=1
-    # 所以会写一条"仍有 1 道到期未复习"的提示
     assert eff["reviewed_today"] == 0
     assert eff["new_today"] == 0
-    assert eff["due_remaining"] == 1
+    assert eff["due_remaining"] >= 1  # 积压仍被统计，只是不再独占该区块
     log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
-    assert "## 复习效果" in log_text
-    assert "仍有 **1** 道到期未复习" in log_text
+    assert "## 复习效果" not in log_text
 
 
 def test_log_progress_omits_review_effectiveness_on_empty_vault(vault_root):
@@ -494,3 +490,134 @@ def test_log_progress_omits_review_effectiveness_on_empty_vault(vault_root):
     assert eff["due_remaining"] == 0
     log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
     assert "## 复习效果" not in log_text
+
+
+def test_log_progress_historical_rerun_preserves_target_day_review(vault_root):
+    """补跑历史日期时，后续日期的复习不应该挤掉当天的复习记录。
+
+    场景：一张卡在 2026-05-14 复习过（半会），又在 2026-05-16 复习过（会）。
+    补跑 --date 2026-05-14 时，今日复习应仍然是 2026-05-14 的「半会」。
+    """
+    card_dir = vault_root / "错题本" / "408" / "操作系统"
+    card_dir.mkdir(parents=True, exist_ok=True)
+    card = card_dir / "进程调度-王道-qid-cdef00001234.md"
+    card.write_text(textwrap.dedent("""\
+        ---
+        source: 王道
+        question_id: qid-cdef00001234
+        topic: 进程调度算法对比
+        error_tags: []
+        first_wrong_at: 2026-05-10
+        last_review_at: 2026-05-16
+        wrong_count: 1
+        status: 会
+        next_review: 2026-05-20
+        review_interval: 3
+        ease_factor: 2.60
+        ---
+
+        #subject/408 #topic/OS #status/会 #source/王道
+
+        ## 进程调度 — 王道 — qid-cdef00001234
+
+        ### 历史记录
+        - 2026-05-10 - 不会 - 首次
+        - 2026-05-14 - 半会 - 思路对了步骤乱
+        - 2026-05-16 - 会 - 这次稳了
+        """), encoding="utf-8")
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-05-14",
+        "--topic", "历史重跑",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    eff = data["review_effectiveness"]
+    assert eff["reviewed_today"] == 1
+    assert eff["partial_today"] == 1
+    assert eff["mastered_today"] == 0
+    log_text = (vault_root / "学习日志" / "2026-05-14.md").read_text(encoding="utf-8")
+    assert "## 复习效果" in log_text
+    assert "今日复习 **1** 道" in log_text
+    assert "会 0 / 半会 1 / 不会 0" in log_text
+
+
+def test_log_progress_historical_due_remaining_uses_snapshot(vault_root):
+    """到期未复习应按 log_day 当天快照算，不被后续复习把 next_review 推走。
+
+    场景：一张卡 first_wrong_at=2026-04-01，初始 next_review=2026-04-02；
+    后续在 2026-05-16 复习一次（会，interval 推到 2 天）。
+    补跑 --date 2026-05-14 + 新增一张今日卡（让区块不被 has_activity 省略）：
+    旧卡当天到期未复习应被计入 due_remaining=1，不论 frontmatter 的 next_review。
+    """
+    # 旧卡：今日尚未复习，但当天前 next_review 已到期
+    old_card_dir = vault_root / "错题本" / "数学一" / "线性代数"
+    old_card_dir.mkdir(parents=True, exist_ok=True)
+    old_card = old_card_dir / "矩阵相似-660题-qid-abcd56781234.md"
+    old_card.write_text(textwrap.dedent("""\
+        ---
+        source: 660题
+        question_id: qid-abcd56781234
+        topic: 矩阵相似与对角化判定
+        error_tags: []
+        first_wrong_at: 2026-04-01
+        last_review_at: 2026-05-16
+        wrong_count: 1
+        status: 会
+        next_review: 2026-05-18
+        review_interval: 2
+        ease_factor: 2.60
+        ---
+
+        #subject/math1 #topic/线代 #status/会 #source/660题
+
+        ## 矩阵相似 — 660题 — qid-abcd56781234
+
+        ### 历史记录
+        - 2026-04-01 - 不会 - 首次
+        - 2026-05-16 - 会 - 已掌握
+        """), encoding="utf-8")
+
+    # 今日新增卡：让区块通过 has_activity 检查
+    new_card_dir = vault_root / "错题本" / "数学一" / "高等数学"
+    new_card_dir.mkdir(parents=True, exist_ok=True)
+    new_card = new_card_dir / "今日新题-真题-qid-1234aaaabbbb.md"
+    new_card.write_text(textwrap.dedent("""\
+        ---
+        source: 真题
+        question_id: qid-1234aaaabbbb
+        topic: 今日新题占位
+        error_tags: []
+        first_wrong_at: 2026-05-14
+        last_review_at: 2026-05-14
+        wrong_count: 1
+        status: 不会
+        next_review: 2026-05-15
+        review_interval: 1
+        ease_factor: 2.50
+        ---
+
+        #subject/math1
+
+        ## 今日新题
+
+        ### 历史记录
+        - 2026-05-14 - 不会 - 首次
+        """), encoding="utf-8")
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-05-14",
+        "--topic", "历史 due 快照",
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    eff = data["review_effectiveness"]
+    # 旧卡的 next_review 在重放下应是 2026-04-02（建卡时 interval=1）
+    # 远早于 2026-05-14，所以当天到期未复习 → due_remaining = 1
+    # 即便 frontmatter 当前 next_review=2026-05-18，也不影响快照判定
+    assert eff["due_remaining"] == 1
+    assert eff["new_today"] == 1

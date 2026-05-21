@@ -9,6 +9,7 @@
 - `/wrong` 负责讲题并把错题归档到本地 Markdown
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
+- `/help`、`/help wrong`、`/help progress`、`/help score` 负责说明“命令最好怎么填”
 - `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、卷子级成绩记录、单科摘要表、复盘和策略校准
 - `/grill` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告（兼容旧写法 `/chapter_grill_import`）
 - `build_dashboard.py` 可把现有档案、日志、错题卡和知识地图导出成可直接打开的静态 HTML 学习驾驶舱
@@ -61,12 +62,27 @@ source ~/.zshrc
 接下来常见的日常动作是：
 
 ```text
+/help
 /plan_today 6h
 /wrong 数学一 这道题我卡在第一步
 /progress 今天做了哪些内容...
 /score 数学一 卷型=真题 卷子=2024真题二刷 总分=128 选填=44 大题=84 主要问题=中值定理、线积分
 /score 英语一 卷型=真题 卷子=张剑黄皮书2018 总分=78 完形=6 阅读=30 新题型=8 翻译=6 作文=28 主要问题=翻译句子切分、作文表达单一
 /grill latest
+```
+
+如果你经常忘记某条命令该补什么信息，优先先发：
+
+```text
+/help
+```
+
+想看高频命令的填写细节时，再用：
+
+```text
+/help wrong
+/help progress
+/help score
 ```
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。

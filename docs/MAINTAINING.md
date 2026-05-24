@@ -87,6 +87,15 @@
 - 知识地图模板
 - 脚本中的学科分支
 - `SKILL.md` 的学科说明
+
+### 笔记追踪相关改动
+
+涉及「今日新增笔记」「知识沉淀」「知识地图覆盖」的改动，重点关注：
+
+- `scripts/note_scan.py`：扫描 `知识笔记/`，按 frontmatter `created` 分组的核心模块。`extract_chapter_num` 是打通 知识笔记 / 错题本 / 知识地图 三处不同章节命名的唯一归一化函数，其他需要做跨表对照的逻辑都应复用它
+- `scripts/knowledge_map_parser.py`：解析 `知识地图/{科目}.md` 的章节表头，返回 `{科目: [ChapterEntry(subgroup, chapter_num, chapter_name)]}`。月复盘的覆盖度统计依赖它
+- `scripts/log_progress.py`：`main` 开头会跑 `auto_fill_created_frontmatter`（幂等），日志段「今日新增笔记」每次重跑都重生成，**不走 `merge_with_existing`**——这是因为该段由文件系统派生，不存在"用户手写后被脚本覆盖"的风险
+- `scripts/build_recap.py`：`collect_note_stats / collect_wrong_exposure / collect_cross_signals` 周/月通用；`collect_coverage` 仅月复盘调用，依赖 `knowledge_map_parser`
 - 使用文档里的支持范围
 - 回归测试
 

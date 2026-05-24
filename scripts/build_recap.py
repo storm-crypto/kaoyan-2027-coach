@@ -26,6 +26,14 @@ from archive_ops import (
 from constants import LEGACY_HEADING_INDENT_LIMIT
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
+from knowledge_map_parser import load_all_maps
+from note_scan import (
+    NoteEntry,
+    extract_chapter_num,
+    render_recap_notes_block,
+    scan_all_notes,
+    scan_notes_in_range,
+)
 from study_ops import PLAN_SUBJECTS, format_hours, parse_today
 
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
@@ -232,6 +240,319 @@ def collect_review_stats(obsidian_root, start, end):
     return sum(status_counts.values()), status_counts, subject_counts
 
 
+def _card_chapter_from_path(rel_parts):
+    """从 错题本/{科目}/{子科目}/{章节}/... 路径段里抽出章节字符串。
+
+    至少 3 段时取 parts[2]（章节）。少于 3 段的视为没分章。
+    """
+    if len(rel_parts) >= 3:
+        return rel_parts[2]
+    return ""
+
+
+def collect_wrong_exposure(obsidian_root, start, end):
+    """扫描错题本，统计周期内的「错题暴露」：
+
+    - new_cards: first_wrong_at 在周期内的新建卡数 + 按 (科目, chapter_num) 分布
+    - stubborn: 周期内复习仍判 `不会` 或 `不会` 次数 ≥ 2 的卡（TOP 5 by recent 不会次数）
+    - chapter_activity: 周期内每个 (科目, chapter_num) 的错题活跃信号（新增 + 复习失败）
+    """
+    root = Path(obsidian_root) / "错题本"
+    new_cards = []          # list of {subject, chapter_num, chapter_raw, topic, path}
+    stubborn_cards = []     # list of {fail_in_range, latest_date, subject, topic, path, chapter_num}
+    chapter_activity = {}   # (subject, chapter_num) -> {"new": n, "fail": n, "chapter_raw": s}
+
+    if not root.exists():
+        return {
+            "new_cards": new_cards,
+            "stubborn_cards": stubborn_cards,
+            "chapter_activity": chapter_activity,
+        }
+
+    for md_file in root.rglob("*.md"):
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        fm, body, _ = parse_frontmatter(text)
+        rel = md_file.relative_to(root)
+        subject = rel.parts[0] if rel.parts else ""
+        if subject not in PLAN_SUBJECTS:
+            continue
+        chapter_raw = _card_chapter_from_path(rel.parts)
+        chapter_num = extract_chapter_num(chapter_raw)
+        topic = str(fm.get("topic", "")).strip() or md_file.stem
+        path_rel = str(md_file.relative_to(obsidian_root))
+
+        # 新增卡：first_wrong_at 在周期内
+        first_wrong = str(fm.get("first_wrong_at", "")).strip()
+        try:
+            first_day = date.fromisoformat(first_wrong) if first_wrong else None
+        except ValueError:
+            first_day = None
+        is_new_in_range = first_day is not None and start <= first_day <= end
+        if is_new_in_range:
+            new_cards.append({
+                "subject": subject,
+                "chapter_num": chapter_num,
+                "chapter_raw": chapter_raw,
+                "topic": topic,
+                "path": path_rel,
+            })
+
+        # 周期内复习历史
+        fail_in_range = 0
+        latest_status_in_range = None
+        latest_day_in_range = None
+        for history_date, status in HISTORY_RE.findall(body):
+            try:
+                day = date.fromisoformat(history_date)
+            except ValueError:
+                continue
+            if not (start <= day <= end):
+                continue
+            if status == "不会":
+                fail_in_range += 1
+            if latest_day_in_range is None or day > latest_day_in_range:
+                latest_day_in_range = day
+                latest_status_in_range = status
+
+        is_stubborn = (latest_status_in_range == "不会") or (fail_in_range >= 2)
+        if is_stubborn:
+            stubborn_cards.append({
+                "fail_in_range": fail_in_range,
+                "latest_day": latest_day_in_range.isoformat() if latest_day_in_range else "",
+                "subject": subject,
+                "topic": topic,
+                "path": path_rel,
+                "chapter_num": chapter_num,
+            })
+
+        # 章节活跃
+        if chapter_num is not None:
+            key = (subject, chapter_num)
+            slot = chapter_activity.setdefault(key, {"new": 0, "fail": 0, "chapter_raw": chapter_raw})
+            if is_new_in_range:
+                slot["new"] += 1
+            slot["fail"] += fail_in_range
+
+    # stubborn sorted by fail_in_range desc, latest_day desc
+    stubborn_cards.sort(key=lambda x: (x["fail_in_range"], x["latest_day"]), reverse=True)
+
+    return {
+        "new_cards": new_cards,
+        "stubborn_cards": stubborn_cards,
+        "chapter_activity": chapter_activity,
+    }
+
+
+def collect_cross_signals(notes, wrong_exposure):
+    """以 (subject, chapter_num) 为键，对照笔记与错题活跃度，给出 only-drilling / only-theory 预警。
+
+    - only-drilling: 新增/失败错题 ≥ 3 但本周笔记 = 0
+    - only-theory: 笔记 ≥ 2 但本周错题活跃 = 0
+    - healthy: 两者都 > 0
+    """
+    note_counts = {}   # (subject, chapter_num) -> count
+    chapter_raw_map = {}
+    for note in notes:
+        if note.chapter_num is None:
+            continue
+        key = (note.subject, note.chapter_num)
+        note_counts[key] = note_counts.get(key, 0) + 1
+        chapter_raw_map.setdefault(key, note.chapter_raw)
+
+    activity = wrong_exposure["chapter_activity"]
+
+    only_drilling = []
+    only_theory = []
+    healthy = []
+
+    for key, slot in activity.items():
+        wrong_score = slot["new"] + slot["fail"]
+        note_count = note_counts.get(key, 0)
+        chapter_raw = slot["chapter_raw"]
+        if wrong_score >= 3 and note_count == 0:
+            only_drilling.append({"key": key, "wrong": wrong_score, "chapter_raw": chapter_raw})
+        elif note_count > 0 and wrong_score > 0:
+            healthy.append({"key": key, "wrong": wrong_score, "notes": note_count, "chapter_raw": chapter_raw})
+
+    for key, note_count in note_counts.items():
+        if note_count >= 2 and activity.get(key, {"new": 0, "fail": 0})["new"] + activity.get(key, {"new": 0, "fail": 0})["fail"] == 0:
+            only_theory.append({"key": key, "notes": note_count, "chapter_raw": chapter_raw_map.get(key, "")})
+
+    only_drilling.sort(key=lambda x: x["wrong"], reverse=True)
+    only_theory.sort(key=lambda x: x["notes"], reverse=True)
+
+    return {
+        "only_drilling": only_drilling,
+        "only_theory": only_theory,
+        "healthy": healthy,
+    }
+
+
+def collect_coverage(obsidian_root):
+    """月复盘专用：对照知识地图，统计每科笔记/错题的章节覆盖度。
+
+    返回 {subject: {total, with_notes, with_wrongs, blank_chapters: [(num, name), ...]}}.
+    blank_chapters: 既无笔记又无错题的章节，最多列 10 个。
+    """
+    maps = load_all_maps(Path(obsidian_root))
+    if not maps:
+        return {}
+
+    all_notes = scan_all_notes(Path(obsidian_root))
+    notes_by_chapter = {}
+    for note in all_notes:
+        if note.chapter_num is None:
+            continue
+        notes_by_chapter.setdefault((note.subject, note.chapter_num), 0)
+        notes_by_chapter[(note.subject, note.chapter_num)] += 1
+
+    # 扫错题本：哪些 (subject, chapter_num) 出现过卡
+    wrong_chapters = set()
+    root = Path(obsidian_root) / "错题本"
+    if root.exists():
+        for md_file in root.rglob("*.md"):
+            try:
+                rel = md_file.relative_to(root)
+            except ValueError:
+                continue
+            if not rel.parts:
+                continue
+            subject = rel.parts[0]
+            if subject not in PLAN_SUBJECTS:
+                continue
+            chapter_raw = _card_chapter_from_path(rel.parts)
+            chapter_num = extract_chapter_num(chapter_raw)
+            if chapter_num is not None:
+                wrong_chapters.add((subject, chapter_num))
+
+    result = {}
+    for subject, entries in maps.items():
+        total = len(entries)
+        with_notes = sum(1 for e in entries if notes_by_chapter.get((subject, e.chapter_num), 0) > 0)
+        with_wrongs = sum(1 for e in entries if (subject, e.chapter_num) in wrong_chapters)
+        blank = [
+            (e.chapter_num, e.chapter_name, e.subgroup)
+            for e in entries
+            if notes_by_chapter.get((subject, e.chapter_num), 0) == 0
+            and (subject, e.chapter_num) not in wrong_chapters
+        ]
+        result[subject] = {
+            "total": total,
+            "with_notes": with_notes,
+            "with_wrongs": with_wrongs,
+            "blank_chapters": blank[:10],
+            "blank_total": len(blank),
+        }
+    return result
+
+
+def build_exposure_block(exposure, period_name):
+    new_cards = exposure["new_cards"]
+    stubborn = exposure["stubborn_cards"]
+    chapter_activity = exposure["chapter_activity"]
+
+    if not new_cards and not stubborn and not chapter_activity:
+        return f"- 本{period_name}没有新增错题卡或顽固卡需要重点关注。"
+
+    lines = []
+    if new_cards:
+        subject_counts = {}
+        for card in new_cards:
+            subject_counts[card["subject"]] = subject_counts.get(card["subject"], 0) + 1
+        subj_text = "、".join(
+            f"{s} {c} 道" for s, c in sorted(subject_counts.items(), key=lambda x: x[1], reverse=True)
+        )
+        lines.append(f"- 本{period_name}新增错题 {len(new_cards)} 道（{subj_text}）。")
+    else:
+        lines.append(f"- 本{period_name}没有记录新增错题。")
+
+    if chapter_activity:
+        ranked = sorted(
+            chapter_activity.items(),
+            key=lambda kv: kv[1]["new"] + kv[1]["fail"],
+            reverse=True,
+        )[:3]
+        items = []
+        for (subject, chapter_num), slot in ranked:
+            items.append(f"{subject}·第{chapter_num}章（新增 {slot['new']} / 复习失败 {slot['fail']}）")
+        if items:
+            lines.append("- 章节积压 TOP：" + "；".join(items) + "。")
+
+    if stubborn:
+        lines.append(f"- 顽固卡 TOP {min(5, len(stubborn))}（周期内仍判「不会」或多次失败）：")
+        for card in stubborn[:5]:
+            ch_part = f"第{card['chapter_num']}章 " if card['chapter_num'] is not None else ""
+            lines.append(
+                f"  - {card['subject']}·{ch_part}{card['topic']}"
+                f"（失败 {card['fail_in_range']} 次，最近 {card['latest_day']}）"
+            )
+    return "\n".join(lines)
+
+
+def build_cross_signals_block(cross_signals, period_name):
+    only_drilling = cross_signals["only_drilling"]
+    only_theory = cross_signals["only_theory"]
+    healthy = cross_signals["healthy"]
+
+    if not (only_drilling or only_theory or healthy):
+        return f"- 本{period_name}笔记与错题数据不足，等数据攒起来再做交叉对照。"
+
+    lines = []
+    if only_drilling:
+        items = []
+        for sig in only_drilling[:5]:
+            subject, chapter_num = sig["key"]
+            items.append(f"{subject}·第{chapter_num}章（错题 {sig['wrong']}，笔记 0）")
+        lines.append(f"- ⚠ only-drilling（光刷题没沉淀）：{'；'.join(items)}。建议下{period_name}补一篇套路总结。")
+    if only_theory:
+        items = []
+        for sig in only_theory[:5]:
+            subject, chapter_num = sig["key"]
+            items.append(f"{subject}·第{chapter_num}章（笔记 {sig['notes']}，错题 0）")
+        lines.append(f"- ⓘ only-theory（光看理论没验题）：{'；'.join(items)}。建议下{period_name}做几道对应题验收。")
+    if healthy:
+        items = []
+        for sig in healthy[:3]:
+            subject, chapter_num = sig["key"]
+            items.append(f"{subject}·第{chapter_num}章（笔记 {sig['notes']} / 错题 {sig['wrong']}）")
+        lines.append(f"- ✓ 良性沉淀：{'；'.join(items)}。")
+    if not lines:
+        lines.append(f"- 本{period_name}交叉信号都正常。")
+    return "\n".join(lines)
+
+
+def build_coverage_block(coverage, period_name):
+    if not coverage:
+        return f"- 暂无知识地图可对照（请先在 知识地图/ 下建立科目章节表）。"
+
+    lines = []
+    for subject, info in coverage.items():
+        total = info["total"]
+        with_notes = info["with_notes"]
+        with_wrongs = info["with_wrongs"]
+        pct_notes = (with_notes / total * 100) if total else 0
+        pct_wrongs = (with_wrongs / total * 100) if total else 0
+        lines.append(
+            f"- {subject}：共 {total} 章；笔记覆盖 {with_notes}/{total}（{pct_notes:.0f}%），"
+            f"错题覆盖 {with_wrongs}/{total}（{pct_wrongs:.0f}%）。"
+        )
+        if info["blank_chapters"]:
+            def _strip_cn_chapter_prefix(name):
+                return re.sub(r"^第[零一二三四五六七八九十百]+章\s*", "", name).strip()
+            blank_text = "、".join(
+                f"第{num}章 {_strip_cn_chapter_prefix(name)}".strip()
+                for num, name, _ in info["blank_chapters"][:5]
+            )
+            extra = ""
+            if info["blank_total"] > 5:
+                extra = f"（共 {info['blank_total']} 章空白，仅列前 5）"
+            lines.append(f"  - 仍空白：{blank_text}{extra}")
+    return "\n".join(lines)
+
+
 def collect_chapter_grill_stats(obsidian_root, start, end):
     root = Path(obsidian_root) / "章节掌握报告" / "408"
     if not root.exists():
@@ -415,6 +736,19 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     active_subjects = [s for s, c in sorted(combined.items(), key=lambda x: x[1], reverse=True) if c > 0]
     active_subjects_text = "、".join(active_subjects[:3]) if active_subjects else "记录不足"
 
+    period_notes = scan_notes_in_range(Path(obsidian_root), start, end)
+    note_stats_block = render_recap_notes_block(period_notes, period_name)
+    wrong_exposure = collect_wrong_exposure(obsidian_root, start, end)
+    exposure_stats_block = build_exposure_block(wrong_exposure, period_name)
+    cross_signals = collect_cross_signals(period_notes, wrong_exposure)
+    cross_signals_block = build_cross_signals_block(cross_signals, period_name)
+
+    coverage_block = ""
+    coverage = {}
+    if period == "month":
+        coverage = collect_coverage(obsidian_root)
+        coverage_block = build_coverage_block(coverage, period_name)
+
     review_stats = build_bullets([
         f"本{period_name}共记录 {total_reviews} 次复习更新。",
         f"状态分布：不会 {status_counts['不会']} / 半会 {status_counts['半会']} / 会 {status_counts['会']}。",
@@ -422,6 +756,12 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     ], f"- 本{period_name}暂未检索到复习更新。")
 
     next_actions = []
+    if cross_signals["only_drilling"]:
+        first = cross_signals["only_drilling"][0]
+        next_actions.append(f"给 {first['key'][0]}·第{first['key'][1]}章 补一篇套路总结，结束 only-drilling。")
+    if cross_signals["only_theory"]:
+        first = cross_signals["only_theory"][0]
+        next_actions.append(f"为 {first['key'][0]}·第{first['key'][1]}章 的笔记做几道题验收。")
     if blockers:
         next_actions.append(f"优先拆解：{blockers[0]}")
     if active_subjects:
@@ -431,7 +771,7 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     else:
         next_actions.append("保留检查点，及时把新卡点写回错题本或知识地图。")
 
-    content = render_recap(load_template_markdown(template_name), {
+    mapping = {
         "period_label": label,
         "period_range": f"{start.isoformat()} ~ {end.isoformat()}",
         "logged_days": str(logged_days),
@@ -441,9 +781,16 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "chapter_stats": build_chapter_stats(chapter_stats, period_name),
         "score_stats": score_stats,
         "review_stats": review_stats,
+        "note_stats": note_stats_block,
+        "exposure_stats": exposure_stats_block,
+        "cross_signals": cross_signals_block,
         "blockers": build_bullets(blockers, f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"),
         "next_actions": build_bullets(next_actions, f"- 下{period_name}先保证日志和复盘的连续性。"),
-    })
+    }
+    if period == "month":
+        mapping["coverage_stats"] = coverage_block
+
+    content = render_recap(load_template_markdown(template_name), mapping)
 
     atomic_write(output_path, content)
 
@@ -456,6 +803,11 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "total_hours": round(total_hours, 2),
         "review_count": total_reviews,
         "score_count": len(score_records),
+        "note_count": len(period_notes),
+        "new_wrong_count": len(wrong_exposure["new_cards"]),
+        "stubborn_count": len(wrong_exposure["stubborn_cards"]),
+        "only_drilling_count": len(cross_signals["only_drilling"]),
+        "only_theory_count": len(cross_signals["only_theory"]),
     }
 
 

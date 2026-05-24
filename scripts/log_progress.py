@@ -15,6 +15,12 @@ from archive_ops import (
     upsert_subject_score_row,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
+from note_scan import (
+    auto_fill_created_frontmatter,
+    count_missing_created,
+    render_today_notes_section,
+    scan_notes_in_range,
+)
 from score_record_lib import build_summary_row_from_record, infer_paper_type
 from today_wrong_ops import (
     render_review_effectiveness_section,
@@ -141,7 +147,13 @@ def render_scores(items):
     return "\n".join(rows)
 
 
-def render_log_content(log_day, args, today_wrong_section="", review_effectiveness_section=""):
+def render_log_content(
+    log_day,
+    args,
+    today_wrong_section="",
+    review_effectiveness_section="",
+    today_notes_section="",
+):
     coach_note = args.coach_note or "今天有沉淀，明天继续围绕最卡的那 1 个点做收口。"
     hours = args.hours or "未记录"
     sections = [
@@ -161,10 +173,15 @@ def render_log_content(log_day, args, today_wrong_section="", review_effectivene
         "## 今日已掌握（含信心等级）",
         render_mastered(args.mastered),
         "",
+    ]
+    if today_notes_section:
+        sections.append(today_notes_section)
+        sections.append("")
+    sections.extend([
         "## 训练成绩记录",
         render_scores(args.score),
         "",
-    ]
+    ])
     if review_effectiveness_section:
         sections.append(review_effectiveness_section)
         sections.append("")
@@ -414,9 +431,20 @@ def main():
     review_stats = scan_today_review_stats(Path(obsidian_root), log_day)
     review_effectiveness_section = render_review_effectiveness_section(review_stats)
 
+    notes_fill = auto_fill_created_frontmatter(Path(obsidian_root))
+    today_notes = scan_notes_in_range(Path(obsidian_root), log_day, log_day)
+    notes_missing = count_missing_created(Path(obsidian_root))
+    today_notes_section = render_today_notes_section(today_notes, notes_missing)
+
     atomic_write(
         output_path,
-        render_log_content(log_day, merged_args, today_wrong_section, review_effectiveness_section),
+        render_log_content(
+            log_day,
+            merged_args,
+            today_wrong_section,
+            review_effectiveness_section,
+            today_notes_section,
+        ),
     )
 
     updated_sections = []
@@ -469,6 +497,22 @@ def main():
             "due_remaining": review_stats.due_remaining,
             "mastery_rate": review_stats.mastery_rate,
             "coverage_rate": review_stats.coverage_rate,
+        },
+        "notes_today": {
+            "count": len(today_notes),
+            "frontmatter_filled": notes_fill["filled"],
+            "missing_created": notes_missing,
+            "entries": [
+                {
+                    "subject": n.subject,
+                    "subgroup": n.subgroup,
+                    "chapter_num": n.chapter_num,
+                    "chapter_raw": n.chapter_raw,
+                    "title": n.title,
+                    "path": n.path_rel,
+                }
+                for n in today_notes
+            ],
         },
     }, ensure_ascii=False, indent=2))
 

@@ -126,3 +126,80 @@ def test_log_progress_subject_score_requires_complete_fields(sample_archive, vau
     assert rc == 1
     data = json.loads(out)
     assert "408 subject-score 参数格式错误" in data["message"]
+
+
+def test_log_progress_includes_today_notes_section(vault_root):
+    # 预置两篇今日笔记 + 一篇昨日笔记
+    notes_dir = vault_root / "知识笔记" / "数学一" / "高数"
+    (notes_dir / "ch1 函数 极限 连续").mkdir(parents=True, exist_ok=True)
+    (notes_dir / "ch3 微分中值定理与泰勒公式").mkdir(parents=True, exist_ok=True)
+    (notes_dir / "ch1 函数 极限 连续" / "Stolz 定理.md").write_text(
+        "---\ncreated: 2026-05-24\n---\n正文\n", encoding="utf-8",
+    )
+    (notes_dir / "ch3 微分中值定理与泰勒公式" / "双中值.md").write_text(
+        "---\ncreated: 2026-05-24\n---\n正文\n", encoding="utf-8",
+    )
+    (notes_dir / "ch1 函数 极限 连续" / "昨日.md").write_text(
+        "---\ncreated: 2026-05-23\n---\n正文\n", encoding="utf-8",
+    )
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-05-24",
+        "--topic", "高数复习",
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["notes_today"]["count"] == 2
+    assert data["notes_today"]["missing_created"] == 0
+    titles = sorted(e["title"] for e in data["notes_today"]["entries"])
+    assert titles == ["Stolz 定理", "双中值"]
+
+    log_text = (vault_root / "学习日志" / "2026-05-24.md").read_text(encoding="utf-8")
+    assert "## 今日新增笔记" in log_text
+    assert "Stolz 定理" in log_text
+    assert "双中值" in log_text
+    assert "今日合计 2 篇" in log_text
+    # 不能错误地把昨日的拉进来
+    assert "昨日" not in log_text
+
+
+def test_log_progress_auto_fills_missing_created(vault_root):
+    note = vault_root / "知识笔记" / "数学一" / "高数" / "ch1" / "无 frontmatter.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("纯正文笔记，没有 frontmatter。\n", encoding="utf-8")
+    # 设置 mtime 为今天，让自动补 created = 今天
+    import os
+    import time
+    today_ts = time.mktime((2026, 5, 24, 12, 0, 0, 0, 0, -1))
+    os.utime(note, (today_ts, today_ts))
+
+    rc, out, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", "2026-05-24",
+        "--topic", "扫描测试",
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["notes_today"]["frontmatter_filled"] == 1
+    assert data["notes_today"]["count"] == 1
+    text = note.read_text(encoding="utf-8")
+    assert "created: 2026-05-24" in text
+
+
+def test_log_progress_notes_section_regenerated_on_rerun(vault_root):
+    note_dir = vault_root / "知识笔记" / "数学一" / "高数" / "ch1"
+    note_dir.mkdir(parents=True, exist_ok=True)
+    (note_dir / "A.md").write_text("---\ncreated: 2026-05-24\n---\n", encoding="utf-8")
+
+    run_script("log_progress.py", [str(vault_root), "--date", "2026-05-24", "--topic", "首跑"])
+    log_path = vault_root / "学习日志" / "2026-05-24.md"
+    assert "A" in log_path.read_text(encoding="utf-8")
+
+    # 新增一篇，重跑应反映新内容
+    (note_dir / "B.md").write_text("---\ncreated: 2026-05-24\n---\n", encoding="utf-8")
+    run_script("log_progress.py", [str(vault_root), "--date", "2026-05-24", "--topic", "重跑"])
+    text = log_path.read_text(encoding="utf-8")
+    assert "A" in text
+    assert "B" in text
+    assert "今日合计 2 篇" in text

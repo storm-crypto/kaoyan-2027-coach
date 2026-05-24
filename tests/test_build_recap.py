@@ -298,3 +298,136 @@ def test_week_recap_dedupes_progress_score_and_subject_table(sample_archive, vau
     assert data["score_count"] == 1
     content = (vault_root / "复盘报告" / "2026-W13-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·真题训练：1 次，最近 145/150，完成率 96.7%。" in content
+
+
+def _write_note(vault_root, rel_path, created):
+    path = vault_root / rel_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\ncreated: {created}\n---\n正文\n", encoding="utf-8")
+    return path
+
+
+def _write_wrong_card(vault_root, subject, chapter_dir, name, first_wrong_at, history):
+    """工具：建一张错题卡，history 是 [(date, status)] 列表。"""
+    card_dir = vault_root / "错题本" / subject / "高等数学" / chapter_dir
+    card_dir.mkdir(parents=True, exist_ok=True)
+    card_path = card_dir / f"{name}.md"
+    history_lines = "\n".join(f"- {d} - {s} - 测试" for d, s in history)
+    card_path.write_text(
+        f"---\n"
+        f"source: test\n"
+        f"question_id: qid-{name}\n"
+        f"topic: {name}\n"
+        f"first_wrong_at: {first_wrong_at}\n"
+        f"last_review_at: {history[-1][0] if history else first_wrong_at}\n"
+        f"status: 不会\n"
+        f"---\n\n"
+        f"### 历史记录\n"
+        f"{history_lines}\n",
+        encoding="utf-8",
+    )
+
+
+def test_week_recap_includes_note_stats_section(vault_root):
+    _write_note(vault_root, "知识笔记/数学一/高数/ch1 函数 极限 连续/Stolz 定理.md", "2026-03-18")
+    _write_note(vault_root, "知识笔记/数学一/高数/ch3 微分中值定理与泰勒公式/双中值.md", "2026-03-19")
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["note_count"] == 2
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "## 知识沉淀" in content
+    assert "本周共新增 2 篇笔记" in content
+    assert "数学一 2 篇" in content
+
+
+def test_week_recap_only_drilling_warning(vault_root):
+    # 第3章 4 张新错题 + 笔记 0 篇 → only-drilling
+    for i in range(4):
+        _write_wrong_card(
+            vault_root,
+            "数学一",
+            "03第三章微分中值定理与泰勒公式",
+            f"card_{i}",
+            "2026-03-17",
+            [("2026-03-17", "不会")],
+        )
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["only_drilling_count"] >= 1
+    assert data["new_wrong_count"] == 4
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "## 错题暴露" in content
+    assert "本周新增错题 4 道" in content
+    assert "## 知识沉淀 × 错题暴露" in content
+    assert "only-drilling" in content
+    assert "数学一·第3章" in content
+
+
+def test_week_recap_only_theory_warning(vault_root):
+    _write_note(vault_root, "知识笔记/数学一/高数/ch5 不定积分/A.md", "2026-03-18")
+    _write_note(vault_root, "知识笔记/数学一/高数/ch5 不定积分/B.md", "2026-03-19")
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["only_theory_count"] >= 1
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "only-theory" in content
+
+
+def test_week_recap_stubborn_card_top(vault_root):
+    _write_wrong_card(
+        vault_root,
+        "数学一",
+        "06第六章定积分及其应用",
+        "fail_a",
+        "2026-03-01",
+        [("2026-03-17", "不会"), ("2026-03-19", "不会"), ("2026-03-20", "不会")],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "顽固卡 TOP" in content
+    assert "fail_a" in content
+
+
+def test_month_recap_includes_coverage_section(vault_root):
+    (vault_root / "知识地图").mkdir(exist_ok=True)
+    (vault_root / "知识地图" / "数学一.md").write_text(
+        "## 高等数学\n"
+        "| a |\n|---|\n"
+        "| **01 第一章 函数、极限、连续** | |\n"
+        "| **03 第三章 微分中值定理与泰勒公式** | |\n"
+        "| **05 第五章 不定积分** | |\n",
+        encoding="utf-8",
+    )
+    _write_note(vault_root, "知识笔记/数学一/高数/ch1 函数 极限 连续/A.md", "2026-03-18")
+    _write_wrong_card(
+        vault_root,
+        "数学一",
+        "03第三章微分中值定理与泰勒公式",
+        "card_x",
+        "2026-03-17",
+        [("2026-03-17", "不会")],
+    )
+
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "month", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-03-月复盘.md").read_text(encoding="utf-8")
+    assert "## 知识地图覆盖" in content
+    assert "数学一：共 3 章" in content
+    assert "笔记覆盖 1/3" in content
+    assert "错题覆盖 1/3" in content
+    assert "第5章 不定积分" in content  # blank chapter

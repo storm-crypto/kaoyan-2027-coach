@@ -367,7 +367,7 @@ def test_week_recap_only_drilling_warning(vault_root):
     assert "本周新增错题 4 道" in content
     assert "## 知识沉淀 × 错题暴露" in content
     assert "only-drilling" in content
-    assert "数学一·第3章" in content
+    assert "数学一·高等数学·第3章" in content
 
 
 def test_week_recap_only_theory_warning(vault_root):
@@ -431,3 +431,132 @@ def test_month_recap_includes_coverage_section(vault_root):
     assert "笔记覆盖 1/3" in content
     assert "错题覆盖 1/3" in content
     assert "第5章 不定积分" in content  # blank chapter
+
+
+def _write_wrong_card_in(vault_root, rel_dir, name, first_wrong_at, history):
+    """更通用的错题卡写入：rel_dir 是相对 错题本/ 的目录段（可包含或不包含 subgroup）。"""
+    card_dir = vault_root / "错题本" / rel_dir
+    card_dir.mkdir(parents=True, exist_ok=True)
+    card_path = card_dir / f"{name}.md"
+    history_lines = "\n".join(f"- {d} - {s} - 测试" for d, s in history)
+    card_path.write_text(
+        f"---\n"
+        f"source: test\n"
+        f"question_id: qid-{name}\n"
+        f"topic: {name}\n"
+        f"first_wrong_at: {first_wrong_at}\n"
+        f"last_review_at: {history[-1][0] if history else first_wrong_at}\n"
+        f"status: 不会\n"
+        f"---\n\n"
+        f"### 历史记录\n"
+        f"{history_lines}\n",
+        encoding="utf-8",
+    )
+
+
+def test_cross_signals_no_collision_across_subgroups(vault_root):
+    """高数 ch1 和 线代 ch1 章节号都为 1，但属于不同 subgroup，不应被合并成同一信号。"""
+    # 高数 ch1: 4 张新错题 → only-drilling
+    for i in range(4):
+        _write_wrong_card_in(
+            vault_root,
+            "数学一/高等数学/01 第一章 函数、极限、连续/01 第一节 函数",
+            f"gaoshu_{i}",
+            "2026-03-17",
+            [("2026-03-17", "不会")],
+        )
+    # 线代 ch1: 0 错题 + 2 篇笔记 → only-theory
+    _write_note(vault_root, "知识笔记/数学一/线代/ch1 行列式/A.md", "2026-03-18")
+    _write_note(vault_root, "知识笔记/数学一/线代/ch1 行列式/B.md", "2026-03-19")
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    # 两个不同子科目的 ch1 都应该出现，不被合并
+    assert data["only_drilling_count"] >= 1
+    assert data["only_theory_count"] >= 1
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "数学一·高等数学·第1章" in content
+    assert "数学一·线性代数·第1章" in content
+
+
+def test_coverage_no_collision_across_subgroups(vault_root):
+    """知识地图里多个子科目都有 ch1，覆盖度统计不能把它们合并。"""
+    (vault_root / "知识地图").mkdir(exist_ok=True)
+    (vault_root / "知识地图" / "数学一.md").write_text(
+        "## 高等数学\n| a |\n|---|\n| **01 第一章 函数、极限、连续** | |\n"
+        "## 线性代数\n| a |\n|---|\n| **01 第一章 行列式** | |\n",
+        encoding="utf-8",
+    )
+    # 只在高数 ch1 写笔记
+    _write_note(vault_root, "知识笔记/数学一/高数/ch1 函数 极限 连续/A.md", "2026-03-18")
+
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "month", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-03-月复盘.md").read_text(encoding="utf-8")
+    # 数学一共 2 章；只有高数 ch1 有笔记
+    assert "数学一：共 2 章" in content
+    assert "笔记覆盖 1/2" in content
+    # 线代 ch1 应该出现在空白列表里
+    assert "线性代数·第1章" in content
+
+
+def test_408_bare_chapter_naming_parses(vault_root):
+    """408 知识地图用 `01 线性表` 格式，要能解析到 chapter_num=1 并参与统计。"""
+    (vault_root / "知识地图").mkdir(exist_ok=True)
+    (vault_root / "知识地图" / "408.md").write_text(
+        "## 数据结构\n| a |\n|---|\n"
+        "| **01 线性表** | |\n"
+        "| **03 树与二叉树** | |\n",
+        encoding="utf-8",
+    )
+    # 错题路径用相同 bare 命名（无 subgroup）
+    _write_wrong_card_in(
+        vault_root,
+        "408/01 线性表",
+        "card_408",
+        "2026-03-17",
+        [("2026-03-17", "不会"), ("2026-03-18", "不会"), ("2026-03-19", "不会")],
+    )
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "month", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    # 错题路径里 chapter 能解出来 → 应作为新增 + 顽固计入
+    assert data["new_wrong_count"] == 1
+    assert data["stubborn_count"] >= 1
+    content = (vault_root / "复盘报告" / "2026-03-月复盘.md").read_text(encoding="utf-8")
+    # 知识地图覆盖里：408 共 2 章，错题覆盖 1/2
+    assert "408：共 2 章" in content
+    assert "错题覆盖 1/2" in content
+    # 空白章应出现 03 树与二叉树
+    assert "树与二叉树" in content
+
+
+def test_wrong_card_path_without_subgroup(vault_root):
+    """错题路径 `错题本/{科目}/{章节}/{file}` (无 subgroup) 时章节解析仍要工作。"""
+    _write_wrong_card_in(
+        vault_root,
+        "数学一/03第三章微分中值定理与泰勒公式",
+        "no_subgroup",
+        "2026-03-17",
+        [("2026-03-17", "不会"), ("2026-03-19", "不会")],
+    )
+
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    # 路径解析正确则会进入 stubborn (fail_in_range >= 2)
+    assert data["stubborn_count"] >= 1
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "第3章" in content
+    # 不能把 `no_subgroup.md` 错当成章节
+    assert "no_subgroup.md" not in content

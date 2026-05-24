@@ -12,7 +12,9 @@ from note_scan import (  # noqa: E402
     NoteEntry,
     auto_fill_created_frontmatter,
     count_missing_created,
+    entry_chapter_key,
     extract_chapter_num,
+    normalize_subgroup,
     parse_note_path,
     render_recap_notes_block,
     render_today_notes_section,
@@ -31,6 +33,54 @@ def test_extract_chapter_num_handles_three_naming_styles():
     assert extract_chapter_num("第一百零五章 极端测试") == 105
     assert extract_chapter_num("") is None
     assert extract_chapter_num("学习方法探索") is None
+
+
+def test_extract_chapter_num_handles_bare_leading_number():
+    """408/政治/英语一 知识地图常用 `NN 章名` 的格式，没有 `第N章` 字样。"""
+    assert extract_chapter_num("01 线性表") == 1
+    assert extract_chapter_num("03 树与二叉树") == 3
+    assert extract_chapter_num("01 马克思主义哲学") == 1
+    assert extract_chapter_num("07 输入输出系统") == 7
+
+
+def test_extract_chapter_num_rejects_dates_and_years():
+    """不能把日期或年份误识别成章节号。"""
+    assert extract_chapter_num("2026-05-24") is None
+    assert extract_chapter_num("2026") is None
+    assert extract_chapter_num("2026 年") is None  # 4 位数字
+
+
+def test_normalize_subgroup_aliases():
+    assert normalize_subgroup("数学一", "高数") == "高等数学"
+    assert normalize_subgroup("数学一", "线代") == "线性代数"
+    assert normalize_subgroup("数学一", "概率") == "概率论与数理统计"
+    assert normalize_subgroup("408", "DS") == "数据结构"
+    assert normalize_subgroup("408", "OS") == "操作系统"
+    # 已是规范名则不变
+    assert normalize_subgroup("数学一", "高等数学") == "高等数学"
+    # 未知科目原样返回
+    assert normalize_subgroup("英语一", "词汇") == "词汇"
+    # 空串
+    assert normalize_subgroup("数学一", "") == ""
+
+
+def test_entry_chapter_key_uses_normalized_subgroup():
+    entry = NoteEntry(
+        path_rel="知识笔记/数学一/高数/ch1/A.md",
+        subject="数学一", subgroup="高数",
+        chapter_raw="ch1", chapter_num=1,
+        title="A", created=date(2026, 5, 20),
+    )
+    # subgroup 简称应被规范化到全称
+    assert entry_chapter_key(entry) == ("数学一", "高等数学", 1)
+
+    entry_no_chapter = NoteEntry(
+        path_rel="知识笔记/数学一/学习方法.md",
+        subject="数学一", subgroup="",
+        chapter_raw="", chapter_num=None,
+        title="学习方法", created=date(2026, 5, 20),
+    )
+    assert entry_chapter_key(entry_no_chapter) is None
 
 
 def test_parse_note_path_extracts_subject_subgroup_chapter():

@@ -24,6 +24,34 @@ _ARABIC_CH_RE = re.compile(r"ch(\d+)", re.IGNORECASE)
 _LEADING_NUM_RE = re.compile(r"^(\d+)\s*第")
 _BOLD_LEADING_NUM_RE = re.compile(r"^(\d{1,3})\s+第")
 _CHINESE_CHAPTER_RE = re.compile(r"第([零一二三四五六七八九十百]+)章")
+# 兜底：`01 线性表` / `03 树与二叉树` / `01 马克思主义哲学` 这种「N 中文名」形态。
+# 限定 1-2 位数字 + 至少一个非连字符字符，避免误伤日期 `2026-05-24` 或年份 `2026`。
+_BARE_LEADING_NUM_RE = re.compile(r"^(\d{1,2})\s+[^\-\d\s]")
+
+# 子科目别名：把 知识笔记 里习惯写的简称统一到 知识地图/错题本 用的标准全称，
+# 这样跨表对照（笔记 vs 错题 vs 知识地图）才能正确 join。
+SUBGROUP_ALIASES: Dict[str, Dict[str, str]] = {
+    "数学一": {
+        "高数": "高等数学",
+        "线代": "线性代数",
+        "概率": "概率论与数理统计",
+        "概统": "概率论与数理统计",
+    },
+    "408": {
+        "DS": "数据结构",
+        "CO": "计算机组成原理",
+        "OS": "操作系统",
+        "CN": "计算机网络",
+    },
+}
+
+
+def normalize_subgroup(subject: str, subgroup: str) -> str:
+    """把简称统一成知识地图/错题本里的标准名。未识别则原样返回。"""
+    if not subgroup:
+        return ""
+    return SUBGROUP_ALIASES.get(subject, {}).get(subgroup, subgroup)
+
 
 _CN_NUM = {
     "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
@@ -61,9 +89,12 @@ def _cn_to_int(text: str) -> Optional[int]:
 
 
 def extract_chapter_num(raw: str) -> Optional[int]:
-    """从章节字符串提取数字编号，三种来源都覆盖。
+    """从章节字符串提取数字编号，覆盖以下命名：
 
-    优先级：ch<N> > 「<N>第..章」 > 「第<中文>章」 > 「<2位数> 第」。
+    - `ch1 函数 极限 连续`（知识笔记常用）
+    - `01 第一章 函数、极限、连续` / `03第三章微分中值定理与泰勒公式`（知识地图 / 错题本）
+    - `第十二章 多元函数`（中文数字）
+    - `01 线性表` / `03 树与二叉树` / `01 马克思主义哲学`（408 / 政治 等无「章」字命名）
     """
     if not raw:
         return None
@@ -80,6 +111,9 @@ def extract_chapter_num(raw: str) -> Optional[int]:
         if val is not None:
             return val
     m = _BOLD_LEADING_NUM_RE.match(text)
+    if m:
+        return int(m.group(1))
+    m = _BARE_LEADING_NUM_RE.match(text)
     if m:
         return int(m.group(1))
     return None
@@ -255,6 +289,8 @@ def _chapter_label(entry: NoteEntry) -> str:
         cleaned = _ARABIC_CH_RE.sub("", entry.chapter_raw, count=1).strip()
         cleaned = re.sub(r"^第[零一二三四五六七八九十百]+章\s*", "", cleaned).strip()
         cleaned = re.sub(r"^\d{1,3}\s*第[零一二三四五六七八九十百]+章\s*", "", cleaned).strip()
+        # 兜底：开头还残留 `01 ` 这种数字前缀也去掉
+        cleaned = re.sub(r"^\d{1,3}\s+", "", cleaned).strip()
         if cleaned:
             return f"第{entry.chapter_num}章 {cleaned}"
         return f"第{entry.chapter_num}章"
@@ -349,16 +385,22 @@ def render_recap_notes_block(entries: List[NoteEntry], period_name: str) -> str:
     return "\n".join(lines)
 
 
-def entry_chapter_key(entry: NoteEntry) -> Optional[Tuple[str, Optional[int]]]:
-    """生成跨表对照用的章节键 (subject, chapter_num)。chapter_num 缺失时返回 None。"""
+def entry_chapter_key(entry: NoteEntry) -> Optional[Tuple[str, str, int]]:
+    """生成跨表对照用的三元键 (subject, normalized_subgroup, chapter_num)。
+
+    chapter_num 缺失时返回 None；subgroup 没有时第二位是空串。
+    `normalized_subgroup` 经过 `SUBGROUP_ALIASES` 映射，确保和 知识地图/错题本 的命名能 join 上。
+    """
     if entry.chapter_num is None:
         return None
-    return (entry.subject, entry.chapter_num)
+    return (entry.subject, normalize_subgroup(entry.subject, entry.subgroup), entry.chapter_num)
 
 
 __all__ = [
     "NoteEntry",
+    "SUBGROUP_ALIASES",
     "extract_chapter_num",
+    "normalize_subgroup",
     "parse_note_path",
     "auto_fill_created_frontmatter",
     "count_missing_created",

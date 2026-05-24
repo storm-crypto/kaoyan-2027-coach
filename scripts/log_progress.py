@@ -417,9 +417,23 @@ def main():
     log_day = parse_date(args.log_date)
     parsed_subject_scores = [parse_subject_score(item) for item in args.subject_score]
 
-    log_dir = Path(obsidian_root) / "学习日志"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    output_path = log_dir / f"{log_day.isoformat()}.md"
+    from log_layout import find_existing_log_path, log_path_for, LOG_ROOT_NAME
+    output_path = log_path_for(Path(obsidian_root), log_day)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 兼容期：如果老平铺路径有当天日志，把内容拉过来并删掉老文件，
+    # 这样新结构里就只有这一份，下次重跑 /progress 也走新路径的 merge 逻辑。
+    legacy_path = Path(obsidian_root) / LOG_ROOT_NAME / f"{log_day.isoformat()}.md"
+    if legacy_path.exists() and not output_path.exists() and legacy_path != output_path:
+        try:
+            legacy_path.rename(output_path)
+        except OSError:
+            # rename 失败（跨设备/权限），退化为读+写+删
+            try:
+                output_path.write_text(legacy_path.read_text(encoding="utf-8"), encoding="utf-8")
+                legacy_path.unlink()
+            except OSError:
+                pass
 
     merged_args = args
     merged = False

@@ -175,7 +175,9 @@ def render_bullet_with_date(bullet: LogBullet, show_kind: bool = True) -> str:
     pieces = [_format_date_prefix(bullet.day)]
     if show_kind and bullet.kind != "未分类":
         pieces.append(f"{bullet.kind}:")
-    pieces.append(bullet.content or bullet.raw)
+    content = bullet.content or bullet.raw
+    content = re.sub(r"^(今天|今日|本周|这周)\s*([：:，, ]\s*)?", "", content.strip())
+    pieces.append(content)
     tail = ""
     if bullet.subject:
         tag_parts = [bullet.subject]

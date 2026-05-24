@@ -138,7 +138,7 @@ def test_week_recap(vault_root):
     assert data["logged_days"] == 2
     assert data["review_count"] == 2
     assert data["score_count"] == 2
-    output_path = vault_root / "复盘报告" / "2026-W12-周复盘.md"
+    output_path = vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md"
     assert output_path.exists()
     content = output_path.read_text(encoding="utf-8")
     assert "7.5 小时" in content
@@ -246,7 +246,7 @@ def test_week_recap_includes_subject_score_tables(sample_archive, vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["score_count"] == 2
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·模拟：1 次，最近 105/150，完成率 70.0%。" in content
     assert "408·模拟：1 次，最近 101/150，完成率 67.3%。" in content
 
@@ -271,7 +271,7 @@ def test_week_recap_includes_chapter_grill_reports(vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["period"] == "week"
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "## 章节诊断" in content
     assert "本周新增 1 份章节掌握报告" in content
     assert "计算机组成原理 1 章" in content
@@ -296,7 +296,7 @@ def test_week_recap_dedupes_progress_score_and_subject_table(sample_archive, vau
     assert rc == 0
     data = json.loads(out)
     assert data["score_count"] == 1
-    content = (vault_root / "复盘报告" / "2026-W13-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W13-0323-0329-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·真题训练：1 次，最近 145/150，完成率 96.7%。" in content
 
 
@@ -338,7 +338,7 @@ def test_week_recap_includes_note_stats_section(vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["note_count"] == 2
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "## 知识沉淀" in content
     assert "本周共新增 2 篇笔记" in content
     assert "数学一 2 篇" in content
@@ -362,7 +362,7 @@ def test_week_recap_only_drilling_warning(vault_root):
     data = json.loads(out)
     assert data["only_drilling_count"] >= 1
     assert data["new_wrong_count"] == 4
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "## 错题暴露" in content
     assert "本周新增错题 4 道" in content
     assert "## 知识沉淀 × 错题暴露" in content
@@ -379,7 +379,7 @@ def test_week_recap_only_theory_warning(vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["only_theory_count"] >= 1
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "only-theory" in content
 
 
@@ -396,7 +396,7 @@ def test_week_recap_stubborn_card_top(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "顽固卡 TOP" in content
     assert "fail_a" in content
 
@@ -477,7 +477,7 @@ def test_cross_signals_no_collision_across_subgroups(vault_root):
     # 两个不同子科目的 ch1 都应该出现，不被合并
     assert data["only_drilling_count"] >= 1
     assert data["only_theory_count"] >= 1
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "数学一·高等数学·第1章" in content
     assert "数学一·线性代数·第1章" in content
 
@@ -556,7 +556,7 @@ def test_wrong_card_path_without_subgroup(vault_root):
     data = json.loads(out)
     # 路径解析正确则会进入 stubborn (fail_in_range >= 2)
     assert data["stubborn_count"] >= 1
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "第3章" in content
     # 不能把 `no_subgroup.md` 错当成章节
     assert "no_subgroup.md" not in content
@@ -595,7 +595,7 @@ def test_recap_filters_placeholder_bullets_from_legacy_logs(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     # 占位符不能出现在卡点段
     assert "今天没有显式记录卡点。" not in content
     # 「下周建议」也不能照搬占位符
@@ -613,7 +613,7 @@ def test_recap_renders_date_prefix_on_blockers(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "[03-18]" in content
     assert "反函数二阶求导" in content
     assert "数学一·高等数学·第2章" in content
@@ -633,7 +633,7 @@ def test_recap_aggregates_highlights_by_chapter(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     # 章节聚合 key 用 normalized subgroup（高数→高等数学）
     assert "数学一·高等数学·第2章" in content
     assert "2 条事件" in content
@@ -653,7 +653,7 @@ def test_recap_aggregates_textbook_progress(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "教材进度" in content
     assert "李林高数" in content
     assert "p48 → p56" in content
@@ -671,7 +671,7 @@ def test_recap_stubborn_card_uses_wikilink(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     # wikilink 形式：[[路径|显示名]]
     assert "[[错题本/数学一/高等数学/03第三章微分中值定理与泰勒公式/fail_card|fail_card]]" in content
 
@@ -691,7 +691,7 @@ def test_recap_next_actions_data_driven(vault_root):
         str(vault_root), "--period", "week", "--today", "2026-03-20"
     ])
     assert rc == 0
-    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
     assert "## 下周建议" in content
     # 建议要点名具体章节并给出数字
     assert "数学一" in content and "第3章" in content

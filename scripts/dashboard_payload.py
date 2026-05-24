@@ -146,11 +146,9 @@ def parse_log_entry(log_path: Path) -> Optional[Dict[str, object]]:
 
 
 def collect_logs(obsidian_root: Path) -> List[Dict[str, object]]:
-    log_dir = obsidian_root / "学习日志"
-    if not log_dir.exists():
-        return []
+    from log_layout import iter_all_log_files
     entries = []
-    for log_path in sorted(log_dir.glob("*.md")):
+    for _day, log_path in iter_all_log_files(obsidian_root):
         entry = parse_log_entry(log_path)
         if entry:
             entries.append(entry)

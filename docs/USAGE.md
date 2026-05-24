@@ -665,7 +665,7 @@ Kaoyan_2027_Prep/
 
 会写到哪里：
 
-- `学习日志/YYYY-MM-DD.md`
+- `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`
 - 必要时回写 `我的学习者档案.md`
 - 如果你给的是完整的数学一/408 单科模拟信息，也会同步到档案里的单科摘要表
 
@@ -797,7 +797,7 @@ Kaoyan_2027_Prep/
 
 会写到哪里：
 
-- `复盘报告/YYYY-Www-周复盘.md`
+- `复盘报告/{YYYY-Www-MMDD-MMDD}-周复盘.md`
 - `复盘报告/YYYY-MM-月复盘.md`
 
 ### `/grill [voyager_json_path|latest]`
@@ -842,7 +842,7 @@ Kaoyan_2027_Prep/
 - 传 `latest` 时，递归扫描 `资料库/408/gemini_kaoda/` 及其子目录，自动抓最新的 JSON
 - 生成 `章节掌握报告/408/<模块>/YYYY-MM-DD-<章节名>.md`
 - 根据 `【可映射考点】` 自动回写 `知识地图/408.md`
-- 自动把本次章节拷打摘要并入当天 `学习日志/YYYY-MM-DD.md`
+- 自动把本次章节拷打摘要并入当天 `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`
 
 会写到哪里：
 
@@ -990,7 +990,7 @@ Kaoyan_2027_Prep/
 - 各科掌握状态：
   `知识地图/数学一.md`、`知识地图/408.md`、`知识地图/政治.md`、`知识地图/英语一.md`
 - 每天学习总结：
-  `学习日志/YYYY-MM-DD.md`
+  `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`
 - 周计划：
   `周计划/YYYY-Www.md`
 - 错题卡：

@@ -110,6 +110,24 @@
 ### 改 `bullet_list` 的兜底文案
 
 `log_progress.py:bullet_list` 在用户没传字段时写的占位符（"今天没有显式记录卡点。"等）必须**不是** `- ` 形态，避免被 `extract_log_bullets` 误抓。当前实现用 `_（...）_` 斜体非列表项；新增字段保持这个约定。同时把字面文案加入 `log_bullet.PLACEHOLDER_BULLETS` 兜底（历史日志里残留的旧占位符仍要能被过滤）。
+
+### 学习日志/周复盘目录结构
+
+新结构（一次到位）：
+
+- `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`：每个 ISO 周一个文件夹
+- `复盘报告/{YYYY-Www-MMDD-MMDD}-周复盘.md`：周复盘文件名带日期范围
+- `复盘报告/YYYY-MM-月复盘.md`：月复盘不变（月份本身已够明确）
+
+涉及的模块：
+
+- `scripts/log_layout.py`：单一事实源。`log_path_for` / `weekly_recap_path_for` 生成写入路径；`iter_all_log_files` / `iter_log_files_in_range` / `latest_log_file` **同时扫新旧两种结构**，保证迁移过渡期不丢数据
+- `scripts/log_progress.py`：写入前检查老平铺路径，如有则 rename 到新位置再 merge（迁移期单条修复）
+- `scripts/build_recap.py`：`get_date_range` 用 `WeekRange.weekly_recap_filename`；`generate_recap` 写入前也检查老周复盘名 → rename
+- `scripts/migrate_log_layout.py`：一次性迁移脚本，支持 `--dry-run`。已搬到新位置或新位置已存在的文件会跳过并报告原因，幂等
+- `scripts/load_context.py` / `scripts/dashboard_payload.py`：枚举日志统一走 `log_layout.iter_all_log_files`，不要自己再 glob
+
+**不要再硬编码 `"学习日志/{day}.md"` 这种平铺路径**——所有写入用 `log_path_for`，所有读取用 `iter_*` 函数。测试里有 `helpers.log_path(vault, day)` 同名 helper，断言文件存在时直接用它。
 - 使用文档里的支持范围
 - 回归测试
 

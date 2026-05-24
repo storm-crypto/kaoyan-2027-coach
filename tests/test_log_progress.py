@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from helpers import run_script
+from helpers import log_path as log_file, run_script
 
 
 def test_log_progress_writes_log(sample_archive, vault_root):
@@ -25,9 +25,9 @@ def test_log_progress_writes_log(sample_archive, vault_root):
     data = json.loads(out)
     assert data["archive_updated"] is False
     assert data["score_count"] == 2
-    log_path = vault_root / "学习日志" / "2026-03-23.md"
-    assert log_path.exists()
-    content = log_path.read_text(encoding="utf-8")
+    log_path_obj = log_file(vault_root, "2026-03-23")
+    assert log_path_obj.exists()
+    content = log_path_obj.read_text(encoding="utf-8")
     assert "数学二重积分 + 408 操作系统复习" in content
     assert "积分区域判断 - 信心：中高" in content
     assert "## 训练成绩记录" in content
@@ -72,9 +72,9 @@ def test_log_progress_rejects_invalid_score_format(vault_root):
 
 
 def test_log_progress_stops_when_existing_log_is_unreadable(vault_root):
-    log_path = vault_root / "学习日志" / "2026-03-23.md"
+    log_path_obj = log_file(vault_root, "2026-03-23")
     original_bytes = b"\xff\xfe\xfd"
-    log_path.write_bytes(original_bytes)
+    log_path_obj.write_bytes(original_bytes)
 
     rc, out, _ = run_script("log_progress.py", [
         str(vault_root),
@@ -85,7 +85,7 @@ def test_log_progress_stops_when_existing_log_is_unreadable(vault_root):
     assert rc == 1
     data = json.loads(out)
     assert "已有日志读取失败" in data["message"]
-    assert log_path.read_bytes() == original_bytes
+    assert log_path_obj.read_bytes() == original_bytes
 
 
 def test_log_progress_subject_score_syncs_archive_and_log(sample_archive, vault_root):
@@ -105,7 +105,7 @@ def test_log_progress_subject_score_syncs_archive_and_log(sample_archive, vault_
     assert "数学一模拟成绩追踪" in data["updated_sections"]
     assert "408模拟成绩追踪" in data["updated_sections"]
     assert data["score_count"] == 2
-    log_text = (vault_root / "学习日志" / "2026-03-23.md").read_text(encoding="utf-8")
+    log_text = log_file(vault_root, "2026-03-23").read_text(encoding="utf-8")
     assert "| 数学一 | 真题训练 | 李林6套卷2 | 118 | 150 | 78.7% | 主要问题：级数、矩阵对角化、积分不等式；细节会崩但比上周稳 |" in log_text
     assert "| 408 | 真题训练 | 2024 真题 | 120 | 150 | 80.0% | 模块错题：DS 3 / CO 2 / OS 1 / CN 3；主要问题：DS 排序综合、CN 运输层；真题二刷依然有盲区 |" in log_text
     assert "| 数学一 | 模拟 | 李林6套卷2 | 118 | 150 | 78.7% |" not in log_text
@@ -155,7 +155,7 @@ def test_log_progress_includes_today_notes_section(vault_root):
     titles = sorted(e["title"] for e in data["notes_today"]["entries"])
     assert titles == ["Stolz 定理", "双中值"]
 
-    log_text = (vault_root / "学习日志" / "2026-05-24.md").read_text(encoding="utf-8")
+    log_text = log_file(vault_root, "2026-05-24").read_text(encoding="utf-8")
     assert "## 今日新增笔记" in log_text
     assert "Stolz 定理" in log_text
     assert "双中值" in log_text
@@ -193,13 +193,13 @@ def test_log_progress_notes_section_regenerated_on_rerun(vault_root):
     (note_dir / "A.md").write_text("---\ncreated: 2026-05-24\n---\n", encoding="utf-8")
 
     run_script("log_progress.py", [str(vault_root), "--date", "2026-05-24", "--topic", "首跑"])
-    log_path = vault_root / "学习日志" / "2026-05-24.md"
-    assert "A" in log_path.read_text(encoding="utf-8")
+    log_path_obj = log_file(vault_root, "2026-05-24")
+    assert "A" in log_path_obj.read_text(encoding="utf-8")
 
     # 新增一篇，重跑应反映新内容
     (note_dir / "B.md").write_text("---\ncreated: 2026-05-24\n---\n", encoding="utf-8")
     run_script("log_progress.py", [str(vault_root), "--date", "2026-05-24", "--topic", "重跑"])
-    text = log_path.read_text(encoding="utf-8")
+    text = log_path_obj.read_text(encoding="utf-8")
     assert "A" in text
     assert "B" in text
     assert "今日合计 2 篇" in text

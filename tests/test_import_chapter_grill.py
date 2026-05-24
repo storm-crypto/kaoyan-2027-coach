@@ -2,7 +2,7 @@
 import json
 import textwrap
 
-from helpers import run_script
+from helpers import log_path as log_file, run_script
 
 
 def _write_408_knowledge_map(vault_root):
@@ -299,7 +299,7 @@ def test_import_chapter_grill_reads_latest_from_fixed_inbox_and_syncs_log(vault_
     data = json.loads(out)
     assert data["import_source"].endswith("newer.json")
     assert "/计组/" in data["import_source"]
-    log_path = vault_root / "学习日志" / "2026-04-13.md"
+    log_path = log_file(vault_root, "2026-04-13")
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")
     assert "408 章节拷打：计算机组成原理 / 01 计算机系统概述" in log_text

@@ -2,7 +2,7 @@
 import json
 import textwrap
 
-from helpers import run_script
+from helpers import log_path, run_script
 
 
 def _write_card(vault_root, subject, chapter, filename, content):
@@ -219,7 +219,7 @@ def test_log_progress_aggregates_today_wrong_cards(vault_root):
     assert data["today_wrong_count"] == 2
     assert data["today_wrong_new"] == 1
 
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "## 今日错题归档" in log_text
     # 卡 A 数学一·高等数学
     assert "### 数学一·高等数学（1 道）" in log_text
@@ -249,7 +249,7 @@ def test_log_progress_no_today_wrong_omits_section(vault_root):
     ])
 
     assert rc == 0
-    log_text = (vault_root / "学习日志" / "2026-05-14.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, "2026-05-14").read_text(encoding="utf-8")
     assert "## 今日错题归档" not in log_text
 
 
@@ -264,7 +264,7 @@ def test_log_progress_today_wrong_section_overwrites_on_rerun(vault_root):
         "--topic", "第一次",
     ])
     assert rc == 0
-    text_first = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    text_first = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "### 数学一·高等数学（1 道）" in text_first
     assert "二叉树遍历" not in text_first
 
@@ -279,7 +279,7 @@ def test_log_progress_today_wrong_section_overwrites_on_rerun(vault_root):
     data2 = json.loads(out2)
     assert data2["today_wrong_count"] == 2
 
-    text_second = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    text_second = log_path(vault_root, today).read_text(encoding="utf-8")
     # 不应出现两个「今日错题归档」标题
     assert text_second.count("## 今日错题归档") == 1
     assert "### 数学一·高等数学（1 道）" in text_second
@@ -328,7 +328,7 @@ def test_log_progress_deep_nested_chapter_uses_deepest_directory(vault_root):
     data = json.loads(out)
     assert data["today_wrong_count"] == 1
 
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     # 章节标签必须是最深一层，不是模块「高等数学」也不是章「01第一章...」
     assert "### 数学一·04第四节函数的连续性（1 道）" in log_text
     assert "### 数学一·高等数学" not in log_text
@@ -375,7 +375,7 @@ def test_log_progress_missing_takeaway_is_silent(vault_root):
     ])
 
     assert rc == 0
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "[[错题本/数学一/高等数学/无总结卡-真题-qid-ffff00001111|缺迁移总结的题]]" in log_text
     # 卡片下面不能出现 → 学到 行
     card_block = log_text.split("缺迁移总结的题]] — 不会")[1].splitlines()[:3]
@@ -443,7 +443,7 @@ def test_log_progress_writes_review_effectiveness_section(vault_root):
     assert eff["coverage_rate"] is not None
     assert abs(eff["coverage_rate"] - 2 / 3) < 1e-6
 
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "## 复习效果" in log_text
     assert "今日复习 **2** 道" in log_text
     assert "今日新增 **1** 道" in log_text
@@ -469,7 +469,7 @@ def test_log_progress_skips_review_effectiveness_when_no_today_activity(vault_ro
     assert eff["reviewed_today"] == 0
     assert eff["new_today"] == 0
     assert eff["due_remaining"] >= 1  # 积压仍被统计，只是不再独占该区块
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "## 复习效果" not in log_text
 
 
@@ -488,7 +488,7 @@ def test_log_progress_omits_review_effectiveness_on_empty_vault(vault_root):
     assert eff["reviewed_today"] == 0
     assert eff["new_today"] == 0
     assert eff["due_remaining"] == 0
-    log_text = (vault_root / "学习日志" / f"{today}.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
     assert "## 复习效果" not in log_text
 
 
@@ -538,7 +538,7 @@ def test_log_progress_historical_rerun_preserves_target_day_review(vault_root):
     assert eff["reviewed_today"] == 1
     assert eff["partial_today"] == 1
     assert eff["mastered_today"] == 0
-    log_text = (vault_root / "学习日志" / "2026-05-14.md").read_text(encoding="utf-8")
+    log_text = log_path(vault_root, "2026-05-14").read_text(encoding="utf-8")
     assert "## 复习效果" in log_text
     assert "今日复习 **1** 道" in log_text
     assert "会 0 / 半会 1 / 不会 0" in log_text

@@ -27,7 +27,7 @@ description: "考研2027全流程学习教练。支持 Obsidian 学习档案初�
 Kaoyan_2027_Prep/
 ├── 我的学习者档案.md          ← /load 读取
 ├── 知识地图/{数学一,408,政治,英语一}.md  ← 按需读取
-├── 学习日志/YYYY-MM-DD.md    ← /progress 写入
+├── 学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md    ← /progress 写入
 ├── 周计划/YYYY-Www.md        ← /plan_week 写入
 ├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /grill 写入
 ├── 资料库/408/gemini_kaoda/**/*.json  ← Voyager 导出收件箱
@@ -156,6 +156,7 @@ Kaoyan_2027_Prep/
 | `record_paper_score.py` | 记录完整卷子的详细成绩，并同步档案里的单科摘要表 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [总分] --issues [主要问题] [--date YYYY-MM-DD] [科目细分参数...]` |
 | `record_subject_score.py` | 数学一/408 旧版兼容入口；内部转调新的卷子级成绩记录逻辑 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
+| `migrate_log_layout.py` | 一次性把老平铺的 `学习日志/YYYY-MM-DD.md` 迁移到新结构 `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`，并把老周复盘文件名补上日期范围 | `python3 scripts/migrate_log_layout.py [$OBSIDIAN_ROOT] [--dry-run]` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
 
@@ -342,7 +343,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/progress [今天学了什么]` — 今日收尾
 
 1. 2-3 句话总结质量
-2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/YYYY-MM-DD.md`
+2. 解析用户输入后调用 `log_progress.py`，写入 `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`（例：`学习日志/2026-W21-0518-0524/2026-05-24.md`）
 3. **结构化 bullet 硬约束**：传给 `--learned` 和 `--blocker` 的每一条都必须写成 `类型::内容 (科目·子科目·chN)` 的形态，让周/月复盘能按章聚合：
    - **类型保留集**：`教材` / `学习` / `卡点` / `总结` / `试错`
    - **章节标签放末尾小括号**：`(数学一·高数·ch2)` / `(408·DS·ch3)` / `(英语一·ch1)`
@@ -386,7 +387,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 8. **「知识沉淀 × 错题暴露」交叉对照**：以 `(科目, 子科目, 章节号)` 为键，标记 only-drilling（错题 ≥3 且笔记 0）和 only-theory（笔记 ≥2 且错题 0）预警
 9. 月复盘额外输出「知识地图覆盖」段：对照 `知识地图/*.md` 的章节表，按笔记和错题双视角统计每科覆盖率，列出仍空白的章节
 10. **「下周/月建议」基于实际数据派生**：only-drilling → 补套路笔记；only-theory → 补做题验收；顽固卡 ≥ 3 → 集中重做专题；章节积压 ≥ 10 → 主线攻关。**不再用"留整块时间"这类万年模板**
-11. 周复盘写入 `复盘报告/YYYY-Www-周复盘.md`，月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
+11. 周复盘写入 `复盘报告/{YYYY-Www-MMDD-MMDD}-周复盘.md`（例：`2026-W21-0518-0524-周复盘.md`），月复盘写入 `复盘报告/YYYY-MM-月复盘.md`
 12. 兜底占位符（"今天没有显式记录卡点。"等）自动过滤，不会污染统计
 
 ### `/grill [voyager_json_path|latest]` — Gemini 章节拷打导入

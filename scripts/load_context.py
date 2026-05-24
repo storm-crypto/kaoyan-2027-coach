@@ -79,19 +79,11 @@ def parse_recent_update(text: str) -> Optional[date]:
 
 
 def latest_log_info(obsidian_root: Path) -> Optional[LatestLogInfo]:
-    log_dir = Path(obsidian_root) / "学习日志"
-    latest_day: Optional[date] = None
-    latest_path: Optional[Path] = None
-    for log_path in log_dir.glob("*.md"):
-        try:
-            log_day = date.fromisoformat(log_path.stem)
-        except ValueError:
-            continue
-        if latest_day is None or log_day > latest_day:
-            latest_day = log_day
-            latest_path = log_path
-    if latest_day is None or latest_path is None:
+    from log_layout import latest_log_file
+    latest = latest_log_file(Path(obsidian_root))
+    if latest is None:
         return None
+    latest_day, latest_path = latest
 
     text = latest_path.read_text(encoding="utf-8")
     return {

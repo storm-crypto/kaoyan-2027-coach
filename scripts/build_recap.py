@@ -27,6 +27,11 @@ from constants import LEGACY_HEADING_INDENT_LIMIT
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from knowledge_map_parser import load_all_maps
+from log_layout import (
+    iso_week_range,
+    iter_log_files_in_range,
+    weekly_recap_path_for,
+)
 from log_bullet import (
     LogBullet,
     collect_textbook_progress,
@@ -63,12 +68,11 @@ def get_date_range(today, period):
         label = f"{today.year}年{today.month:02d}月"
         filename = f"{today.strftime('%Y-%m')}-月复盘.md"
     else:
-        monday = today - timedelta(days=today.weekday())
-        end = monday + timedelta(days=6)
-        start = monday
-        iso_year, iso_week_num, _ = monday.isocalendar()
-        label = f"{iso_year}-W{iso_week_num:02d}"
-        filename = f"{label}-周复盘.md"
+        wr = iso_week_range(today)
+        start = wr.monday
+        end = wr.sunday
+        label = wr.label
+        filename = wr.weekly_recap_filename
     return start, end, label, filename
 
 
@@ -108,6 +112,16 @@ def _wikilink_for_card(card_path_rel, display=None):
         target = target[:-3]
     display = display or Path(card_path_rel).stem
     return f"[[{target}|{display}]]"
+
+
+def _trim_relative_prefix(text):
+    """把日志里常见的相对时间开头（今天/今日/本周）剥掉。
+
+    周/月复盘已经自带日期上下文，因此 bullet 内容里再出现“今天”会显得重复。
+    """
+    if not text:
+        return text
+    return re.sub(r"^(今天|今日|本周|这周)\s*([：:，, ]\s*)?", "", text.strip())
 
 
 def render_highlights_block(
@@ -150,15 +164,17 @@ def render_highlights_block(
             for b in sorted(groups[key], key=lambda b: b.day)[:6]:
                 kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
                 day = f"{b.day.month:02d}-{b.day.day:02d}"
+                content = _trim_relative_prefix(b.content or b.raw)
                 extras = f" {b.extras}" if b.extras else ""
-                sections.append(f"  - [{day}] {kind_part}{b.content}{extras}")
+                sections.append(f"  - [{day}] {kind_part}{content}{extras}")
 
         unsorted = unbucketed_bullets(learned_bullets)
         if unsorted:
             sections.append(f"- _零散条目（未标章节）_ · {len(unsorted)} 条：")
             for b in sorted(unsorted, key=lambda b: b.day)[:4]:
                 day = f"{b.day.month:02d}-{b.day.day:02d}"
-                sections.append(f"  - [{day}] {b.content or b.raw}")
+                content = _trim_relative_prefix(b.content or b.raw)
+                sections.append(f"  - [{day}] {content}")
 
     if chapter_grill_highlights:
         sections.append("- 章节拷打：")
@@ -253,28 +269,22 @@ def merge_score_records(primary_records, extra_records):
 
 
 def collect_logs(obsidian_root, start, end):
-    """扫描日期范围内的学习日志。"""
-    log_dir = Path(obsidian_root) / "学习日志"
+    """扫描日期范围内的学习日志（兼容新旧目录结构）。"""
     learned_bullets, blocker_bullets = [], []
     logged_days = 0
     total_hours = 0.0
     score_records = []
 
-    current = start
-    while current <= end:
-        log_path = log_dir / f"{current.isoformat()}.md"
-        if log_path.exists():
-            try:
-                text = log_path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                current += timedelta(days=1)
-                continue
-            logged_days += 1
-            total_hours += parse_logged_hours(text)
-            learned_bullets.extend(extract_log_bullets(text, "学到了什么", current))
-            blocker_bullets.extend(extract_log_bullets(text, "卡壳与挣扎", current))
-            score_records.extend(parse_score_records(text, current))
-        current += timedelta(days=1)
+    for current, log_path in iter_log_files_in_range(Path(obsidian_root), start, end):
+        try:
+            text = log_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        logged_days += 1
+        total_hours += parse_logged_hours(text)
+        learned_bullets.extend(extract_log_bullets(text, "学到了什么", current))
+        blocker_bullets.extend(extract_log_bullets(text, "卡壳与挣扎", current))
+        score_records.extend(parse_score_records(text, current))
     return learned_bullets, blocker_bullets, logged_days, total_hours, score_records
 
 
@@ -445,6 +455,7 @@ def collect_wrong_exposure(obsidian_root, start, end):
                 "chapter_raw": chapter_raw,
                 "topic": topic,
                 "path": path_rel,
+                "first_wrong_at": first_day.isoformat() if first_day else "",
             })
 
         # 周期内复习历史
@@ -676,6 +687,20 @@ def build_exposure_block(exposure, period_name):
             f"{s} {c} 道" for s, c in sorted(subject_counts.items(), key=lambda x: x[1], reverse=True)
         )
         lines.append(f"- 本{period_name}新增错题 {len(new_cards)} 道（{subj_text}）。")
+        lines.append("- 新增错题链接：")
+        for card in new_cards[:5]:
+            day = card["first_wrong_at"][5:] if card.get("first_wrong_at") else ""
+            link = _wikilink_for_card(card["path"], card["topic"])
+            chapter_bits = [card["subject"]]
+            if card.get("subgroup"):
+                chapter_bits.append(card["subgroup"])
+            if card.get("chapter_num") is not None:
+                chapter_bits.append(f"第{card['chapter_num']}章")
+            chapter_text = "·".join(chapter_bits)
+            if day:
+                lines.append(f"  - [{day}] {link}（{chapter_text}）")
+            else:
+                lines.append(f"  - {link}（{chapter_text}）")
     else:
         lines.append(f"- 本{period_name}没有记录新增错题。")
 
@@ -998,6 +1023,15 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     report_dir = Path(obsidian_root) / "复盘报告"
     report_dir.mkdir(parents=True, exist_ok=True)
     output_path = report_dir / filename
+
+    # 兼容期：周复盘老文件名 `YYYY-Www-周复盘.md` 应升级为新格式
+    if period == "week":
+        legacy_path = report_dir / f"{label}-周复盘.md"
+        if legacy_path.exists() and not output_path.exists() and legacy_path != output_path:
+            try:
+                legacy_path.rename(output_path)
+            except OSError:
+                pass
 
     if output_path.exists() and not force:
         return None  # 已存在，不重复生成

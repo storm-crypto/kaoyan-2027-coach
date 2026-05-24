@@ -560,3 +560,142 @@ def test_wrong_card_path_without_subgroup(vault_root):
     assert "第3章" in content
     # 不能把 `no_subgroup.md` 错当成章节
     assert "no_subgroup.md" not in content
+
+
+def _write_log_with_structured_bullets(vault_root, day, learned, blockers):
+    log_path = vault_root / "学习日志" / f"{day}.md"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    learned_section = "\n".join(f"- {x}" for x in learned) if learned else "_（今天没有显式记录。）_"
+    blocker_section = "\n".join(f"- {x}" for x in blockers) if blockers else "_（今天没有显式记录卡点。）_"
+    log_path.write_text(
+        f"# Session: {day}\n\n"
+        f"## 今日概览\n- **主题**: 测试\n- **时长**: 3\n- **模式**: 测试\n\n"
+        f"## 学到了什么\n{learned_section}\n\n"
+        f"## 卡壳与挣扎\n{blocker_section}\n\n"
+        f"## 训练成绩记录\n- 今天没有单独记录训练成绩。\n",
+        encoding="utf-8",
+    )
+
+
+def test_recap_filters_placeholder_bullets_from_legacy_logs(vault_root):
+    """老日志里残留的「今天没有显式记录卡点。」不应当作真实数据抓回来。"""
+    log_path = vault_root / "学习日志" / "2026-03-18.md"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "# Session: 2026-03-18\n\n"
+        "## 学到了什么\n- 今天的收获还比较散，建议明天补成更具体的知识点。\n\n"
+        "## 卡壳与挣扎\n"
+        "- 今天没有显式记录卡点。\n"
+        "- 今天没有显式记录卡点。\n"
+        "- 反函数二阶求导题型识别不稳\n\n"
+        "## 训练成绩记录\n- 今天没有单独记录训练成绩。\n",
+        encoding="utf-8",
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    # 占位符不能出现在卡点段
+    assert "今天没有显式记录卡点。" not in content
+    # 「下周建议」也不能照搬占位符
+    assert "优先拆解：今天没有显式记录卡点" not in content
+    # 真正的卡点应该被保留
+    assert "反函数二阶求导题型识别不稳" in content
+
+
+def test_recap_renders_date_prefix_on_blockers(vault_root):
+    """卡点行应带 [MM-DD] 日期戳。"""
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-18", [], ["卡点::反函数二阶求导 (数学一·高数·ch2)"],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "[03-18]" in content
+    assert "反函数二阶求导" in content
+    assert "数学一·高等数学·第2章" in content
+
+
+def test_recap_aggregates_highlights_by_chapter(vault_root):
+    """学习产出应该按章节聚类，而不是按日期堆叠。"""
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-16",
+        ["学习::分段函数可导性 (数学一·高数·ch2)", "学习::导数与微分计算 (数学一·高数·ch2)"], [],
+    )
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-18",
+        ["学习::中值定理三大变体 (数学一·高数·ch3)"], [],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    # 章节聚合 key 用 normalized subgroup（高数→高等数学）
+    assert "数学一·高等数学·第2章" in content
+    assert "2 条事件" in content
+    assert "[03-16] 学习: 分段函数可导性" in content
+
+
+def test_recap_aggregates_textbook_progress(vault_root):
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-16",
+        ["教材::李林高数 推进到 p48 (数学一·高数·ch2)"], [],
+    )
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-18",
+        ["教材::李林高数 推进到 p56 (数学一·高数·ch2)"], [],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "教材进度" in content
+    assert "李林高数" in content
+    assert "p48 → p56" in content
+
+
+def test_recap_stubborn_card_uses_wikilink(vault_root):
+    _write_wrong_card_in(
+        vault_root,
+        "数学一/高等数学/03第三章微分中值定理与泰勒公式",
+        "fail_card",
+        "2026-03-01",
+        [("2026-03-17", "不会"), ("2026-03-19", "不会"), ("2026-03-20", "不会")],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    # wikilink 形式：[[路径|显示名]]
+    assert "[[错题本/数学一/高等数学/03第三章微分中值定理与泰勒公式/fail_card|fail_card]]" in content
+
+
+def test_recap_next_actions_data_driven(vault_root):
+    """下周建议应基于实际数据，不能全是模板兜底。"""
+    # 造一个 only-drilling 场景：5 张新错题 + 0 篇笔记
+    for i in range(5):
+        _write_wrong_card_in(
+            vault_root,
+            "数学一/高等数学/03第三章微分中值定理与泰勒公式",
+            f"card_{i}",
+            "2026-03-17",
+            [("2026-03-17", "不会")],
+        )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-周复盘.md").read_text(encoding="utf-8")
+    assert "## 下周建议" in content
+    # 建议要点名具体章节并给出数字
+    assert "数学一" in content and "第3章" in content
+    # wrong_score = new(5) + fail(5) = 10 → "已积 10 道错题但 0 篇笔记"
+    assert "已积 10 道错题但 0 篇笔记" in content
+    # 不应再出现万年模板
+    assert "下周继续给 数学一 留整块时间" not in content

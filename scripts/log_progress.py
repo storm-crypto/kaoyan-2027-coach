@@ -15,6 +15,7 @@ from archive_ops import (
     upsert_subject_score_row,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root
+from log_bullet import is_placeholder_bullet
 from note_scan import (
     auto_fill_created_frontmatter,
     count_missing_created,
@@ -107,14 +108,16 @@ def parse_score(value):
 
 
 def bullet_list(items, fallback):
+    """渲染 bullet 列表。无数据时输出非列表项的提示文案（前缀 `_`，斜体），
+    避免下游 extract_log_bullets 把占位符误抓回来。"""
     if not items:
-        return f"- {fallback}"
+        return f"_（{fallback}）_"
     return "\n".join(f"- {item}" for item in items)
 
 
 def render_mastered(items):
     if not items:
-        return "- 暂无明确记录"
+        return "_（暂无明确记录）_"
     lines = []
     for item in items:
         topic, confidence = parse_mastered(item)
@@ -124,7 +127,7 @@ def render_mastered(items):
 
 def render_scores(items):
     if not items:
-        return "- 今天没有单独记录训练成绩。"
+        return "_（今天没有单独记录训练成绩。）_"
 
     rows = [
         "| 科目 | 类型 | 来源 | 得分 | 满分 | 完成率 | 备注 |",
@@ -326,7 +329,7 @@ def parse_subject_score(value):
 
 
 def _extract_log_bullets(text, heading):
-    """从已有日志中提取某区块的 bullet 列表项。"""
+    """从已有日志中提取某区块的 bullet 列表项；自动过滤兜底占位符。"""
     pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
     match = re.search(pattern, text, re.M | re.S)
     if not match:
@@ -335,7 +338,9 @@ def _extract_log_bullets(text, heading):
     for line in match.group(1).splitlines():
         stripped = line.strip()
         if stripped.startswith("- "):
-            items.append(stripped[2:].strip())
+            value = stripped[2:].strip()
+            if value and not is_placeholder_bullet(value):
+                items.append(value)
     return items
 
 

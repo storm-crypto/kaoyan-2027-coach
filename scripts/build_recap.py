@@ -27,6 +27,15 @@ from constants import LEGACY_HEADING_INDENT_LIMIT
 from env_util import atomic_write, resolve_obsidian_root
 from frontmatter import parse_frontmatter
 from knowledge_map_parser import load_all_maps
+from log_bullet import (
+    LogBullet,
+    collect_textbook_progress,
+    extract_log_bullets,
+    group_by_chapter,
+    is_placeholder_bullet,
+    render_bullet_with_date,
+    unbucketed_bullets,
+)
 from note_scan import (
     NoteEntry,
     extract_chapter_num,
@@ -74,6 +83,109 @@ def build_bullets(items, fallback):
     if not items:
         return fallback
     return "\n".join(f"- {item}" for item in items[:5])
+
+
+def _wikilink_for_chapter(subject, subgroup_canonical, chapter_num, chapter_first_card_path=None):
+    """为 (subject, subgroup, chapter_num) 生成一个 obsidian wikilink。
+
+    优先用代表性错题卡路径；没有则降级为纯文本展示串。
+    """
+    display = subject
+    if subgroup_canonical:
+        display = f"{display}·{subgroup_canonical}"
+    display = f"{display}·第{chapter_num}章"
+    if chapter_first_card_path:
+        target = chapter_first_card_path
+        if target.endswith(".md"):
+            target = target[:-3]
+        return f"[[{target}|{display}]]"
+    return display
+
+
+def _wikilink_for_card(card_path_rel, display=None):
+    target = card_path_rel
+    if target.endswith(".md"):
+        target = target[:-3]
+    display = display or Path(card_path_rel).stem
+    return f"[[{target}|{display}]]"
+
+
+def render_highlights_block(
+    learned_bullets,
+    chapter_grill_highlights,
+    textbook_progress,
+    period_name,
+):
+    """学习产出：教材进度区间 + 按章节聚类 + 章节拷打 + 未分类零散条目。"""
+    sections = []
+
+    if textbook_progress:
+        lines = []
+        for p in textbook_progress[:5]:
+            if p.earliest_page == p.latest_page:
+                lines.append(
+                    f"- 教材进度：{p.name} p{p.latest_page}"
+                    f"（{p.latest_day.month:02d}-{p.latest_day.day:02d}，记录 {p.samples} 次）"
+                )
+            else:
+                span_days = (p.latest_day - p.earliest_day).days + 1
+                lines.append(
+                    f"- 教材进度：{p.name} p{p.earliest_page} → p{p.latest_page}"
+                    f"（{p.earliest_day.month:02d}-{p.earliest_day.day:02d} ~ "
+                    f"{p.latest_day.month:02d}-{p.latest_day.day:02d}，{span_days} 天 / 共 "
+                    f"{p.latest_page - p.earliest_page} 页）"
+                )
+        sections.extend(lines)
+
+    if learned_bullets:
+        groups = group_by_chapter(learned_bullets)
+        # 按本章节内 bullet 数量倒排
+        for key in sorted(groups, key=lambda k: len(groups[k]), reverse=True)[:5]:
+            subject, subgroup, chapter_num = key
+            chapter_label = subject
+            if subgroup:
+                chapter_label = f"{chapter_label}·{subgroup}"
+            chapter_label = f"{chapter_label}·第{chapter_num}章"
+            sections.append(f"- **{chapter_label}** · {len(groups[key])} 条事件")
+            for b in sorted(groups[key], key=lambda b: b.day)[:6]:
+                kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
+                day = f"{b.day.month:02d}-{b.day.day:02d}"
+                extras = f" {b.extras}" if b.extras else ""
+                sections.append(f"  - [{day}] {kind_part}{b.content}{extras}")
+
+        unsorted = unbucketed_bullets(learned_bullets)
+        if unsorted:
+            sections.append(f"- _零散条目（未标章节）_ · {len(unsorted)} 条：")
+            for b in sorted(unsorted, key=lambda b: b.day)[:4]:
+                day = f"{b.day.month:02d}-{b.day.day:02d}"
+                sections.append(f"  - [{day}] {b.content or b.raw}")
+
+    if chapter_grill_highlights:
+        sections.append("- 章节拷打：")
+        for line in chapter_grill_highlights[:3]:
+            sections.append(f"  - {line}")
+
+    if not sections:
+        return f"- 本{period_name}日志产出较少，优先补齐关键学习记录。"
+    return "\n".join(sections)
+
+
+def render_blockers_block(blocker_bullets, chapter_grill_blockers, period_name):
+    """卡点：按日期倒序展示，附章节标签。"""
+    items = list(blocker_bullets)
+    if not items and not chapter_grill_blockers:
+        return f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"
+
+    lines = []
+    for b in sorted(items, key=lambda b: b.day, reverse=True)[:8]:
+        lines.append(f"- {render_bullet_with_date(b)}")
+    if chapter_grill_blockers:
+        lines.append("- 章节拷打暴露的漏洞：")
+        for x in chapter_grill_blockers[:3]:
+            lines.append(f"  - {x}")
+    if not lines:
+        return f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"
+    return "\n".join(lines)
 
 
 def format_number(value):
@@ -143,7 +255,7 @@ def merge_score_records(primary_records, extra_records):
 def collect_logs(obsidian_root, start, end):
     """扫描日期范围内的学习日志。"""
     log_dir = Path(obsidian_root) / "学习日志"
-    highlights, blockers = [], []
+    learned_bullets, blocker_bullets = [], []
     logged_days = 0
     total_hours = 0.0
     score_records = []
@@ -159,11 +271,11 @@ def collect_logs(obsidian_root, start, end):
                 continue
             logged_days += 1
             total_hours += parse_logged_hours(text)
-            highlights.extend(extract_list_items(text, "学到了什么"))
-            blockers.extend(extract_list_items(text, "卡壳与挣扎"))
+            learned_bullets.extend(extract_log_bullets(text, "学到了什么", current))
+            blocker_bullets.extend(extract_log_bullets(text, "卡壳与挣扎", current))
             score_records.extend(parse_score_records(text, current))
         current += timedelta(days=1)
-    return highlights, blockers, logged_days, total_hours, score_records
+    return learned_bullets, blocker_bullets, logged_days, total_hours, score_records
 
 
 def collect_archive_subject_scores(obsidian_root, start, end):
@@ -367,7 +479,12 @@ def collect_wrong_exposure(obsidian_root, start, end):
         # 章节活跃（用三元键避免不同子科目同章号撞车）
         if chapter_num is not None:
             key = (subject, subgroup, chapter_num)
-            slot = chapter_activity.setdefault(key, {"new": 0, "fail": 0, "chapter_raw": chapter_raw})
+            slot = chapter_activity.setdefault(key, {
+                "new": 0,
+                "fail": 0,
+                "chapter_raw": chapter_raw,
+                "first_card_path": path_rel,
+            })
             if is_new_in_range:
                 slot["new"] += 1
             slot["fail"] += fail_in_range
@@ -516,18 +633,30 @@ def collect_coverage(obsidian_root):
     return result
 
 
-def _format_chapter_key(key):
-    """三元键 (subject, subgroup, chapter_num) → 「数学一·高等数学·第3章」展示串。"""
+def _format_chapter_key(key, chapter_activity=None):
+    """三元键 (subject, subgroup, chapter_num) → 展示串。
+
+    当 chapter_activity 提供该 key 的 first_card_path 时返回 obsidian wikilink，
+    否则降级为纯文本「数学一·高等数学·第3章」。
+    """
     if len(key) == 3:
         subject, subgroup, chapter_num = key
-    else:  # 兼容旧形态
+    else:
         subject, chapter_num = key
         subgroup = ""
-    parts = [subject]
+    display_parts = [subject]
     if subgroup:
-        parts.append(subgroup)
-    parts.append(f"第{chapter_num}章")
-    return "·".join(parts)
+        display_parts.append(subgroup)
+    display_parts.append(f"第{chapter_num}章")
+    display = "·".join(display_parts)
+    if chapter_activity is not None:
+        slot = chapter_activity.get(key)
+        if slot and slot.get("first_card_path"):
+            target = slot["first_card_path"]
+            if target.endswith(".md"):
+                target = target[:-3]
+            return f"[[{target}|{display}]]"
+    return display
 
 
 def build_exposure_block(exposure, period_name):
@@ -558,7 +687,7 @@ def build_exposure_block(exposure, period_name):
         )[:3]
         items = []
         for key, slot in ranked:
-            label = _format_chapter_key(key)
+            label = _format_chapter_key(key, chapter_activity)
             items.append(f"{label}（新增 {slot['new']} / 复习失败 {slot['fail']}）")
         if items:
             lines.append("- 章节积压 TOP：" + "；".join(items) + "。")
@@ -568,14 +697,15 @@ def build_exposure_block(exposure, period_name):
         for card in stubborn[:5]:
             ch_part = f"第{card['chapter_num']}章 " if card['chapter_num'] is not None else ""
             subgroup_part = f"·{card['subgroup']}" if card.get('subgroup') else ""
+            card_link = _wikilink_for_card(card["path"], card["topic"])
             lines.append(
-                f"  - {card['subject']}{subgroup_part}·{ch_part}{card['topic']}"
+                f"  - {card['subject']}{subgroup_part}·{ch_part}{card_link}"
                 f"（失败 {card['fail_in_range']} 次，最近 {card['latest_day']}）"
             )
     return "\n".join(lines)
 
 
-def build_cross_signals_block(cross_signals, period_name):
+def build_cross_signals_block(cross_signals, period_name, chapter_activity=None):
     only_drilling = cross_signals["only_drilling"]
     only_theory = cross_signals["only_theory"]
     healthy = cross_signals["healthy"]
@@ -585,13 +715,13 @@ def build_cross_signals_block(cross_signals, period_name):
 
     lines = []
     if only_drilling:
-        items = [f"{_format_chapter_key(s['key'])}（错题 {s['wrong']}，笔记 0）" for s in only_drilling[:5]]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（错题 {s['wrong']}，笔记 0）" for s in only_drilling[:5]]
         lines.append(f"- ⚠ only-drilling（光刷题没沉淀）：{'；'.join(items)}。建议下{period_name}补一篇套路总结。")
     if only_theory:
-        items = [f"{_format_chapter_key(s['key'])}（笔记 {s['notes']}，错题 0）" for s in only_theory[:5]]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']}，错题 0）" for s in only_theory[:5]]
         lines.append(f"- ⓘ only-theory（光看理论没验题）：{'；'.join(items)}。建议下{period_name}做几道对应题验收。")
     if healthy:
-        items = [f"{_format_chapter_key(s['key'])}（笔记 {s['notes']} / 错题 {s['wrong']}）" for s in healthy[:3]]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']} / 错题 {s['wrong']}）" for s in healthy[:3]]
         lines.append(f"- ✓ 良性沉淀：{'；'.join(items)}。")
     if not lines:
         lines.append(f"- 本{period_name}交叉信号都正常。")
@@ -782,6 +912,87 @@ def render_recap(template, mapping):
     return content + "\n"
 
 
+def build_next_actions(
+    *,
+    cross_signals,
+    wrong_exposure,
+    chapter_activity,
+    blocker_bullets,
+    active_subjects,
+    total_reviews,
+    coverage,
+    period_name,
+):
+    """根据周/月数据生成具体可执行建议，避免万年模板。
+
+    优先级：only-drilling > only-theory > 顽固卡集中重做 > 章节积压主线 >
+    blocker 拆解 > 复习节奏 > 覆盖度。
+    """
+    actions = []
+
+    # 1) only-drilling: 错题在堆但笔记 0 → 补套路
+    for sig in cross_signals.get("only_drilling", [])[:2]:
+        label = _format_chapter_key(sig["key"], chapter_activity)
+        actions.append(
+            f"补一篇 {label} 的套路总结笔记（已积 {sig['wrong']} 道错题但 0 篇笔记）。"
+        )
+
+    # 2) only-theory: 笔记成堆但没做题 → 补题验收
+    for sig in cross_signals.get("only_theory", [])[:1]:
+        label = _format_chapter_key(sig["key"], chapter_activity)
+        actions.append(f"给 {label} 已有的 {sig['notes']} 篇笔记安排一轮做题验收。")
+
+    # 3) 顽固卡 ≥ 3 张：建议下周开一次集中重做
+    stubborn = wrong_exposure.get("stubborn_cards", [])
+    high_fail = [c for c in stubborn if c["fail_in_range"] >= 2]
+    if len(high_fail) >= 3:
+        actions.append(
+            f"开一次「顽固卡集中重做」专题：本{period_name}有 {len(high_fail)} 张错题被判超过 1 次「不会」。"
+        )
+    elif stubborn and not high_fail:
+        first = stubborn[0]
+        link = _wikilink_for_card(first["path"], first["topic"])
+        actions.append(f"针对性重做最近翻车的 {link}。")
+
+    # 4) 章节积压主线：单章 new+fail ≥ 10
+    if chapter_activity:
+        top = max(chapter_activity.items(), key=lambda kv: kv[1]["new"] + kv[1]["fail"])
+        score = top[1]["new"] + top[1]["fail"]
+        if score >= 10:
+            label = _format_chapter_key(top[0], chapter_activity)
+            actions.append(
+                f"下{period_name}主线攻 {label}（本{period_name}新增 {top[1]['new']} 道 + 复习失败 {top[1]['fail']} 次）。"
+            )
+
+    # 5) blocker 具体到第一条
+    if blocker_bullets and len(actions) < 5:
+        b = blocker_bullets[0]
+        actions.append(f"优先拆解：{b.content or b.raw}（{b.day.isoformat()}）。")
+
+    # 6) 复习节奏
+    if total_reviews == 0:
+        actions.append("把 `/review` 固定到常规节奏，避免旧题积压。")
+
+    # 7) 月维度覆盖度建议
+    if coverage and period_name == "月":
+        for subject, info in coverage.items():
+            total = info["total"]
+            if total == 0:
+                continue
+            note_ratio = info["with_notes"] / total
+            wrong_ratio = info["with_wrongs"] / total
+            if note_ratio < 0.3 and wrong_ratio >= 0.5:
+                actions.append(
+                    f"{subject} 错题已覆盖 {info['with_wrongs']}/{total} 章但笔记只覆盖 {info['with_notes']}/{total} 章，下月补笔记。"
+                )
+
+    # 8) 兜底
+    if not actions and active_subjects:
+        actions.append(f"下{period_name}先把 {active_subjects[0]} 的日志连续写满。")
+
+    return actions[:6]
+
+
 def generate_recap(obsidian_root, target_date, period, force=False):
     start, end, label, filename = get_date_range(target_date, period)
     report_dir = Path(obsidian_root) / "复盘报告"
@@ -794,14 +1005,17 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     period_name = "月" if period == "month" else "周"
     template_name = "月复盘模板.md" if period == "month" else "周复盘模板.md"
 
-    highlights, blockers, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
+    learned_bullets, blocker_bullets, logged_days, total_hours, score_records = collect_logs(obsidian_root, start, end)
     chapter_stats = collect_chapter_grill_stats(obsidian_root, start, end)
-    highlights = highlights + chapter_stats["highlights"]
-    blockers = blockers + chapter_stats["blockers"]
+    chapter_grill_highlights = chapter_stats["highlights"]
+    chapter_grill_blockers = chapter_stats["blockers"]
     score_records = merge_score_records(score_records, collect_archive_subject_scores(obsidian_root, start, end))
     total_reviews, status_counts, subject_counts = collect_review_stats(obsidian_root, start, end)
     score_stats, score_subject_counts = build_score_summary(score_records, period_name)
-    subject_signal = infer_subject_mentions(highlights + blockers)
+
+    # 给 infer_subject_mentions 喂字符串数组
+    bullet_strings = [b.content or b.raw for b in (learned_bullets + blocker_bullets)] + chapter_grill_highlights + chapter_grill_blockers
+    subject_signal = infer_subject_mentions(bullet_strings)
     score_subject_counts["408"] = score_subject_counts.get("408", 0) + chapter_stats["count"]
     combined = {
         s: subject_counts[s] + subject_signal.get(s, 0) + score_subject_counts.get(s, 0)
@@ -813,9 +1027,16 @@ def generate_recap(obsidian_root, target_date, period, force=False):
     period_notes = scan_notes_in_range(Path(obsidian_root), start, end)
     note_stats_block = render_recap_notes_block(period_notes, period_name)
     wrong_exposure = collect_wrong_exposure(obsidian_root, start, end)
+    chapter_activity = wrong_exposure["chapter_activity"]
     exposure_stats_block = build_exposure_block(wrong_exposure, period_name)
     cross_signals = collect_cross_signals(period_notes, wrong_exposure)
-    cross_signals_block = build_cross_signals_block(cross_signals, period_name)
+    cross_signals_block = build_cross_signals_block(cross_signals, period_name, chapter_activity)
+
+    textbook_progress = collect_textbook_progress(learned_bullets + blocker_bullets)
+    highlights_block = render_highlights_block(
+        learned_bullets, chapter_grill_highlights, textbook_progress, period_name
+    )
+    blockers_block = render_blockers_block(blocker_bullets, chapter_grill_blockers, period_name)
 
     coverage_block = ""
     coverage = {}
@@ -829,21 +1050,16 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "涉及科目：" + ("、".join(f"{s} {subject_counts[s]} 次" for s in PLAN_SUBJECTS if subject_counts[s]) or "暂无。"),
     ], f"- 本{period_name}暂未检索到复习更新。")
 
-    next_actions = []
-    if cross_signals["only_drilling"]:
-        first = cross_signals["only_drilling"][0]
-        next_actions.append(f"给 {_format_chapter_key(first['key'])} 补一篇套路总结，结束 only-drilling。")
-    if cross_signals["only_theory"]:
-        first = cross_signals["only_theory"][0]
-        next_actions.append(f"为 {_format_chapter_key(first['key'])} 的笔记做几道题验收。")
-    if blockers:
-        next_actions.append(f"优先拆解：{blockers[0]}")
-    if active_subjects:
-        next_actions.append(f"下{period_name}继续给 {active_subjects[0]} 留整块时间。")
-    if total_reviews == 0:
-        next_actions.append("把 `/review` 固定到常规节奏，避免旧题积压。")
-    else:
-        next_actions.append("保留检查点，及时把新卡点写回错题本或知识地图。")
+    next_actions = build_next_actions(
+        cross_signals=cross_signals,
+        wrong_exposure=wrong_exposure,
+        chapter_activity=chapter_activity,
+        blocker_bullets=blocker_bullets,
+        active_subjects=active_subjects,
+        total_reviews=total_reviews,
+        coverage=coverage,
+        period_name=period_name,
+    )
 
     mapping = {
         "period_label": label,
@@ -851,14 +1067,14 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "logged_days": str(logged_days),
         "total_hours": recap_hours(total_hours),
         "active_subjects": active_subjects_text,
-        "highlights": build_bullets(highlights, f"- 本{period_name}日志产出较少，优先补齐关键学习记录。"),
+        "highlights": highlights_block,
         "chapter_stats": build_chapter_stats(chapter_stats, period_name),
         "score_stats": score_stats,
         "review_stats": review_stats,
         "note_stats": note_stats_block,
         "exposure_stats": exposure_stats_block,
         "cross_signals": cross_signals_block,
-        "blockers": build_bullets(blockers, f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"),
+        "blockers": blockers_block,
         "next_actions": build_bullets(next_actions, f"- 下{period_name}先保证日志和复盘的连续性。"),
     }
     if period == "month":

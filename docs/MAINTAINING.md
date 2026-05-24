@@ -96,6 +96,20 @@
 - `scripts/knowledge_map_parser.py`：解析 `知识地图/{科目}.md` 的章节表头，返回 `{科目: [ChapterEntry(subgroup, chapter_num, chapter_name)]}`。月复盘的覆盖度统计依赖它
 - `scripts/log_progress.py`：`main` 开头会跑 `auto_fill_created_frontmatter`（幂等），日志段「今日新增笔记」每次重跑都重生成，**不走 `merge_with_existing`**——这是因为该段由文件系统派生，不存在"用户手写后被脚本覆盖"的风险
 - `scripts/build_recap.py`：`collect_note_stats / collect_wrong_exposure / collect_cross_signals` 周/月通用；`collect_coverage` 仅月复盘调用，依赖 `knowledge_map_parser`
+
+### 周/月复盘渲染相关改动
+
+涉及"产出聚类/教材进度/wikilink/智能建议"的改动，重点关注：
+
+- `scripts/log_bullet.py`：把日志的每条 bullet 解析成结构化 `LogBullet(day, kind, content, subject, subgroup_canonical, chapter_num, extras)`。新增功能必须复用此模块，避免对原始字符串做正则
+- `PLACEHOLDER_BULLETS` 集合：`log_progress.py:bullet_list` 写入的兜底文案集合，`extract_log_bullets` 自动过滤；新增兜底文案需同步加进这个集合
+- `group_by_chapter` / `collect_textbook_progress`：聚合工具。周复盘的"学习产出"按章节聚类、教材进度区间合并都依赖它们
+- `build_recap.py:_format_chapter_key(key, chapter_activity)`：渲染章节 wikilink 的统一入口。传入 `chapter_activity` 时会用 `first_card_path` 生成 obsidian 双链；不传则降级为纯文本
+- `build_recap.py:build_next_actions`：智能建议生成器。新增建议条件时优先级清晰：only-drilling > only-theory > 顽固卡集中 > 章节积压主线 > blocker > 复习节奏 > 覆盖度
+
+### 改 `bullet_list` 的兜底文案
+
+`log_progress.py:bullet_list` 在用户没传字段时写的占位符（"今天没有显式记录卡点。"等）必须**不是** `- ` 形态，避免被 `extract_log_bullets` 误抓。当前实现用 `_（...）_` 斜体非列表项；新增字段保持这个约定。同时把字面文案加入 `log_bullet.PLACEHOLDER_BULLETS` 兜底（历史日志里残留的旧占位符仍要能被过滤）。
 - 使用文档里的支持范围
 - 回归测试
 

@@ -699,3 +699,80 @@ def test_recap_next_actions_data_driven(vault_root):
     assert "已积 10 道错题但 0 篇笔记" in content
     # 不应再出现万年模板
     assert "下周继续给 数学一 留整块时间" not in content
+
+
+def test_recap_highlights_group_by_day_does_not_truncate(vault_root):
+    """无章节标签的自然语言 bullet 应按天分组展开，不再 [:4] 截断。"""
+    # 模拟用户的原始日志：6 天，每天 1-3 条无标签自然语言 bullet
+    daily_bullets = {
+        "2026-03-16": ["开始过李林辅导讲义", "做了几道极限题", "线代行列式入门"],
+        "2026-03-17": ["完成李林讲义 ch1 习题"],
+        "2026-03-18": ["复习了泰勒展开例题", "做了一套真题"],
+        "2026-03-19": ["错题归档 8 道", "整理中值定理笔记"],
+        "2026-03-20": ["做了一个英语阅读专项"],
+        "2026-03-21": ["休息一天"],
+    }
+    for day, bullets in daily_bullets.items():
+        _write_log_with_structured_bullets(vault_root, day, bullets, [])
+
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-22"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
+    # 「逐日产出」段必须出现
+    assert "逐日产出" in content
+    # 每天的 bullet 都得展示，不再丢
+    assert "做了几道极限题" in content
+    assert "线代行列式入门" in content
+    assert "做了一个英语阅读专项" in content
+    assert "休息一天" in content
+    # 每个日期戳都得出现
+    for day in daily_bullets:
+        month, day_num = day.split("-")[1], day.split("-")[2]
+        assert f"[{month}-{day_num}]" in content
+
+
+def test_recap_highlights_caps_per_day_with_fold_hint(vault_root):
+    """单日 > 8 条时折叠尾部并展示"还有 N 条"提示。"""
+    # 一天造 12 条 bullet
+    many_bullets = [f"自然语言条目 {i+1}" for i in range(12)]
+    _write_log_with_structured_bullets(vault_root, "2026-03-16", many_bullets, [])
+
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
+    # 前 8 条可见
+    assert "自然语言条目 1" in content
+    assert "自然语言条目 8" in content
+    # 第 9-12 条不直接出现
+    assert "自然语言条目 12" not in content
+    # 但有折叠提示
+    assert "还有 4 条已折叠" in content
+
+
+def test_recap_highlights_inferred_chapter_lifts_bullet_into_cluster(vault_root):
+    """带「李林高数 + 中值定理」关键词的 bullet 应被推到 数学一·高等数学·第3章 聚类，不进逐日产出。"""
+    _write_log_with_structured_bullets(
+        vault_root, "2026-03-16",
+        [
+            "李林高数辅导讲义复习了中值定理",
+            "李林高数 ch3 拉格朗日中值定理整理",
+        ],
+        [],
+    )
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
+    # 章节聚类必须出现
+    assert "数学一·高等数学·第3章" in content
+    assert "李林高数辅导讲义复习了中值定理" in content
+    # 这些 bullet 不应再出现在「逐日产出」未归章节段
+    if "逐日产出" in content:
+        逐日产出_idx = content.find("逐日产出")
+        逐日产出_part = content[逐日产出_idx:]
+        assert "李林高数辅导讲义复习了中值定理" not in 逐日产出_part

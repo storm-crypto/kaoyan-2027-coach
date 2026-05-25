@@ -130,30 +130,38 @@ def render_highlights_block(
     textbook_progress,
     period_name,
 ):
-    """学习产出：教材进度区间 + 按章节聚类 + 章节拷打 + 未分类零散条目。"""
+    """学习产出渲染。
+
+    布局：
+    1. 教材进度区间（最多 5 本，保留现有上限）
+    2. 按 (subject, subgroup, chapter_num) 三元键聚类的章节事件，覆盖显式标签
+       + log_bullet 的关键词推断（最多 5 个章节，每章 6 条）
+    3. 「逐日产出」：剩下没归到章节的 bullet 按天分组，**每天全部展开**，
+       但单日 > 8 条时折叠尾部并提示数量（避免单日日志特别多时撑爆报告）
+    4. 章节拷打报告（最多 3 条，保留现有上限）
+    """
+    DAILY_CAP = 8
     sections = []
 
     if textbook_progress:
-        lines = []
         for p in textbook_progress[:5]:
             if p.earliest_page == p.latest_page:
-                lines.append(
+                sections.append(
                     f"- 教材进度：{p.name} p{p.latest_page}"
                     f"（{p.latest_day.month:02d}-{p.latest_day.day:02d}，记录 {p.samples} 次）"
                 )
             else:
                 span_days = (p.latest_day - p.earliest_day).days + 1
-                lines.append(
+                sections.append(
                     f"- 教材进度：{p.name} p{p.earliest_page} → p{p.latest_page}"
                     f"（{p.earliest_day.month:02d}-{p.earliest_day.day:02d} ~ "
                     f"{p.latest_day.month:02d}-{p.latest_day.day:02d}，{span_days} 天 / 共 "
                     f"{p.latest_page - p.earliest_page} 页）"
                 )
-        sections.extend(lines)
 
     if learned_bullets:
         groups = group_by_chapter(learned_bullets)
-        # 按本章节内 bullet 数量倒排
+        # 按本章节内 bullet 数量倒排，最多 5 个章节
         for key in sorted(groups, key=lambda k: len(groups[k]), reverse=True)[:5]:
             subject, subgroup, chapter_num = key
             chapter_label = subject
@@ -163,18 +171,33 @@ def render_highlights_block(
             sections.append(f"- **{chapter_label}** · {len(groups[key])} 条事件")
             for b in sorted(groups[key], key=lambda b: b.day)[:6]:
                 kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
-                day = f"{b.day.month:02d}-{b.day.day:02d}"
+                day_label = f"{b.day.month:02d}-{b.day.day:02d}"
                 content = _trim_relative_prefix(b.content or b.raw)
                 extras = f" {b.extras}" if b.extras else ""
-                sections.append(f"  - [{day}] {kind_part}{content}{extras}")
+                sections.append(f"  - [{day_label}] {kind_part}{content}{extras}")
 
+        # 没归到章节的 bullet → 按天分组，每天独立列表项
         unsorted = unbucketed_bullets(learned_bullets)
         if unsorted:
-            sections.append(f"- _零散条目（未标章节）_ · {len(unsorted)} 条：")
-            for b in sorted(unsorted, key=lambda b: b.day)[:4]:
-                day = f"{b.day.month:02d}-{b.day.day:02d}"
-                content = _trim_relative_prefix(b.content or b.raw)
-                sections.append(f"  - [{day}] {content}")
+            by_day = {}
+            for b in sorted(unsorted, key=lambda b: b.day):
+                by_day.setdefault(b.day, []).append(b)
+            sections.append(
+                f"- _逐日产出（未归章节）_ · 共 {len(unsorted)} 条 / {len(by_day)} 天"
+            )
+            for day_ in sorted(by_day):
+                bullets_of_day = by_day[day_]
+                day_label = f"{day_.month:02d}-{day_.day:02d}"
+                shown = bullets_of_day[:DAILY_CAP]
+                hidden = len(bullets_of_day) - len(shown)
+                sections.append(f"  - **[{day_label}]** · {len(bullets_of_day)} 条")
+                for b in shown:
+                    kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
+                    content = _trim_relative_prefix(b.content or b.raw)
+                    extras = f" {b.extras}" if b.extras else ""
+                    sections.append(f"    - {kind_part}{content}{extras}")
+                if hidden > 0:
+                    sections.append(f"    - _…还有 {hidden} 条已折叠_")
 
     if chapter_grill_highlights:
         sections.append("- 章节拷打：")

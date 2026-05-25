@@ -133,3 +133,59 @@ def test_collect_textbook_progress_multiple_books():
     progress = collect_textbook_progress(bullets)
     names = {p.name for p in progress}
     assert names == {"李林高数", "王道数据结构"}
+
+
+# --- 隐式章节推断 ---
+
+
+def test_parse_bullet_infers_subject_from_textbook_name():
+    """没显式 (科目·...) 标签，但 bullet 内提到「李林高数」应能反推数学一·高数。"""
+    b = parse_log_bullet("李林高数辅导讲义推进到 p50", date(2026, 5, 19))
+    assert b.subject == "数学一"
+    assert b.subgroup_canonical == "高等数学"
+    # 没章节关键词 → chapter_num = None，落入逐日分组
+    assert b.chapter_num is None
+    assert b.chapter_key is None
+
+
+def test_parse_bullet_infers_chapter_from_keyword():
+    """文本里出现「可导性」「导数与微分」等关键词时反推第 2 章。"""
+    b = parse_log_bullet("在 Gemini 老师帮助下，明显加深了对可导性常用结论的理解", date(2026, 5, 20))
+    # 关键词 "可导性" → 高数 ch2，但 subject 还得先被定位到
+    # 这里没出现"高数"关键词，所以推断不出 subject → chapter_num 也为 None
+    assert b.subject == ""
+
+    b2 = parse_log_bullet("完成若干导数与微分相关卡点的归档与修正（数学一·高数）", date(2026, 5, 19))
+    # 显式标签给出 subject+subgroup，缺章节号 → 关键词推断补 ch2
+    assert b2.subject == "数学一"
+    assert b2.subgroup_canonical == "高等数学"
+    assert b2.chapter_num == 2
+
+    b3 = parse_log_bullet("李林高数辅导讲义 ch2 可导性的常用结论", date(2026, 5, 24))
+    # 主题词「李林高数」推 subject；内嵌 chN 直接给出章节号
+    assert b3.subject == "数学一"
+    assert b3.subgroup_canonical == "高等数学"
+    assert b3.chapter_num == 2
+
+
+def test_parse_bullet_explicit_tag_overrides_inference():
+    """显式 (科目·subgroup·chN) 永远优先，不被关键词推断覆盖。"""
+    b = parse_log_bullet("学习::中值定理 (数学一·线代·ch1)", date(2026, 5, 20))
+    # 文本里有「中值定理」会推到高数 ch3，但显式标签把它定位到线代 ch1
+    assert b.subgroup == "线代"
+    assert b.subgroup_canonical == "线性代数"
+    assert b.chapter_num == 1
+
+
+def test_parse_bullet_inline_chapter_zh():
+    b = parse_log_bullet("教材::李林高数辅导讲义 第三章 微分中值定理", date(2026, 5, 20))
+    assert b.subject == "数学一"
+    assert b.chapter_num == 3
+
+
+def test_parse_bullet_inference_skips_when_no_keyword():
+    """完全自由文本 → 无 subject 推断，bullet 落入未归章节。"""
+    b = parse_log_bullet("反函数二阶求导题型识别不稳", date(2026, 5, 22))
+    # "反函数二阶求导" 在 ch2 关键词列表里，但没有 subject 关键词 → 整体不推断
+    assert b.subject == ""
+    assert b.chapter_key is None

@@ -54,6 +54,149 @@ _BULLET_KIND_RE = re.compile(r"^(教材|学习|卡点|总结|试错)\s*[:：]{1,
 _CHAPTER_TAG_RE = re.compile(r"[（(]\s*([^）)]+?)\s*[）)]")
 
 
+# 隐式章节推断关键词。当 bullet 没显式 (科目·子科目·chN) 标签时，
+# 通过文本里出现的子科目/章节关键词反推。比显式标签弱但能救回大量
+# 自然语言写的旧日志。
+SUBGROUP_KEYWORD_HINTS: Dict[str, Dict[str, Tuple[str, ...]]] = {
+    "数学一": {
+        # 长 keyword 优先（"李林高数" 比 "高数" 更精确）
+        "高等数学": ("李林高数", "高等数学", "高数"),
+        "线性代数": ("线性代数", "线代"),
+        "概率论与数理统计": ("概率论", "数理统计", "概统"),
+    },
+    "408": {
+        "数据结构": ("王道数据结构", "数据结构"),
+        "计算机组成原理": ("计算机组成原理", "组成原理", "计组"),
+        "操作系统": ("操作系统",),
+        "计算机网络": ("计算机网络", "计网"),
+    },
+}
+
+CHAPTER_KEYWORD_HINTS: Dict[Tuple[str, str], Dict[int, Tuple[str, ...]]] = {
+    ("数学一", "高等数学"): {
+        1: ("函数极限", "数列极限", "无穷小", "函数的连续性", "间断点"),
+        2: ("导数与微分", "可导性", "可微性", "求导法", "高阶导数", "微分计算", "反函数二阶求导"),
+        3: ("中值定理", "拉格朗日中值", "罗尔定理", "柯西中值", "泰勒公式", "泰勒展开", "微分中值"),
+        4: ("单调性", "极值与最值", "凹凸性", "拐点", "渐近线", "导数的应用"),
+        5: ("不定积分",),
+        6: ("定积分", "反常积分", "积分上限函数"),
+        8: ("多元函数微分", "偏导数", "全微分", "隐函数微分", "复合函数偏导"),
+        9: ("微分方程",),
+        10: ("二重积分",),
+        11: ("空间解析", "向量代数", "平面方程", "曲面方程"),
+        12: ("无穷级数", "常数项级数", "幂级数", "傅里叶级数"),
+        13: ("三重积分", "第一型曲线", "第一型曲面"),
+        14: ("第二型曲线", "第二型曲面"),
+    },
+    ("数学一", "线性代数"): {
+        1: ("行列式", "克拉默"),
+        2: ("矩阵", "逆矩阵", "矩阵的秩", "初等变换", "初等矩阵"),
+        3: ("向量组", "线性相关", "向量空间"),
+        4: ("线性方程组", "齐次方程", "非齐次方程"),
+        5: ("特征值", "特征向量", "相似矩阵", "对角化"),
+        6: ("二次型", "正定"),
+    },
+    ("数学一", "概率论与数理统计"): {
+        1: ("随机事件", "概率公式", "全概率", "贝叶斯", "事件独立性"),
+        2: ("一维随机变量", "离散型随机", "连续型随机", "分布函数", "概率密度"),
+        3: ("联合分布", "边缘分布", "二维随机变量"),
+        4: ("数学期望", "期望与方差", "协方差", "相关系数"),
+        5: ("大数定律", "中心极限"),
+        6: ("抽样分布",),
+        7: ("点估计", "区间估计"),
+        8: ("假设检验",),
+    },
+    ("408", "数据结构"): {
+        1: ("线性表", "顺序表", "链表"),
+        2: ("栈", "队列", "数组的存储"),
+        3: ("二叉树", "线索二叉树", "哈夫曼", "B 树", "B+ 树"),
+        4: ("图的存储", "图的遍历", "最小生成树", "最短路径", "拓扑排序"),
+        5: ("查找", "折半", "散列表"),
+        6: ("排序", "插入排序", "交换排序", "选择排序", "归并排序"),
+    },
+}
+
+# 内嵌 chN（要求前后不是字母数字，避免误匹配 "much2" 这类）
+_INLINE_CHN_RE = re.compile(r"(?:^|[^a-zA-Z0-9])ch(\d{1,2})(?:[^a-zA-Z0-9]|$)", re.IGNORECASE)
+# 「第N章」中文或数字
+_INLINE_CHAPTER_ZH_RE = re.compile(r"第([零一二三四五六七八九十百\d]{1,4})章")
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _cn_digits_to_int(text: str) -> Optional[int]:
+    """中文数字 → int，支持「一二三...十九 / 二十 / 二十一 / 一百零五」等常见形态。"""
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text in _CN_DIGITS:
+        return _CN_DIGITS[text]
+    if "百" in text:
+        head, tail = text.split("百", 1)
+        hundreds = _CN_DIGITS.get(head or "一", 1)
+        rest = tail.lstrip("零")
+        rest_val = _cn_digits_to_int(rest) if rest else 0
+        return hundreds * 100 + (rest_val or 0)
+    if "十" in text:
+        head, tail = text.split("十", 1)
+        tens = _CN_DIGITS.get(head or "一", 1)
+        units = _CN_DIGITS.get(tail, 0) if tail else 0
+        return tens * 10 + units
+    return None
+
+
+def _infer_subject_subgroup(text: str) -> Tuple[str, str]:
+    """根据文本里的子科目关键词推断 (subject, subgroup_canonical)。
+
+    匹配最长关键词优先（"李林高数" 比 "高数" 优先），避免短词误伤。
+    没匹配上则返回 ("", "")。
+    """
+    if not text:
+        return "", ""
+    candidates: List[Tuple[int, str, str, str]] = []
+    for subject, subgroups in SUBGROUP_KEYWORD_HINTS.items():
+        for subgroup_canonical, keywords in subgroups.items():
+            for kw in keywords:
+                if kw:
+                    candidates.append((len(kw), subject, subgroup_canonical, kw))
+    candidates.sort(reverse=True)
+    for _, subject, subgroup_canonical, kw in candidates:
+        if kw in text:
+            return subject, subgroup_canonical
+    return "", ""
+
+
+def _infer_chapter_num(text: str, subject: str, subgroup_canonical: str) -> Optional[int]:
+    """根据 bullet 正文内出现的章节线索推断 chapter_num。
+
+    优先级：内嵌 chN > 第N章 > (subject, subgroup) 关键词最高分。
+    """
+    if not text:
+        return None
+    m = _INLINE_CHN_RE.search(text)
+    if m:
+        return int(m.group(1))
+    m = _INLINE_CHAPTER_ZH_RE.search(text)
+    if m:
+        val = _cn_digits_to_int(m.group(1))
+        if val is not None:
+            return val
+    if subject and subgroup_canonical:
+        hints = CHAPTER_KEYWORD_HINTS.get((subject, subgroup_canonical))
+        if hints:
+            best_chapter: Optional[int] = None
+            best_score = 0
+            for chapter_num, keywords in hints.items():
+                score = sum(1 for kw in keywords if kw in text)
+                if score > best_score:
+                    best_score = score
+                    best_chapter = chapter_num
+            if best_chapter is not None and best_score >= 1:
+                return best_chapter
+    return None
+
+
 @dataclass(frozen=True)
 class LogBullet:
     day: date
@@ -125,6 +268,18 @@ def parse_log_bullet(raw_text: str, day: date) -> LogBullet:
     if chapter_match is not None:
         content = rest[:chapter_match.start()].rstrip(" ，,")
         extras = rest[chapter_match.end():].strip()
+
+    # 隐式推断：显式标签没给出 subject 或 chapter 时，从正文反推。
+    # 不覆盖显式信息；只填补缺失项。这是把"自然语言旧日志"也能纳入按章
+    # 聚类的关键路径。
+    if not subject:
+        inf_subject, inf_subgroup_canonical = _infer_subject_subgroup(content)
+        if inf_subject:
+            subject = inf_subject
+            subgroup = inf_subgroup_canonical  # 直接用 canonical 形态
+    if chapter_num is None and subject:
+        canonical_sg = normalize_subgroup(subject, subgroup)
+        chapter_num = _infer_chapter_num(content, subject, canonical_sg)
 
     return LogBullet(
         day=day,

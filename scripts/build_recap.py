@@ -77,7 +77,7 @@ def get_date_range(today, period):
 
 
 def parse_logged_hours(text):
-    match = re.search(r"时长[^0-9]*([0-9]+(?:\.[0-9]+)?)", text)
+    match = re.search(r"时长[^0-9\n]*([0-9]+(?:\.[0-9]+)?)", text)
     return float(match.group(1)) if match else 0.0
 def recap_hours(value):
     return f"{format_hours(value)} 小时"

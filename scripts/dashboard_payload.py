@@ -43,7 +43,7 @@ HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
 EXAM_DATE_RE = re.compile(r"考试日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})")
 UPDATE_DATE_RE = re.compile(r"最近更新日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})")
 STAGE_RE = re.compile(r"当前阶段关键词\*\*[:：]\s*(.+)")
-LOG_HOURS_RE = re.compile(r"时长[^0-9]*([0-9]+(?:\.[0-9]+)?)")
+LOG_HOURS_RE = re.compile(r"时长[^0-9\n]*([0-9]+(?:\.[0-9]+)?)")
 
 
 def safe_read_text(path: Path) -> str:

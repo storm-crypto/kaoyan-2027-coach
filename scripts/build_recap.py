@@ -377,7 +377,7 @@ def collect_review_stats(obsidian_root, start, end):
     if not root.exists():
         return 0, status_counts, subject_counts
 
-    for md_file in root.rglob("*.md"):
+    for md_file in sorted(root.rglob("*.md")):
         try:
             text = md_file.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -460,7 +460,7 @@ def collect_wrong_exposure(obsidian_root, start, end):
             "chapter_activity": chapter_activity,
         }
 
-    for md_file in root.rglob("*.md"):
+    for md_file in sorted(root.rglob("*.md")):
         try:
             text = md_file.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -537,6 +537,8 @@ def collect_wrong_exposure(obsidian_root, start, end):
 
     # stubborn sorted by fail_in_range desc, latest_day desc
     stubborn_cards.sort(key=lambda x: (x["fail_in_range"], x["latest_day"]), reverse=True)
+    # new_cards 按首次错误日期排序：清单类全量输出，避免 rglob 顺序变成周报/月报 diff 噪音
+    new_cards.sort(key=lambda c: (c["first_wrong_at"], c["path"]))
 
     return {
         "new_cards": new_cards,
@@ -634,7 +636,7 @@ def collect_coverage(obsidian_root):
     wrong_chapters = set()
     root = Path(obsidian_root) / "错题本"
     if root.exists():
-        for md_file in root.rglob("*.md"):
+        for md_file in sorted(root.rglob("*.md")):
             try:
                 rel = md_file.relative_to(root)
             except ValueError:
@@ -853,7 +855,7 @@ def collect_chapter_grill_stats(obsidian_root, start, end):
     highlights = []
     blockers = []
 
-    for md_file in root.rglob("*.md"):
+    for md_file in sorted(root.rglob("*.md")):
         try:
             text = md_file.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -896,14 +898,12 @@ def build_chapter_stats(chapter_stats, period_name):
         f"{module} {count} 章"
         for module, count in sorted(chapter_stats["module_counts"].items(), key=lambda item: item[1], reverse=True)
     )
-    blocker_lines = chapter_stats["blockers"][:3]
+    # 章节拷打暴露的漏洞统一在「卡点」块全量展示（见 render_blockers_block），此处不再截断重复
     lines = [
         f"- 本{period_name}新增 {chapter_stats['count']} 份章节掌握报告。",
         f"- 模块分布：{module_summary}。",
         "总体掌握分布：不会 {不会} / 半会 {半会} / 会 {会}。".format(**chapter_stats["mastery_counts"]),
     ]
-    if blocker_lines:
-        lines.append("- 章节拷打高频漏洞：" + "；".join(blocker_lines) + "。")
     return "\n".join(lines)
 
 

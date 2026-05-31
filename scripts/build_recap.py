@@ -124,27 +124,39 @@ def _trim_relative_prefix(text):
     return re.sub(r"^(今天|今日|本周|这周)\s*([：:，, ]\s*)?", "", text.strip())
 
 
+def _fold_callout(title, body_lines, kind="note"):
+    """把多行 markdown 内容收进 Obsidian 可折叠 callout（默认折叠）。
+
+    用于「优先级低但要全量保留」的长区块（如逐日产出）：数据一条不丢，
+    默认视图也不被撑爆。body_lines 已是排好版的行（可含缩进 bullet）。
+    """
+    lines = [f"> [!{kind}]- {title}"]
+    for line in body_lines:
+        lines.append(f"> {line}" if line else ">")
+    return "\n".join(lines)
+
+
 def render_highlights_block(
     learned_bullets,
     chapter_grill_highlights,
     textbook_progress,
     period_name,
 ):
-    """学习产出渲染。
+    """学习产出渲染（原始记录全量保留）。
 
     布局：
-    1. 教材进度区间（最多 5 本，保留现有上限）
-    2. 按 (subject, subgroup, chapter_num) 三元键聚类的章节事件，覆盖显式标签
-       + log_bullet 的关键词推断（最多 5 个章节，每章 6 条）
-    3. 「逐日产出」：剩下没归到章节的 bullet 按天分组，**每天全部展开**，
-       但单日 > 8 条时折叠尾部并提示数量（避免单日日志特别多时撑爆报告）
-    4. 章节拷打报告（最多 3 条，保留现有上限）
+    1. 教材进度区间（全量）
+    2. 按 (subject, subgroup, chapter_num) 三元键聚类的章节事件（全量章节，每章全量事件）
+    3. 「逐日产出」：没归到章节的 bullet 按天分组、单日全量展开，整段收进默认折叠的 callout
+    4. 章节拷打报告（全量）
+
+    复盘写进 Obsidian 文件，载体无长度成本，原始记录一律全量；仅对优先级最低、
+    可能很长的「逐日产出」用可折叠 callout 收纳，既不丢数据也不撑爆默认视图。
     """
-    DAILY_CAP = 8
     sections = []
 
     if textbook_progress:
-        for p in textbook_progress[:5]:
+        for p in textbook_progress:
             if p.earliest_page == p.latest_page:
                 sections.append(
                     f"- 教材进度：{p.name} p{p.latest_page}"
@@ -161,47 +173,47 @@ def render_highlights_block(
 
     if learned_bullets:
         groups = group_by_chapter(learned_bullets)
-        # 按本章节内 bullet 数量倒排，最多 5 个章节
-        for key in sorted(groups, key=lambda k: len(groups[k]), reverse=True)[:5]:
+        # 按本章节内 bullet 数量倒排，全量展示（不再截断章节数 / 单章事件数）
+        for key in sorted(groups, key=lambda k: len(groups[k]), reverse=True):
             subject, subgroup, chapter_num = key
             chapter_label = subject
             if subgroup:
                 chapter_label = f"{chapter_label}·{subgroup}"
             chapter_label = f"{chapter_label}·第{chapter_num}章"
             sections.append(f"- **{chapter_label}** · {len(groups[key])} 条事件")
-            for b in sorted(groups[key], key=lambda b: b.day)[:6]:
+            for b in sorted(groups[key], key=lambda b: b.day):
                 kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
                 day_label = f"{b.day.month:02d}-{b.day.day:02d}"
                 content = _trim_relative_prefix(b.content or b.raw)
                 extras = f" {b.extras}" if b.extras else ""
                 sections.append(f"  - [{day_label}] {kind_part}{content}{extras}")
 
-        # 没归到章节的 bullet → 按天分组，每天独立列表项
+        # 没归到章节的 bullet → 按天分组、单日全量，整段收进折叠 callout（优先级最低、可能最长）
         unsorted = unbucketed_bullets(learned_bullets)
         if unsorted:
             by_day = {}
             for b in sorted(unsorted, key=lambda b: b.day):
                 by_day.setdefault(b.day, []).append(b)
-            sections.append(
-                f"- _逐日产出（未归章节）_ · 共 {len(unsorted)} 条 / {len(by_day)} 天"
-            )
+            daily_lines = []
             for day_ in sorted(by_day):
                 bullets_of_day = by_day[day_]
                 day_label = f"{day_.month:02d}-{day_.day:02d}"
-                shown = bullets_of_day[:DAILY_CAP]
-                hidden = len(bullets_of_day) - len(shown)
-                sections.append(f"  - **[{day_label}]** · {len(bullets_of_day)} 条")
-                for b in shown:
+                daily_lines.append(f"- **[{day_label}]** · {len(bullets_of_day)} 条")
+                for b in bullets_of_day:
                     kind_part = f"{b.kind}: " if b.kind != "未分类" else ""
                     content = _trim_relative_prefix(b.content or b.raw)
                     extras = f" {b.extras}" if b.extras else ""
-                    sections.append(f"    - {kind_part}{content}{extras}")
-                if hidden > 0:
-                    sections.append(f"    - _…还有 {hidden} 条已折叠_")
+                    daily_lines.append(f"  - {kind_part}{content}{extras}")
+            title = f"逐日产出（未归章节）· 共 {len(unsorted)} 条 / {len(by_day)} 天"
+            if sections:
+                sections.append("")  # 与上文 bullet 列表留空行，避免 callout 被并进列表
+            sections.append(_fold_callout(title, daily_lines))
 
     if chapter_grill_highlights:
+        if sections:
+            sections.append("")
         sections.append("- 章节拷打：")
-        for line in chapter_grill_highlights[:3]:
+        for line in chapter_grill_highlights:
             sections.append(f"  - {line}")
 
     if not sections:
@@ -210,17 +222,17 @@ def render_highlights_block(
 
 
 def render_blockers_block(blocker_bullets, chapter_grill_blockers, period_name):
-    """卡点：按日期倒序展示，附章节标签。"""
+    """卡点：按日期倒序全量展示，附章节标签。卡点 = 下阶段要解决的问题，一条都不截。"""
     items = list(blocker_bullets)
     if not items and not chapter_grill_blockers:
         return f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"
 
     lines = []
-    for b in sorted(items, key=lambda b: b.day, reverse=True)[:8]:
+    for b in sorted(items, key=lambda b: b.day, reverse=True):
         lines.append(f"- {render_bullet_with_date(b)}")
     if chapter_grill_blockers:
         lines.append("- 章节拷打暴露的漏洞：")
-        for x in chapter_grill_blockers[:3]:
+        for x in chapter_grill_blockers:
             lines.append(f"  - {x}")
     if not lines:
         return f"- 本{period_name}未显式记录卡点，建议把卡点写得更具体。"
@@ -711,7 +723,7 @@ def build_exposure_block(exposure, period_name):
         )
         lines.append(f"- 本{period_name}新增错题 {len(new_cards)} 道（{subj_text}）。")
         lines.append("- 新增错题链接：")
-        for card in new_cards[:5]:
+        for card in new_cards:  # 全量：清单类，本周错的每道题都该可见可点
             day = card["first_wrong_at"][5:] if card.get("first_wrong_at") else ""
             link = _wikilink_for_card(card["path"], card["topic"])
             chapter_bits = [card["subject"]]
@@ -732,17 +744,25 @@ def build_exposure_block(exposure, period_name):
             chapter_activity.items(),
             key=lambda kv: kv[1]["new"] + kv[1]["fail"],
             reverse=True,
-        )[:3]
+        )
+        shown = ranked[:3]
         items = []
-        for key, slot in ranked:
+        for key, slot in shown:
             label = _format_chapter_key(key, chapter_activity)
             items.append(f"{label}（新增 {slot['new']} / 复习失败 {slot['fail']}）")
         if items:
-            lines.append("- 章节积压 TOP：" + "；".join(items) + "。")
+            head = "章节积压 TOP" if len(ranked) <= len(shown) else f"章节积压 TOP {len(shown)} / 共 {len(ranked)}"
+            lines.append(f"- {head}：" + "；".join(items) + "。")
 
     if stubborn:
-        lines.append(f"- 顽固卡 TOP {min(5, len(stubborn))}（周期内仍判「不会」或多次失败）：")
-        for card in stubborn[:5]:
+        shown = stubborn[:5]
+        head = (
+            f"顽固卡 TOP {len(shown)}"
+            if len(stubborn) <= len(shown)
+            else f"顽固卡 TOP {len(shown)} / 共 {len(stubborn)} 张"
+        )
+        lines.append(f"- {head}（周期内仍判「不会」或多次失败）：")
+        for card in shown:
             ch_part = f"第{card['chapter_num']}章 " if card['chapter_num'] is not None else ""
             subgroup_part = f"·{card['subgroup']}" if card.get('subgroup') else ""
             card_link = _wikilink_for_card(card["path"], card["topic"])
@@ -761,16 +781,28 @@ def build_cross_signals_block(cross_signals, period_name, chapter_activity=None)
     if not (only_drilling or only_theory or healthy):
         return f"- 本{period_name}笔记与错题数据不足，等数据攒起来再做交叉对照。"
 
+    def _count_suffix(total, shown_n):
+        return f"（列前 {shown_n} / 共 {total}）" if total > shown_n else ""
+
     lines = []
     if only_drilling:
-        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（错题 {s['wrong']}，笔记 0）" for s in only_drilling[:5]]
-        lines.append(f"- ⚠ only-drilling（光刷题没沉淀）：{'；'.join(items)}。建议下{period_name}补一篇套路总结。")
+        shown = only_drilling[:5]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（错题 {s['wrong']}，笔记 0）" for s in shown]
+        lines.append(
+            f"- ⚠ only-drilling（光刷题没沉淀）：{'；'.join(items)}{_count_suffix(len(only_drilling), len(shown))}。"
+            f"建议下{period_name}补一篇套路总结。"
+        )
     if only_theory:
-        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']}，错题 0）" for s in only_theory[:5]]
-        lines.append(f"- ⓘ only-theory（光看理论没验题）：{'；'.join(items)}。建议下{period_name}做几道对应题验收。")
+        shown = only_theory[:5]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']}，错题 0）" for s in shown]
+        lines.append(
+            f"- ⓘ only-theory（光看理论没验题）：{'；'.join(items)}{_count_suffix(len(only_theory), len(shown))}。"
+            f"建议下{period_name}做几道对应题验收。"
+        )
     if healthy:
-        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']} / 错题 {s['wrong']}）" for s in healthy[:3]]
-        lines.append(f"- ✓ 良性沉淀：{'；'.join(items)}。")
+        shown = healthy[:3]
+        items = [f"{_format_chapter_key(s['key'], chapter_activity)}（笔记 {s['notes']} / 错题 {s['wrong']}）" for s in shown]
+        lines.append(f"- ✓ 良性沉淀：{'；'.join(items)}{_count_suffix(len(healthy), len(shown))}。")
     if not lines:
         lines.append(f"- 本{period_name}交叉信号都正常。")
     return "\n".join(lines)
@@ -1132,7 +1164,11 @@ def generate_recap(obsidian_root, target_date, period, force=False):
         "exposure_stats": exposure_stats_block,
         "cross_signals": cross_signals_block,
         "blockers": blockers_block,
-        "next_actions": build_bullets(next_actions, f"- 下{period_name}先保证日志和复盘的连续性。"),
+        "next_actions": (
+            "\n".join(f"- {a}" for a in next_actions)
+            if next_actions
+            else f"- 下{period_name}先保证日志和复盘的连续性。"
+        ),
     }
     if period == "month":
         mapping["coverage_stats"] = coverage_block

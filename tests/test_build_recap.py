@@ -733,8 +733,8 @@ def test_recap_highlights_group_by_day_does_not_truncate(vault_root):
         assert f"[{month}-{day_num}]" in content
 
 
-def test_recap_highlights_caps_per_day_with_fold_hint(vault_root):
-    """单日 > 8 条时折叠尾部并展示"还有 N 条"提示。"""
+def test_recap_highlights_daily_output_full_in_callout(vault_root):
+    """逐日产出不再按 8 条截断：单日全量展开，整段收进可折叠 callout。"""
     # 一天造 12 条 bullet
     many_bullets = [f"自然语言条目 {i+1}" for i in range(12)]
     _write_log_with_structured_bullets(vault_root, "2026-03-16", many_bullets, [])
@@ -744,13 +744,15 @@ def test_recap_highlights_caps_per_day_with_fold_hint(vault_root):
     ])
     assert rc == 0
     content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
-    # 前 8 条可见
-    assert "自然语言条目 1" in content
-    assert "自然语言条目 8" in content
-    # 第 9-12 条不直接出现
-    assert "自然语言条目 12" not in content
-    # 但有折叠提示
-    assert "还有 4 条已折叠" in content
+    # 12 条全部可见（含曾被截断的第 9-12 条），一条都不丢
+    for i in range(1, 13):
+        assert f"自然语言条目 {i}" in content
+    # 不再有「折叠尾部」提示
+    assert "条已折叠" not in content
+    # 逐日产出整段收进可折叠 callout，标题带总数
+    assert "> [!note]- 逐日产出（未归章节）· 共 12 条 / 1 天" in content
+    # callout 内容带 `> ` 引导前缀
+    assert "> - **[03-16]** · 12 条" in content
 
 
 def test_recap_highlights_inferred_chapter_lifts_bullet_into_cluster(vault_root):
@@ -776,3 +778,39 @@ def test_recap_highlights_inferred_chapter_lifts_bullet_into_cluster(vault_root)
         逐日产出_idx = content.find("逐日产出")
         逐日产出_part = content[逐日产出_idx:]
         assert "李林高数辅导讲义复习了中值定理" not in 逐日产出_part
+
+
+def test_recap_blockers_not_truncated(vault_root):
+    """卡点全量展示，不再截断到 8 条（卡点 = 下阶段要解决的问题，不能丢）。"""
+    blockers = [f"卡点编号{i+1}识别不稳" for i in range(10)]
+    _write_log_with_structured_bullets(vault_root, "2026-03-16", [], blockers)
+
+    rc, _, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
+    # 10 条卡点全部出现（旧实现只保留前 8 条）
+    for i in range(1, 11):
+        assert f"卡点编号{i}识别不稳" in content
+
+
+def test_recap_stubborn_cards_show_total_when_over_top(vault_root):
+    """顽固卡超过 TOP 5 时，标题给出「TOP 5 / 共 N 张」让被折叠的总量可见。"""
+    for i in range(8):
+        _write_wrong_card_in(
+            vault_root,
+            "数学一/高等数学/03第三章微分中值定理与泰勒公式",
+            f"stubborn_{i}",
+            "2026-03-01",
+            [("2026-03-17", "不会"), ("2026-03-19", "不会")],
+        )
+    rc, out, _ = run_script("build_recap.py", [
+        str(vault_root), "--period", "week", "--today", "2026-03-20"
+    ])
+    assert rc == 0
+    data = json.loads(out)
+    assert data["stubborn_count"] == 8
+    content = (vault_root / "复盘报告" / "2026-W12-0316-0322-周复盘.md").read_text(encoding="utf-8")
+    # 诚实计数：只列前 5，但点明共 8 张
+    assert "顽固卡 TOP 5 / 共 8 张" in content

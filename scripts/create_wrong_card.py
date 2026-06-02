@@ -51,7 +51,7 @@ from constants import (
     SRS_GRADUATED_INTERVAL_DAYS,
     SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
 )
-from env_util import atomic_write, json_error, resolve_obsidian_root
+from env_util import atomic_write, json_error, resolve_obsidian_root, sanitize_path_segment
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
 from wrong_card_path_map import resolve_wrong_card_chapter
@@ -166,13 +166,6 @@ def normalize_subject(subject: str) -> str:
     if not normalized:
         json_error(f"未知科目 '{subject}'，支持: {', '.join(SUBJECT_MAP.keys())}")
     return normalized
-
-
-def sanitize_path_segment(text: str) -> str:
-    value = INVALID_PATH_CHARS_RE.sub("-", text.strip())
-    value = WHITESPACE_RE.sub("", value)
-    value = re.sub(r"-{2,}", "-", value).strip("-.")
-    return value or "未命名"
 
 
 def sanitize_tag_value(text: str) -> str:

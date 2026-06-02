@@ -1,10 +1,14 @@
-"""共享工具函数：环境变量解析、原子写入、安全类型转换、iCloud 检测。"""
+"""共享工具函数：环境变量解析、原子写入、安全类型转换、iCloud 检测、路径段清洗。"""
 import os
+import re
 import sys
 from pathlib import Path
 from typing import NoReturn, Optional, Tuple
 
 from constants import SRS_DEFAULT_EASE_FACTOR
+
+INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
+WHITESPACE_RE = re.compile(r"\s+")
 
 
 def resolve_obsidian_root(cli_arg: Optional[str] = None) -> Path:
@@ -33,6 +37,18 @@ def atomic_write(path: Path, content: str, encoding: str = "utf-8") -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding=encoding)
     tmp.rename(path)
+
+
+def sanitize_path_segment(text: str) -> str:
+    """把任意文本清洗成安全的单层目录/文件名段。
+
+    错题卡落盘目录与 frontmatter 里的 `chapter_path` 必须用同一套规则，
+    否则声明路径会和真实目录静默漂移。统一收口在此，禁止各模块各写一份。
+    """
+    value = INVALID_PATH_CHARS_RE.sub("-", text.strip())
+    value = WHITESPACE_RE.sub("", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-.")
+    return value or "未命名"
 
 
 def safe_int(val: object, default: int = 1) -> int:

@@ -470,7 +470,15 @@ def collect_wrong_exposure(obsidian_root, start, end):
         subject = rel.parts[0] if rel.parts else ""
         if subject not in PLAN_SUBJECTS:
             continue
-        chapter_raw, chapter_num, subgroup_raw = _card_chapter_and_subgroup_from_path(rel.parts)
+        # 优先以 frontmatter 声明的规范章节路径为准：新卡的 chapter_path 与真实
+        # 落盘目录逐段相等，输出不变；即便卡片被搬动或历史目录略有出入，也按其
+        # 规范身份归章。没有该字段（历史卡）才退回真实落盘路径解析。
+        chapter_path_fm = str(fm.get("chapter_path", "")).strip()
+        if chapter_path_fm:
+            chapter_source_parts = (subject, *Path(chapter_path_fm).parts, md_file.name)
+        else:
+            chapter_source_parts = rel.parts
+        chapter_raw, chapter_num, subgroup_raw = _card_chapter_and_subgroup_from_path(chapter_source_parts)
         subgroup = normalize_subgroup(subject, subgroup_raw)
         topic = str(fm.get("topic", "")).strip() or md_file.stem
         path_rel = str(md_file.relative_to(obsidian_root))

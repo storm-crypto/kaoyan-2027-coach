@@ -60,7 +60,8 @@ Kaoyan_2027_Prep/
 1. 生成 `question_id`（调用 `generate_question_id.py`）
 2. 搜索已有卡片（调用 `find_card.py`）→ verdict 判断新旧：
    - `question_id` 精确匹配时跨科全库检索，避免因自动判错科目而重复建卡
-   - `new` → 调用 `create_wrong_card.py` 新建卡片到规范章节目录；数学一等已配置多级目录的科目，`--chapter` 必须能解析到具体叶子章节，否则脚本会拒绝落盘
+   - `new` → 调用 `create_wrong_card.py` 新建卡片到规范章节目录。数学一（已配置规范多级目录的科目）的 `--chapter` 必须能解析到具体叶子章节，否则脚本返回 `{"error": true, ...}` 拒绝落盘
+     - **拒绝落盘的恢复闭环**：读取返回 JSON 的 `message`，其中 `候选: A；B；C` 列出最接近的叶子章节；从中挑与本题考点匹配的一项作为新的 `--chapter` 原样重试（别名容错，带不带序号/空格都能命中）。**禁止**为绕过报错而手动新建浅层目录或改用泛化章节名
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
 3. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数

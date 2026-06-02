@@ -302,6 +302,95 @@ def test_log_progress_prefers_chapter_display_frontmatter(vault_root):
     assert "### 数学一·02第二节不定积分的计算" not in log_text
 
 
+def test_log_progress_groups_legacy_card_with_new_card_by_canonical_chapter(vault_root):
+    """历史卡（frontmatter 无 chapter_display）与新卡若同属一个规范章节，应合并到
+    同一展示名，不能因为一个读 frontmatter、一个按目录叶子而分裂成两组。"""
+    today = "2026-05-14"
+    canonical_dir = "高等数学/05第五章不定积分/02第二节不定积分的计算"
+
+    # 新卡：带 chapter_display 等规范字段
+    _write_card(
+        vault_root,
+        "数学一",
+        canonical_dir,
+        "不定积分-李林-qid-eeee99990000.md",
+        f"""\
+        ---
+        source: 李林
+        question_id: qid-eeee99990000
+        topic: 不定积分的计算
+        chapter_id: math1:gaoshu:05:02
+        chapter_path: 高等数学/05第五章不定积分/02第二节不定积分的计算
+        chapter_display: 05.02 第二节 不定积分的计算
+        error_tags: []
+        first_wrong_at: {today}
+        last_review_at: {today}
+        wrong_count: 1
+        status: 不会
+        next_review: 2026-05-15
+        review_interval: 1
+        ease_factor: 2.50
+        ---
+
+        #subject/math1 #topic/不定积分 #status/不会 #source/李林
+
+        ## 不定积分 — 李林 — qid-eeee99990000
+
+        ### 下次怎么做
+        - 先判断被积函数是否可由某个乘积导数反推
+
+        ### 历史记录
+        - {today} - 不会 - 首次
+        """,
+    )
+
+    # 历史卡：同一规范目录，但缺少 chapter_* 字段（建于本次硬化之前）
+    _write_card(
+        vault_root,
+        "数学一",
+        canonical_dir,
+        "换元积分-旧卡-qid-dddd88887777.md",
+        f"""\
+        ---
+        source: 旧卡
+        question_id: qid-dddd88887777
+        topic: 第一类换元
+        error_tags: []
+        first_wrong_at: {today}
+        last_review_at: {today}
+        wrong_count: 1
+        status: 不会
+        next_review: 2026-05-15
+        review_interval: 1
+        ease_factor: 2.50
+        ---
+
+        #subject/math1 #topic/换元积分 #status/不会 #source/旧卡
+
+        ## 换元积分 — 旧卡 — qid-dddd88887777
+
+        ### 下次怎么做
+        - 看到复合结构先试第一类换元
+
+        ### 历史记录
+        - {today} - 不会 - 首次
+        """,
+    )
+
+    rc, _, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", today,
+        "--topic", "测试新旧卡合并",
+    ])
+
+    assert rc == 0
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
+    # 两张卡合并到同一个规范展示名下，计 2 道
+    assert "### 数学一·05.02 第二节 不定积分的计算（2 道）" in log_text
+    # 不能出现按目录叶子分裂的历史卡表头
+    assert "### 数学一·02第二节不定积分的计算" not in log_text
+
+
 def test_log_progress_today_wrong_section_overwrites_on_rerun(vault_root):
     """同一天多次 /progress 时，今日错题区块应是当前快照而非合并。"""
     today = "2026-05-14"

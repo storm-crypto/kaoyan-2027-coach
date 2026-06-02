@@ -20,6 +20,7 @@ from constants import PLAN_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
 from create_wrong_card import compute_initial_review_schedule
 from study_ops import iter_review_cards
 from update_card import compute_review_schedule
+from wrong_card_path_map import canonical_chapter_display
 
 
 TODAY_WRONG_HEADING = "今日错题归档"
@@ -165,10 +166,12 @@ def extract_takeaway(body: str, subject: str) -> str:
 
 
 def _infer_chapter(card_path: Path, obsidian_root: Path) -> str:
-    """从 `错题本/<subject>/.../<最深章节>/<file>.md` 推断章节。
+    """从 `错题本/<subject>/.../<最深章节>/<file>.md` 推断章节展示名。
 
-    真实 vault 中目录可能深嵌套（科目/模块/章/节/文件），取卡片直接父目录作为
-    章节名，保留最具体的聚类粒度。没有章节目录时返回空串。
+    真实 vault 目录可能深嵌套（科目/模块/章/节/文件）。历史卡 frontmatter 没有
+    chapter_display，这里先把落盘路径反解成规范叶子章节，得到与新卡完全一致的
+    "05.02 第二节 ..."；反解不出（非规范科目 / 未配置章节）才退化为直接父目录名，
+    保留最具体的聚类粒度。没有章节目录时返回空串。
     """
     try:
         rel = card_path.relative_to(Path(obsidian_root) / "错题本")
@@ -176,6 +179,9 @@ def _infer_chapter(card_path: Path, obsidian_root: Path) -> str:
         return ""
     if len(rel.parts) <= 2:
         return ""
+    canonical = canonical_chapter_display(rel.parts[0], "/".join(rel.parts[1:-1]))
+    if canonical:
+        return canonical
     return rel.parts[-2]
 
 

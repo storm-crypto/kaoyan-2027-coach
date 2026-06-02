@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from env_util import sanitize_path_segment
 
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
@@ -19,12 +20,10 @@ WHITESPACE_RE = re.compile(r"\s+")
 @dataclass(frozen=True)
 class WrongCardChapterResolution:
     subject: str
-    input_chapter: str
     relative_dir: str
     chapter_path: str
     chapter_display: str
     chapter_id: str
-    matched_key: str
     is_canonical: bool
 
 
@@ -102,10 +101,6 @@ WRONG_CARD_PATH_MAP: Dict[str, Dict[str, str]] = {
 }
 
 
-def get_wrong_card_relative_dir(subject: str, chapter: str) -> str:
-    return resolve_wrong_card_chapter(subject, chapter, strict=False).relative_dir
-
-
 def resolve_wrong_card_chapter(
     subject: str,
     chapter: str,
@@ -125,8 +120,8 @@ def resolve_wrong_card_chapter(
     normalized_chapter_key = "".join(chapter_key.split())
     alias_map = _build_alias_map(subject_map)
     if normalized_chapter_key in alias_map:
-        matched_key, relative_dir = alias_map[normalized_chapter_key]
-        return _canonical_resolution(subject, chapter_key, relative_dir, matched_key)
+        _, relative_dir = alias_map[normalized_chapter_key]
+        return _canonical_resolution(subject, relative_dir)
 
     if strict:
         suggestions = suggest_wrong_card_chapters(subject, chapter_key)
@@ -134,6 +129,17 @@ def resolve_wrong_card_chapter(
         raise ValueError(f"无法识别 {subject} 章节 '{chapter_key}'，拒绝按原文创建目录{suffix}")
 
     return _generic_resolution(subject, chapter_key)
+
+
+def canonical_chapter_display(subject: str, relative_dir: str) -> str:
+    """把落盘目录路径反解成规范叶子章节的 `chapter_display`；无法识别时返回 ""。
+
+    供历史错题卡（frontmatter 没有 chapter_display 字段）在聚合时复用：
+    `错题本/数学一/高等数学/05第五章.../02第二节...` 这类路径能反推出
+    与新卡完全一致的 "05.02 第二节 ..."，避免同章节新旧卡在今日归档里分裂成两组。
+    """
+    resolution = resolve_wrong_card_chapter(subject, relative_dir, strict=False)
+    return resolution.chapter_display if resolution.is_canonical else ""
 
 
 def suggest_wrong_card_chapters(subject: str, chapter: str, limit: int = 8) -> List[str]:
@@ -174,30 +180,21 @@ def _generic_resolution(subject: str, chapter: str) -> WrongCardChapterResolutio
     chapter = chapter.strip()
     return WrongCardChapterResolution(
         subject=subject,
-        input_chapter=chapter,
         relative_dir=chapter,
         chapter_path=_materialized_relative_dir(chapter),
         chapter_display=chapter,
         chapter_id="",
-        matched_key=chapter,
         is_canonical=False,
     )
 
 
-def _canonical_resolution(
-    subject: str,
-    chapter: str,
-    relative_dir: str,
-    matched_key: str,
-) -> WrongCardChapterResolution:
+def _canonical_resolution(subject: str, relative_dir: str) -> WrongCardChapterResolution:
     return WrongCardChapterResolution(
         subject=subject,
-        input_chapter=chapter,
         relative_dir=relative_dir,
         chapter_path=_materialized_relative_dir(relative_dir),
         chapter_display=_chapter_display_from_relative_dir(relative_dir),
         chapter_id=_chapter_id_from_relative_dir(subject, relative_dir),
-        matched_key=matched_key,
         is_canonical=True,
     )
 
@@ -207,8 +204,16 @@ def _build_alias_map(subject_map: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
     for key, relative_dir in subject_map.items():
         for alias in _aliases_for_entry(key, relative_dir):
             normalized = "".join(alias.strip().split())
-            if normalized:
-                alias_map.setdefault(normalized, (key, relative_dir))
+            if not normalized:
+                continue
+            existing = alias_map.get(normalized)
+            if existing is not None and existing[1] != relative_dir:
+                raise ValueError(
+                    f"章节别名碰撞：归一化键 '{normalized}' 同时指向 "
+                    f"'{existing[1]}'（来自 '{existing[0]}'）与 "
+                    f"'{relative_dir}'（来自 '{key}'）；请消歧后再配置目录表"
+                )
+            alias_map.setdefault(normalized, (key, relative_dir))
     return alias_map
 
 
@@ -278,14 +283,7 @@ def _safe_id_segment(text: str) -> str:
 
 
 def _materialized_relative_dir(relative_dir: str) -> str:
-    return "/".join(_sanitize_path_segment(part) for part in Path(relative_dir).parts)
-
-
-def _sanitize_path_segment(text: str) -> str:
-    value = INVALID_PATH_CHARS_RE.sub("-", text.strip())
-    value = WHITESPACE_RE.sub("", value)
-    value = re.sub(r"-{2,}", "-", value).strip("-.")
-    return value or "未命名"
+    return "/".join(sanitize_path_segment(part) for part in Path(relative_dir).parts)
 
 
 # 旧通用考点桶名 -> 数学一知识地图的新李林叶子行名。

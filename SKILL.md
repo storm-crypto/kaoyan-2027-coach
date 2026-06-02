@@ -85,6 +85,14 @@ Kaoyan_2027_Prep/
 - 不要把 `$$...$$` 嵌进一句话中间；像“当 $x \to 0$ 时”“因为 $\sin x \sim x$”这种解释句都应使用行内公式
 - 文件名、frontmatter、tag 中不要放数学公式；这些位置只保留纯文本，公式只放正文
 
+**错题卡排版规则（硬约束）：**
+- **一个 bullet 只承载一个认知动作**：不要把多个步骤、多个判断字段塞进同一行
+- `考点判断`（数学一）/`考点定位`（408）**强烈推荐逐字段单独成行**（题型、章节、考点、难度、考频、突破口各占一行）；**硬禁**把 ≥2 个字段塞进同一行，否则 `create_wrong_card.py` 会 fail fast 拒绝落盘
+- `规范解法` 用短段落 + 独立块公式，不要把整段推导压成一个长 bullet。**脚本现已对 `--formal-solution` 保留 Markdown 原文**：可直接传多行结构（解释句用 `$...$`，关键变形/最终结论用独立成行的 `$$...$$`，块公式可跨多行），脚本不会再给每行加 `- ` 前缀，块公式能在 Obsidian 正常渲染
+- `--formal-solution` 不要挤成一行：单行且散文超过 80 字（LaTeX 不计）会被拒，提示拆成步骤
+- 任一详解行的散文长度（LaTeX 不计）不超过 120 字；超过请拆成「根因 / 触发信号 / 下次动作」之类的多条
+- 落盘前自检：每个详解字段是否已主动换行；没有换行的长段不要直接传给 `create_wrong_card.py`
+
 **解析落盘硬约束（禁止遗漏）：**
 - **新建卡片时，必须一次性把完整解析通过 CLI 参数传给 `create_wrong_card.py`**，禁止先建骨架再手动补写
 - 正确流程：先在内部完成全部解析（考点判断、解法、错因、易错点、追问等），然后调用 `create_wrong_card.py` 时通过 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等参数一并写入
@@ -158,6 +166,7 @@ Kaoyan_2027_Prep/
 | `record_subject_score.py` | 数学一/408 旧版兼容入口；内部转调新的卷子级成绩记录逻辑 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 | `migrate_log_layout.py` | 一次性把老平铺的 `学习日志/YYYY-MM-DD.md` 迁移到新结构 `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`，并把老周复盘文件名补上日期范围 | `python3 scripts/migrate_log_layout.py [$OBSIDIAN_ROOT] [--dry-run]` |
+| `migrate_wrong_card_layout.py` | 一次性重排已有错题卡里拥挤的详解小节：拆开 `考点判断`/`考点定位` 里挤成一行的多个字段、修复 `规范解法` 里被加了 `- ` 的块公式；散文过长的 bullet 只报告不自动拆。**默认只预览（dry-run），加 `--apply` 才落盘**，永不碰 frontmatter/题目/历史记录 | `python3 scripts/migrate_wrong_card_layout.py [$OBSIDIAN_ROOT] [--apply]` |
 
 OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变量。
 

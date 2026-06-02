@@ -73,6 +73,13 @@ UNWRAPPED_MATH_PATTERNS = (
     re.compile(r"(?<![A-Za-z])[A-Za-z](?:['′]{0,2})?\s*(?:[<>]=?|=|≤|≥|≠)\s*[-+*/()A-Za-z0-9]"),
 )
 
+# 排版可读性硬约束：单条详解行的散文长度上限（LaTeX 不计），以及规范解法单行散文上限。
+# 长度衡量的是“散文密度”，公式先被 strip 掉，避免合法的长块公式被误判为拥挤。
+MAX_DETAIL_LINE_LENGTH = 120
+MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH = 80
+# 考点判断/考点定位 里若把多个字段塞进同一行，就属于拥挤；这些是结构化字段标签。
+STRUCTURED_POINT_LABELS = ("题型", "章节", "考点", "难度", "考频", "突破口")
+
 SUBJECT_MAP = {
     "数学一": "数学一",
     "数学": "数学一",
@@ -215,6 +222,19 @@ def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
     return "\n".join(f"- {line}" for line in items)
 
 
+def render_markdown_block(text: str, fallback: str) -> str:
+    """保留原始 Markdown 行，不给每一行加 `- `。
+
+    规范解法里常有 `$$...$$` 块公式独立成行；如果像 render_bullet_block 那样
+    给每行都加 `- `，块公式定界符会变成 `- $$`，Obsidian 直接渲染失败。
+    这里原样保留调用方传入的多行结构（解释句 + 独立块公式），空内容才回退占位。
+    """
+    lines = split_nonempty_lines(text)
+    if not lines:
+        return f"- {fallback}"
+    return "\n".join(lines)
+
+
 def render_numbered_block(lines: Sequence[str], fallback: str) -> str:
     items = list(lines) or [fallback]
     return "\n".join(f"{index}. {line}" for index, line in enumerate(items, start=1))
@@ -285,7 +305,8 @@ def strip_latex_segments(text: str) -> str:
 
 def has_inline_display_math_text(text: str) -> Optional[str]:
     for original_line in split_nonempty_lines(text):
-        if "$$" not in original_line:
+        # 只拦“同一行里 $$...$$ 块公式与文字混排”；裸 $$ 定界行（多行块公式的开/合）放过。
+        if not DISPLAY_MATH_SEGMENT_RE.search(original_line):
             continue
         stripped_line = DISPLAY_MATH_SEGMENT_RE.sub(" ", original_line).strip()
         if stripped_line:
@@ -294,7 +315,10 @@ def has_inline_display_math_text(text: str) -> Optional[str]:
 
 
 def find_unwrapped_math_excerpt(text: str) -> Optional[str]:
-    for original_line in split_nonempty_lines(text):
+    # 先整体抹掉 $$...$$ 块公式（含跨行，DISPLAY_MATH_SEGMENT_RE 带 re.S），
+    # 这样多行块公式内部的 \int、上下标等不会被误判成“未包裹的裸公式”。
+    scrubbed = DISPLAY_MATH_SEGMENT_RE.sub(" ", text)
+    for original_line in split_nonempty_lines(scrubbed):
         stripped_line = strip_latex_segments(original_line)
         for pattern in UNWRAPPED_MATH_PATTERNS:
             if pattern.search(stripped_line):
@@ -356,6 +380,116 @@ def validate_latex_wrapping(args: argparse.Namespace, explicit_options: Sequence
         )
 
 
+def visual_len(text: str) -> int:
+    """衡量一行的“散文长度”：先去掉 LaTeX 片段再数字符。
+
+    长块公式（`\\frac`、`\\int`、反斜杠、花括号都算字符）不应被当成“拥挤”，
+    真正要拦的是把多个判断/字段塞进同一行的长散文。所以统一按 strip 掉公式
+    后的可读文本长度来量。
+    """
+    return len(strip_latex_segments(text).strip())
+
+
+def count_structured_labels(line: str) -> int:
+    """统计一行里出现了多少个结构化字段标签（题型：/章节：/...）。
+
+    半角冒号先归一化成全角，避免 `题型:` 这种写法漏检。
+    """
+    normalized = line.replace(":", "：")
+    return sum(1 for label in STRUCTURED_POINT_LABELS if f"{label}：" in normalized)
+
+
+def find_overlong_detail_line(field_name: str, text: str) -> Optional[str]:
+    for line in split_nonempty_lines(text):
+        if visual_len(line) > MAX_DETAIL_LINE_LENGTH:
+            return f"{field_name}: {line}"
+    return None
+
+
+def find_crammed_label_line(text: str) -> Optional[str]:
+    for line in split_nonempty_lines(text):
+        if count_structured_labels(line) >= 2:
+            return line
+    return None
+
+
+def validate_readable_layout(subject: str, args: argparse.Namespace) -> None:
+    """排版可读性硬约束：拒绝拥挤详解，让错题卡保持可复习。
+
+    1. 任意详解行散文超过 MAX_DETAIL_LINE_LENGTH（LaTeX 不计）→ 拒绝落盘。
+    2. 考点判断/考点定位 把 ≥2 个结构化字段塞进同一行 → 拒绝落盘。
+    3. 规范解法只有一行且散文超过 MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH
+       → 拒绝落盘，提示拆成步骤。
+    题面原文（--question）和选项不参与本校验，允许保留长原文。
+    """
+    if subject == "数学一":
+        detail_fields = [
+            ("--point-judgment", args.point_judgment),
+            ("--first-step", args.first_step),
+            ("--formal-solution", args.formal_solution),
+            ("--mistake-analysis", args.mistake_analysis),
+            ("--pitfall", args.pitfall),
+            ("--next-time", args.next_time),
+        ] + [("--check-question", q) for q in args.check_question]
+        label_fields = [("--point-judgment", args.point_judgment)]
+    elif subject == "408":
+        detail_fields = [
+            ("--point-location", args.point_location),
+            ("--breakthrough", args.breakthrough),
+            ("--option-analysis", args.option_analysis),
+            ("--dual-track", args.dual_track),
+            ("--trap", args.trap),
+            ("--knowledge-link", args.knowledge_link),
+            ("--memory-hook", args.memory_hook),
+        ] + [("--check-question", q) for q in args.check_question]
+        label_fields = [("--point-location", args.point_location)]
+    else:
+        detail_fields = [
+            ("--wrong-reason", args.wrong_reason),
+            ("--solution", args.solution),
+            ("--pitfall", args.pitfall),
+        ]
+        label_fields = []
+
+    overlong = []
+    for field_name, text in detail_fields:
+        if not text or not text.strip():
+            continue
+        excerpt = find_overlong_detail_line(field_name, text)
+        if excerpt:
+            overlong.append(excerpt)
+        if len(overlong) >= 3:
+            break
+    if overlong:
+        json_error(
+            f"详解排版过密：以下行散文超过 {MAX_DETAIL_LINE_LENGTH} 字（LaTeX 不计），"
+            "请拆成多条，每条只写一个判断/动作：" + "；".join(overlong)
+        )
+
+    for field_name, text in label_fields:
+        if not text or not text.strip():
+            continue
+        crammed = find_crammed_label_line(text)
+        if crammed:
+            json_error(
+                f"详解排版过密：{field_name} 同一行包含多个字段。请拆成多行：\n"
+                "题型：...\n章节：...\n考点：...\n难度：...\n考频：...\n突破口：...\n"
+                f"问题行：{crammed}"
+            )
+
+    if subject == "数学一":
+        formal_lines = split_nonempty_lines(args.formal_solution)
+        if (
+            len(formal_lines) == 1
+            and visual_len(formal_lines[0]) > MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH
+        ):
+            json_error(
+                "规范解法排版过密：--formal-solution 挤成一行且散文超过 "
+                f"{MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH} 字。请拆成多步：每步单独成行，"
+                "关键变形/最终结论用独立块公式 $$...$$ 单独成行。"
+            )
+
+
 def ensure_no_placeholder_tokens(card_text: str) -> None:
     remaining = [token for token in PLACEHOLDER_TOKENS if token in card_text]
     if remaining:
@@ -366,7 +500,7 @@ def build_math_detail_sections(args: argparse.Namespace) -> str:
     return (
         f"### 考点判断\n{render_bullet_block(split_nonempty_lines(args.point_judgment), '待补充')}\n\n"
         f"### 第一步怎么想到\n{render_bullet_block(split_nonempty_lines(args.first_step), '待补充')}\n\n"
-        f"### 规范解法\n{render_bullet_block(split_nonempty_lines(args.formal_solution), '待补充')}\n\n"
+        f"### 规范解法\n{render_markdown_block(args.formal_solution, '待补充')}\n\n"
         f"### 错因定位\n{render_bullet_block(split_nonempty_lines(args.mistake_analysis), '待补充')}\n\n"
         f"### 易错点\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n\n"
         f"### 下次怎么做\n{render_bullet_block(split_nonempty_lines(args.next_time), '待补充')}\n\n"
@@ -459,6 +593,7 @@ def main() -> None:
         json_error("题目不能为空")
     validate_required_detail_fields(subject, args)
     validate_latex_wrapping(args, explicit_options)
+    validate_readable_layout(subject, args)
 
     today_obj = parse_today(args.today)
     today = today_obj.isoformat()

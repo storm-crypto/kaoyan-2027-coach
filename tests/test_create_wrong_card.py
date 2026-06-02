@@ -523,3 +523,136 @@ def test_create_wrong_card_rejects_duplicate_options_double_passed(vault_root):
     assert "题面与显式选项重复" in msg
     assert "二选一" in msg
     assert "A. FCFS 总能让平均周转时间最小" in msg
+
+
+def test_create_wrong_card_rejects_dense_point_judgment(vault_root):
+    """考点判断把多个结构化字段塞进同一行 → 拒绝落盘，提示拆成多行。"""
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "拥挤考点判断",
+        "--source", "李林",
+        "--question-id", "qid-aa11bb22cc33",
+        "--question", "求该数列的极限。",
+        *required_detail_args("数学一"),
+        "--point-judgment",
+        "题型：不定积分。章节：不定积分计算。考点：分部积分。难度：中等。考频：常见。突破口：先换元。",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "排版过密" in data["message"]
+    assert "--point-judgment" in data["message"]
+
+
+def test_create_wrong_card_rejects_overlong_detail_line(vault_root):
+    """单条详解行散文过长（>120 字，LaTeX 不计）→ 拒绝落盘。"""
+    overlong = "这一步要先观察题目结构再联想可以调用的定理并逐条核对条件是否满足然后代入验证最后才能决定走哪条路" * 3
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "超长详解行",
+        "--source", "李林",
+        "--question-id", "qid-dd44ee55ff66",
+        "--question", "求该数列的极限。",
+        *required_detail_args("数学一"),
+        "--first-step", overlong,
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "排版过密" in data["message"]
+    assert "--first-step" in data["message"]
+
+
+def test_create_wrong_card_rejects_single_line_formal_solution_too_long(vault_root):
+    """规范解法挤成一行且散文过长（>80 字）→ 拒绝落盘，提示拆成步骤。"""
+    one_liner = "先换元再分部最后回代每一步的依据都要写清楚但这里把整段推导全压成了一行没有分层" * 2 + "完全没有分层很难复习"
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "规范解法挤成一行",
+        "--source", "李林",
+        "--question-id", "qid-778899aabbcc",
+        "--question", "求该数列的极限。",
+        *required_detail_args("数学一"),
+        "--formal-solution", one_liner,
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "规范解法排版过密" in data["message"]
+
+
+def test_create_wrong_card_accepts_structured_multiline_point_judgment(vault_root):
+    """逐字段分行的考点判断应通过，且每个字段单独成一条 bullet。"""
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "结构化考点判断",
+        "--source", "李林",
+        "--question-id", "qid-123abc456def",
+        "--question", "求该数列的极限。",
+        "--point-judgment",
+        "题型：反三角函数复合不定积分\n"
+        "章节：不定积分的计算\n"
+        "考点：反三角整体换元、三角恒等变形、分部积分\n"
+        "难度：中等\n"
+        "考频：常见模型\n"
+        "突破口：令 $t=\\arctan x$，把代数结构转成三角结构",
+        "--first-step", "先看结构，判断能否整体换元。",
+        "--formal-solution", "先令 $t=\\arctan x$，再分部积分。",
+        "--mistake-analysis", "容易忘记先比较换元与分部的复杂度。",
+        "--pitfall", "$\\cot^2t$ 先写成 $\\csc^2t-1$。",
+        "--next-time", "下次先判断整体换元能否约掉代数结构。",
+        "--check-question", "为什么令 $t=\\arctan x$ 后分母会约掉？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "- 题型：反三角函数复合不定积分" in content
+    assert "- 章节：不定积分的计算" in content
+    assert "- 突破口：令 $t=\\arctan x$，把代数结构转成三角结构" in content
+
+
+def test_create_wrong_card_formal_solution_preserves_block_math_without_bullets(vault_root):
+    """规范解法保留 Markdown 原文：多行块公式不被加 `- `，Obsidian 才能渲染。"""
+    formal = (
+        "先令 $t=\\arctan x$，则 $x=\\tan t$。\n"
+        "$$\n"
+        "I=\\int t\\cot^2t\\,dt.\n"
+        "$$\n"
+        "再用 $\\cot^2t=\\csc^2t-1$ 继续。"
+    )
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "块公式保留",
+        "--source", "李林",
+        "--question-id", "qid-beef0011cafe",
+        "--question", "求该数列的极限。",
+        "--point-judgment", "题型：换元降维题。",
+        "--first-step", "先看结构再换元。",
+        "--formal-solution", formal,
+        "--mistake-analysis", "把块公式塞进 bullet 会破坏渲染。",
+        "--pitfall", "块公式必须独立成行。",
+        "--next-time", "规范解法直接传多行结构。",
+        "--check-question", "为什么块公式不能被加 `- `？",
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    formal_block = extract_heading_block(content, "规范解法", level=3)
+    assert "- $$" not in formal_block
+    assert "$$\nI=\\int t\\cot^2t\\,dt.\n$$" in formal_block
+    assert "I=\\int t\\cot^2t\\,dt." in formal_block

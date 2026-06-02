@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from archive_ops import extract_heading_block
 from create_wrong_card import sanitize_tag_value
+from frontmatter import parse_frontmatter
 from helpers import run_script
 
 
@@ -132,6 +133,9 @@ def test_create_wrong_card_uses_multilevel_path_mapping_for_math1(vault_root):
     data = json.loads(out)
     card_path = Path(data["path"])
     assert card_path.is_relative_to(vault_root)
+    assert data["chapter"] == "01.03 第三节 数列极限"
+    assert data["chapter_id"] == "math1:gaoshu:01:03"
+    assert data["chapter_path"] == "高等数学/01第一章函数、极限、连续/03第三节数列极限"
     assert card_path.parent == (
         vault_root
         / "错题本"
@@ -140,9 +144,13 @@ def test_create_wrong_card_uses_multilevel_path_mapping_for_math1(vault_root):
         / "01第一章函数、极限、连续"
         / "03第三节数列极限"
     )
+    fm, _, _ = parse_frontmatter(card_path.read_text(encoding="utf-8"))
+    assert fm["chapter_id"] == "math1:gaoshu:01:03"
+    assert fm["chapter_path"] == "高等数学/01第一章函数、极限、连续/03第三节数列极限"
+    assert fm["chapter_display"] == "01.03 第三节 数列极限"
 
 
-def test_create_wrong_card_falls_back_to_single_level_when_chapter_unmapped(vault_root):
+def test_create_wrong_card_rejects_unmapped_math1_chapter(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
@@ -155,16 +163,46 @@ def test_create_wrong_card_falls_back_to_single_level_when_chapter_unmapped(vaul
         "--today", "2026-03-23",
     ])
 
+    assert rc == 1
+    data = json.loads(out)
+    assert "无法识别 数学一 章节" in data["message"]
+    assert "拒绝按原文创建目录" in data["message"]
+    assert not (vault_root / "错题本" / "数学一" / "未配置章节").exists()
+
+
+def test_create_wrong_card_accepts_math1_section_alias_without_creating_shallow_dir(vault_root):
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "05.02第二节不定积分的计算",
+        "--topic", "不定积分的计算",
+        "--source", "李林",
+        "--question-id", "qid-121212121212",
+        "--question", "求不定积分。",
+        *required_detail_args("数学一"),
+        "--today", "2026-03-23",
+    ])
+
     assert rc == 0
     data = json.loads(out)
     card_path = Path(data["path"])
-    assert card_path.parent == vault_root / "错题本" / "数学一" / "未配置章节"
+    assert data["chapter"] == "05.02 第二节 不定积分的计算"
+    assert data["chapter_id"] == "math1:gaoshu:05:02"
+    assert card_path.parent == (
+        vault_root
+        / "错题本"
+        / "数学一"
+        / "高等数学"
+        / "05第五章不定积分"
+        / "02第二节不定积分的计算"
+    )
+    assert not (vault_root / "错题本" / "数学一" / "05.02第二节不定积分的计算").exists()
 
 
 def test_create_wrong_card_reports_unknown_subject_instead_of_treating_it_as_root(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         "数学二",
-        "--chapter", "高等数学",
+        "--chapter", "二重积分",
         "--topic", "导数定义",
         "--source", "660题",
         "--question-id", "qid-99aabbccdd11",
@@ -208,7 +246,7 @@ def test_create_wrong_card_omits_legacy_option_section_for_non_choice_question(v
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "二重积分",
         "--topic", "二重积分",
         "--source", "900题",
         "--question-id", "qid-f728c5b18974",
@@ -235,7 +273,7 @@ def test_create_wrong_card_renders_math_detailed_sections(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "函数极限",
         "--topic", "中值定理",
         "--source", "660题",
         "--question-id", "qid-a1b2c3d4e5f6",
@@ -270,7 +308,7 @@ def test_create_wrong_card_respects_initial_status_without_extra_history(vault_r
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "函数极限",
         "--topic", "复合极限",
         "--source", "李林",
         "--question-id", "qid-123456abcdef",
@@ -300,7 +338,7 @@ def test_create_wrong_card_rejects_inline_display_math_in_explanation(vault_root
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "曲线凹凸性、拐点与渐近线",
         "--topic", "行内块公式风格",
         "--source", "李林",
         "--question-id", "qid-fedcba654321",
@@ -325,7 +363,7 @@ def test_create_wrong_card_allows_standalone_display_math_lines(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "函数极限",
         "--topic", "独立块公式风格",
         "--source", "李林",
         "--question-id", "qid-abcdef123456",
@@ -386,7 +424,7 @@ def test_create_wrong_card_requires_complete_math_details(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "函数单调性、极值与最值",
         "--topic", "导数应用",
         "--source", "660题",
         "--question-id", "qid-0f1e2d3c4b5a",
@@ -409,7 +447,7 @@ def test_create_wrong_card_rejects_unwrapped_math_formula(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "曲线凹凸性、拐点与渐近线",
         "--topic", "凹凸性",
         "--source", "900题",
         "--question-id", "qid-1234abcd5678",
@@ -428,7 +466,7 @@ def test_create_wrong_card_accepts_wrapped_math_formula(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "数学一",
-        "--chapter", "高等数学",
+        "--chapter", "曲线凹凸性、拐点与渐近线",
         "--topic", "凹凸性",
         "--source", "900题",
         "--question-id", "qid-8765dcba4321",

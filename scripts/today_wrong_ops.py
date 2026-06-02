@@ -205,7 +205,9 @@ def scan_today_wrong_cards(obsidian_root: Path, today: date) -> List[TodayCardIn
         if status_value not in {"不会", "半会"}:
             continue
 
-        chapter = _infer_chapter(item["path"], Path(obsidian_root))
+        chapter = str(fm.get("chapter_display", "")).strip()
+        if not chapter:
+            chapter = _infer_chapter(item["path"], Path(obsidian_root))
         try:
             rel_to_vault = item["path"].relative_to(Path(obsidian_root))
             wikilink_target = str(rel_to_vault.with_suffix(""))

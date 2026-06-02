@@ -60,7 +60,7 @@ Kaoyan_2027_Prep/
 1. 生成 `question_id`（调用 `generate_question_id.py`）
 2. 搜索已有卡片（调用 `find_card.py`）→ verdict 判断新旧：
    - `question_id` 精确匹配时跨科全库检索，避免因自动判错科目而重复建卡
-   - `new` → 调用 `create_wrong_card.py` 新建卡片到 `错题本/[科目]/[章节]/[关键词]-[来源]-[qid].md`
+   - `new` → 调用 `create_wrong_card.py` 新建卡片到规范章节目录；数学一等已配置多级目录的科目，`--chapter` 必须能解析到具体叶子章节，否则脚本会拒绝落盘
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
 3. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
@@ -139,7 +139,7 @@ Kaoyan_2027_Prep/
 | `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
-| `create_wrong_card.py` | 新建错题卡，并保留完整题面原文 | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [章节] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
+| `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |

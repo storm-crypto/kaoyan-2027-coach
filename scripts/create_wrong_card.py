@@ -54,7 +54,7 @@ from constants import (
 from env_util import atomic_write, json_error, resolve_obsidian_root
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
-from wrong_card_path_map import get_wrong_card_relative_dir
+from wrong_card_path_map import resolve_wrong_card_chapter
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
@@ -472,7 +472,12 @@ def main() -> None:
     review_interval, ease_factor = compute_initial_review_schedule(args.status)
     next_review = (today_obj + timedelta(days=review_interval)).isoformat()
 
-    relative_dir = get_wrong_card_relative_dir(subject, args.chapter)
+    try:
+        chapter_resolution = resolve_wrong_card_chapter(subject, args.chapter, strict=True)
+    except ValueError as exc:
+        json_error(str(exc))
+
+    relative_dir = chapter_resolution.relative_dir
     card_dir = Path(obsidian_root) / "错题本" / subject
     for segment in Path(relative_dir).parts:
         card_dir /= sanitize_path_segment(segment)
@@ -490,6 +495,9 @@ def main() -> None:
         "source": args.source.strip(),
         "question_id": args.question_id,
         "topic": args.topic.strip(),
+        "chapter_id": chapter_resolution.chapter_id,
+        "chapter_path": chapter_resolution.chapter_path,
+        "chapter_display": chapter_resolution.chapter_display,
         "error_tags": args.error_tag,
         "first_wrong_at": today,
         "last_review_at": today,
@@ -503,6 +511,9 @@ def main() -> None:
         "source",
         "question_id",
         "topic",
+        "chapter_id",
+        "chapter_path",
+        "chapter_display",
         "error_tags",
         "first_wrong_at",
         "last_review_at",
@@ -532,7 +543,9 @@ def main() -> None:
     print(json.dumps({
         "path": str(output_path),
         "subject": subject,
-        "chapter": sanitize_path_segment(args.chapter),
+        "chapter": chapter_resolution.chapter_display or sanitize_path_segment(args.chapter),
+        "chapter_id": chapter_resolution.chapter_id,
+        "chapter_path": chapter_resolution.chapter_path,
         "topic": args.topic.strip(),
         "question_id": args.question_id,
         "question_line_count": len(question_lines),

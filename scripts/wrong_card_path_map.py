@@ -1,8 +1,31 @@
-"""错题卡 chapter 桶到多级目录路径的映射。"""
+"""错题卡 chapter 桶到多级目录路径的规范解析。
+
+核心约束：已经配置规范多级目录的科目，不能把未知 chapter 原样落盘。
+否则一次输入变体就会生成新的浅层目录。
+"""
 
 from __future__ import annotations
 
-from typing import Dict
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+
+INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
+WHITESPACE_RE = re.compile(r"\s+")
+
+
+@dataclass(frozen=True)
+class WrongCardChapterResolution:
+    subject: str
+    input_chapter: str
+    relative_dir: str
+    chapter_path: str
+    chapter_display: str
+    chapter_id: str
+    matched_key: str
+    is_canonical: bool
 
 
 WRONG_CARD_PATH_MAP: Dict[str, Dict[str, str]] = {
@@ -80,8 +103,189 @@ WRONG_CARD_PATH_MAP: Dict[str, Dict[str, str]] = {
 
 
 def get_wrong_card_relative_dir(subject: str, chapter: str) -> str:
+    return resolve_wrong_card_chapter(subject, chapter, strict=False).relative_dir
+
+
+def resolve_wrong_card_chapter(
+    subject: str,
+    chapter: str,
+    *,
+    strict: bool = True,
+) -> WrongCardChapterResolution:
+    """把用户传入的 chapter 解析为规范目录和稳定章节字段。
+
+    strict=True 时，凡是有规范目录表的科目，未知 chapter 直接报错，避免
+    `错题本/数学一/05.02...` 这类浅层目录再次被创建。
+    """
+    chapter_key = chapter.strip()
     subject_map = WRONG_CARD_PATH_MAP.get(subject, {})
-    return subject_map.get(chapter, chapter)
+    if not subject_map:
+        return _generic_resolution(subject, chapter_key)
+
+    normalized_chapter_key = "".join(chapter_key.split())
+    alias_map = _build_alias_map(subject_map)
+    if normalized_chapter_key in alias_map:
+        matched_key, relative_dir = alias_map[normalized_chapter_key]
+        return _canonical_resolution(subject, chapter_key, relative_dir, matched_key)
+
+    if strict:
+        suggestions = suggest_wrong_card_chapters(subject, chapter_key)
+        suffix = f"。候选: {'；'.join(suggestions)}" if suggestions else ""
+        raise ValueError(f"无法识别 {subject} 章节 '{chapter_key}'，拒绝按原文创建目录{suffix}")
+
+    return _generic_resolution(subject, chapter_key)
+
+
+def suggest_wrong_card_chapters(subject: str, chapter: str, limit: int = 8) -> List[str]:
+    subject_map = WRONG_CARD_PATH_MAP.get(subject, {})
+    if not subject_map:
+        return []
+
+    query = "".join(chapter.strip().split()).lower()
+    candidates = []
+    seen = set()
+    for key, relative_dir in subject_map.items():
+        display = _chapter_display_from_relative_dir(relative_dir)
+        aliases = _aliases_for_entry(key, relative_dir)
+        haystack = " ".join(aliases).lower()
+        score = 0
+        if query and query in haystack:
+            score += 4
+        if query and any(token and token in haystack for token in re.split(r"[.\s]+", query)):
+            score += 1
+        if score <= 0:
+            continue
+        if display in seen:
+            continue
+        seen.add(display)
+        candidates.append((score, display))
+
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    if not candidates:
+        for _, relative_dir in list(subject_map.items())[:limit]:
+            display = _chapter_display_from_relative_dir(relative_dir)
+            if display not in seen:
+                seen.add(display)
+                candidates.append((0, display))
+    return [display for _, display in candidates[:limit]]
+
+
+def _generic_resolution(subject: str, chapter: str) -> WrongCardChapterResolution:
+    chapter = chapter.strip()
+    return WrongCardChapterResolution(
+        subject=subject,
+        input_chapter=chapter,
+        relative_dir=chapter,
+        chapter_path=_materialized_relative_dir(chapter),
+        chapter_display=chapter,
+        chapter_id="",
+        matched_key=chapter,
+        is_canonical=False,
+    )
+
+
+def _canonical_resolution(
+    subject: str,
+    chapter: str,
+    relative_dir: str,
+    matched_key: str,
+) -> WrongCardChapterResolution:
+    return WrongCardChapterResolution(
+        subject=subject,
+        input_chapter=chapter,
+        relative_dir=relative_dir,
+        chapter_path=_materialized_relative_dir(relative_dir),
+        chapter_display=_chapter_display_from_relative_dir(relative_dir),
+        chapter_id=_chapter_id_from_relative_dir(subject, relative_dir),
+        matched_key=matched_key,
+        is_canonical=True,
+    )
+
+
+def _build_alias_map(subject_map: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
+    alias_map: Dict[str, Tuple[str, str]] = {}
+    for key, relative_dir in subject_map.items():
+        for alias in _aliases_for_entry(key, relative_dir):
+            normalized = "".join(alias.strip().split())
+            if normalized:
+                alias_map.setdefault(normalized, (key, relative_dir))
+    return alias_map
+
+
+def _aliases_for_entry(key: str, relative_dir: str) -> List[str]:
+    parts = list(Path(relative_dir).parts)
+    aliases = [key, relative_dir, _materialized_relative_dir(relative_dir)]
+    if parts:
+        leaf = parts[-1].strip()
+        leaf_without_num = re.sub(r"^\d{1,3}\s*", "", leaf).strip()
+        leaf_without_section = _strip_section_prefix(leaf_without_num)
+        aliases.extend([leaf, leaf_without_num, leaf_without_section])
+        chapter_num = _leading_number(parts[-2]) if len(parts) >= 2 else None
+        section_num = _leading_number(leaf)
+        if chapter_num and section_num:
+            aliases.append(f"{chapter_num}.{section_num} {leaf_without_num}")
+            aliases.append(f"{chapter_num}.{section_num}{leaf_without_num}")
+            aliases.append(f"{chapter_num}.{section_num} {leaf_without_section}")
+            aliases.append(f"{chapter_num}.{section_num}{leaf_without_section}")
+    return aliases
+
+
+def _leading_number(text: str) -> Optional[str]:
+    match = re.match(r"\s*(\d{1,3})", text)
+    return match.group(1).zfill(2) if match else None
+
+
+def _chapter_display_from_relative_dir(relative_dir: str) -> str:
+    parts = list(Path(relative_dir).parts)
+    if not parts:
+        return ""
+    leaf = parts[-1].strip()
+    leaf_without_num = re.sub(r"^\d{1,3}\s*", "", leaf).strip()
+    chapter_num = _leading_number(parts[-2]) if len(parts) >= 2 else None
+    section_num = _leading_number(leaf)
+    if chapter_num and section_num:
+        return f"{chapter_num}.{section_num} {leaf_without_num}"
+    return leaf_without_num or leaf
+
+
+def _strip_section_prefix(text: str) -> str:
+    return re.sub(r"^第[一二三四五六七八九十百零〇0-9]+节\s*", "", text).strip()
+
+
+def _chapter_id_from_relative_dir(subject: str, relative_dir: str) -> str:
+    subject_slug = {
+        "数学一": "math1",
+        "408": "408",
+        "政治": "politics",
+        "英语一": "english1",
+    }.get(subject, subject)
+    parts = list(Path(relative_dir).parts)
+    subgroup = parts[0] if parts else ""
+    subgroup_slug = {
+        "高等数学": "gaoshu",
+        "线性代数": "linear",
+        "概率论与数理统计": "probability",
+    }.get(subgroup, _safe_id_segment(subgroup))
+    numbers = [_leading_number(part) for part in parts[1:]]
+    number_parts = [number for number in numbers if number]
+    return ":".join([subject_slug, subgroup_slug, *number_parts])
+
+
+def _safe_id_segment(text: str) -> str:
+    value = INVALID_PATH_CHARS_RE.sub("-", text.strip())
+    value = WHITESPACE_RE.sub("-", value).strip("-")
+    return value or "unknown"
+
+
+def _materialized_relative_dir(relative_dir: str) -> str:
+    return "/".join(_sanitize_path_segment(part) for part in Path(relative_dir).parts)
+
+
+def _sanitize_path_segment(text: str) -> str:
+    value = INVALID_PATH_CHARS_RE.sub("-", text.strip())
+    value = WHITESPACE_RE.sub("", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-.")
+    return value or "未命名"
 
 
 # 旧通用考点桶名 -> 数学一知识地图的新李林叶子行名。

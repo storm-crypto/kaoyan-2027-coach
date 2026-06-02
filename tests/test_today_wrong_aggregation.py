@@ -253,6 +253,55 @@ def test_log_progress_no_today_wrong_omits_section(vault_root):
     assert "## 今日错题归档" not in log_text
 
 
+def test_log_progress_prefers_chapter_display_frontmatter(vault_root):
+    today = "2026-05-14"
+    _write_card(
+        vault_root,
+        "数学一",
+        "高等数学/05第五章不定积分/02第二节不定积分的计算",
+        "不定积分-李林-qid-eeee99990000.md",
+        f"""\
+        ---
+        source: 李林
+        question_id: qid-eeee99990000
+        topic: 不定积分的计算
+        chapter_id: math1:gaoshu:05:02
+        chapter_path: 高等数学/05第五章不定积分/02第二节不定积分的计算
+        chapter_display: 05.02 第二节 不定积分的计算
+        error_tags: []
+        first_wrong_at: {today}
+        last_review_at: {today}
+        wrong_count: 1
+        status: 不会
+        next_review: 2026-05-15
+        review_interval: 1
+        ease_factor: 2.50
+        ---
+
+        #subject/math1 #topic/不定积分 #status/不会 #source/李林
+
+        ## 不定积分 — 李林 — qid-eeee99990000
+
+        ### 下次怎么做
+        - 先判断被积函数是否可由某个乘积导数反推
+
+        ### 历史记录
+        - {today} - 不会 - 首次
+        """,
+    )
+
+    rc, _, _ = run_script("log_progress.py", [
+        str(vault_root),
+        "--date", today,
+        "--topic", "测试章节展示名",
+    ])
+
+    assert rc == 0
+    log_text = log_path(vault_root, today).read_text(encoding="utf-8")
+    assert "### 数学一·05.02 第二节 不定积分的计算（1 道）" in log_text
+    assert "### 数学一·02第二节不定积分的计算" not in log_text
+
+
 def test_log_progress_today_wrong_section_overwrites_on_rerun(vault_root):
     """同一天多次 /progress 时，今日错题区块应是当前快照而非合并。"""
     today = "2026-05-14"

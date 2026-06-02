@@ -61,6 +61,8 @@ INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
 WHITESPACE_RE = re.compile(r"\s+")
 LATEX_SEGMENT_RE = re.compile(r"\$\$.*?\$\$|\$(?!\$).*?(?<!\$)\$", re.S)
 DISPLAY_MATH_SEGMENT_RE = re.compile(r"\$\$.*?\$\$", re.S)
+INLINE_MATH_SEGMENT_RE = re.compile(r"\$[^$]+\$")
+DISPLAY_BLOCK_DELIM = "$$"
 TAG_VALUE_MAX_LENGTH = 32
 PLACEHOLDER_TOKENS = ("待补充", "待补题干")
 UNWRAPPED_MATH_PATTERNS = (
@@ -77,6 +79,10 @@ UNWRAPPED_MATH_PATTERNS = (
 # 长度衡量的是“散文密度”，公式先被 strip 掉，避免合法的长块公式被误判为拥挤。
 MAX_DETAIL_LINE_LENGTH = 120
 MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH = 80
+# 规范解法挤成一行时的「行内公式墙」阈值：散文 strip 掉 LaTeX 后量不出来，
+# 所以另按「一行里连排多少段行内 $...$」和「单行 raw 字数」来兜。
+MAX_FORMAL_INLINE_SEGMENTS_PER_LINE = 3
+MAX_SINGLE_LINE_FORMAL_RAW_LENGTH = 140
 # 考点判断/考点定位 里若把多个字段塞进同一行，就属于拥挤；这些是结构化字段标签。
 STRUCTURED_POINT_LABELS = ("题型", "章节", "考点", "难度", "考频", "突破口")
 
@@ -223,16 +229,43 @@ def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
 
 
 def render_markdown_block(text: str, fallback: str) -> str:
-    """保留原始 Markdown 行，不给每一行加 `- `。
+    """把规范解法规整成「疏朗」版式：块单元之间留恰好一个空行。
 
-    规范解法里常有 `$$...$$` 块公式独立成行；如果像 render_bullet_block 那样
-    给每行都加 `- `，块公式定界符会变成 `- $$`，Obsidian 直接渲染失败。
-    这里原样保留调用方传入的多行结构（解释句 + 独立块公式），空内容才回退占位。
+    块单元 = 一段 `$$...$$` 块公式（可跨多行，内部保持单 `\\n` 连续，MathJax/Obsidian
+    才认 display），或块外一行非空文字。模型传入的空行先统一丢弃，再在单元之间重新
+    插入恰好一个空行——这样无论模型写得紧还是松，落盘都是同一套可扫读版式，且 `$$`
+    块前后必有空行。否则 Obsidian 会把步骤行和块公式挤成一坨、`$$` 也得不到 display 间距。
+
+    单行 `$$...$$`（定界与公式同一行）当普通文字单元原样保留。`$$` 不成对（块未闭合）
+    时保守降级：按原非空行单 `\\n` 拼接，绝不臆造闭合或丢内容。空内容才回退占位。
     """
-    lines = split_nonempty_lines(text)
-    if not lines:
+    units: List[str] = []
+    block_buf: List[str] = []
+    in_block = False
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if stripped == DISPLAY_BLOCK_DELIM:
+            if in_block:
+                block_buf.append(DISPLAY_BLOCK_DELIM)
+                units.append("\n".join(block_buf))
+                block_buf = []
+                in_block = False
+            else:
+                block_buf = [DISPLAY_BLOCK_DELIM]
+                in_block = True
+            continue
+        if in_block:
+            if stripped:
+                block_buf.append(stripped)
+            continue
+        if stripped:
+            units.append(stripped)
+    if in_block:  # `$$` 未闭合：放弃疏朗重排，保守拼接，不损坏内容
+        lines = split_nonempty_lines(text)
+        return "\n".join(lines) if lines else f"- {fallback}"
+    if not units:
         return f"- {fallback}"
-    return "\n".join(lines)
+    return "\n\n".join(units)
 
 
 def render_numbered_block(lines: Sequence[str], fallback: str) -> str:
@@ -390,6 +423,16 @@ def visual_len(text: str) -> int:
     return len(strip_latex_segments(text).strip())
 
 
+def count_inline_math_segments(line: str) -> int:
+    """数一行里有多少段行内 `$...$`（先抹掉 `$$...$$` 块，避免误算块公式里的 `$`）。
+
+    用于识别「行内公式墙」：把整段推导写成一行连排的 `$...$`，散文密度量不出来，
+    但段数能暴露它该被拆成多步、关键变形该用独立块公式。
+    """
+    scrubbed = DISPLAY_MATH_SEGMENT_RE.sub(" ", line)
+    return len(INLINE_MATH_SEGMENT_RE.findall(scrubbed))
+
+
 def count_structured_labels(line: str) -> int:
     """统计一行里出现了多少个结构化字段标签（题型：/章节：/...）。
 
@@ -479,15 +522,21 @@ def validate_readable_layout(subject: str, args: argparse.Namespace) -> None:
 
     if subject == "数学一":
         formal_lines = split_nonempty_lines(args.formal_solution)
-        if (
-            len(formal_lines) == 1
-            and visual_len(formal_lines[0]) > MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH
-        ):
-            json_error(
-                "规范解法排版过密：--formal-solution 挤成一行且散文超过 "
-                f"{MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH} 字。请拆成多步：每步单独成行，"
-                "关键变形/最终结论用独立块公式 $$...$$ 单独成行。"
+        if len(formal_lines) == 1:
+            line = formal_lines[0]
+            prose_wall = visual_len(line) > MAX_SINGLE_LINE_FORMAL_SOLUTION_LENGTH
+            # 行内公式墙：整行没有独立块公式，却把多段行内 $...$ 连排成一长行
+            # （或单段巨型行内公式）。散文密度量不出来，靠段数 / raw 长度兜。
+            inline_wall = DISPLAY_MATH_SEGMENT_RE.search(line) is None and (
+                count_inline_math_segments(line) >= MAX_FORMAL_INLINE_SEGMENTS_PER_LINE
+                or len(line) > MAX_SINGLE_LINE_FORMAL_RAW_LENGTH
             )
+            if prose_wall or inline_wall:
+                json_error(
+                    "规范解法排版过密：--formal-solution 挤成一行。请拆成多步——"
+                    "每步单独成行，关键变形/最终结论用独立成行的块公式 $$...$$，"
+                    "不要把整段推导写成一行连排的行内 $...$。"
+                )
 
 
 def ensure_no_placeholder_tokens(card_text: str) -> None:

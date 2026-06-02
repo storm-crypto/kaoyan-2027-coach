@@ -187,3 +187,55 @@ def test_overlong_prose_flagged_not_split(vault_root):
     review = data["overlong_manual_review"]
     assert len(review) == 1
     assert review[0]["flags"][0]["section"] == "第一步怎么想到"
+
+
+INLINE_WALL_CARD = """---
+source: 李林
+question_id: qid-aa11bb22cc33
+topic: 行内公式墙
+status: 不会
+---
+
+#subject/math1 #topic/行内公式墙 #status/不会 #source/李林
+
+## 行内公式墙 — 李林 — qid-aa11bb22cc33
+
+### 题目
+- 求该积分。
+
+### 规范解法
+取 $u=\\arctan\\sqrt{e^x-1}$，$dv=e^{2x}dx$，则 $v=\\frac{1}{2}e^{2x}$。设 $y=\\sqrt{e^x-1}$，则 $y'=\\frac{e^x}{2\\sqrt{e^x-1}}$，且 $1+y^2=e^x$，所以 $u'=\\frac{1}{2\\sqrt{e^x-1}}$。
+
+### 历史记录
+- 2026-06-02 - 不会 - 首次
+"""
+
+
+def test_inline_math_wall_flagged_not_changed(vault_root):
+    """规范解法挤成一行连排多段行内 $...$ → 单列 inline_wall_manual_review，文件不动。"""
+    card = _write_card(vault_root, "行内墙-李林-qid-aa11bb22cc33.md", INLINE_WALL_CARD)
+    before = card.read_text(encoding="utf-8")
+
+    rc, out, _ = run_script("migrate_wrong_card_layout.py", [str(vault_root)])
+
+    assert rc == 0
+    data = json.loads(out)
+    # 无法安全自动拆 → 只报告，不改写
+    assert data["summary"]["changed_count"] == 0
+    assert card.read_text(encoding="utf-8") == before
+    review = data["inline_wall_manual_review"]
+    assert len(review) == 1
+    assert review[0]["flags"][0]["section"] == "规范解法"
+    assert data["summary"]["inline_wall_count"] == 1
+
+
+def test_multistep_formal_solution_not_flagged_as_inline_wall(vault_root):
+    """分步、短设定行、块公式独立成行的规范解法不应被误报为行内公式墙。"""
+    card = _write_card(vault_root, "块公式-李林-qid-aabbccdd1122.md", BROKEN_BLOCK_MATH_CARD)
+
+    rc, out, _ = run_script("migrate_wrong_card_layout.py", [str(vault_root), "--apply"])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert data["summary"]["inline_wall_count"] == 0
+    assert data["inline_wall_manual_review"] == []

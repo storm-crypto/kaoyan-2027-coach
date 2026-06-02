@@ -14,11 +14,13 @@
 
 只报告不改（语义拆分不安全，分析明确警告别按句号机械拆）：
 - 任意详解小节里散文 > MAX_DETAIL_LINE_LENGTH 字的 bullet → 列出路径+小节+摘要，供人工处理
+- `规范解法` 里挤成一行连排多段行内 $...$ 的「行内公式墙」→ 单列 inline_wall_manual_review，
+  提示经教练重新归档（无法安全自动拆分，绝不机械切句）
 
 安全边界：
 - 永不触碰 YAML frontmatter / `### 题目` / `### 历史记录`
 - 幂等：已经规范的卡再跑一次不产生改动
-- 输出 JSON 报告 {applied, cards_scanned, changed, overlong_manual_review, skipped, summary}
+- 输出 JSON 报告 {applied, cards_scanned, changed, overlong_manual_review, inline_wall_manual_review, skipped, summary}
 """
 import argparse
 import json
@@ -28,7 +30,10 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from create_wrong_card import (
     MAX_DETAIL_LINE_LENGTH,
+    MAX_FORMAL_INLINE_SEGMENTS_PER_LINE,
+    MAX_SINGLE_LINE_FORMAL_RAW_LENGTH,
     STRUCTURED_POINT_LABELS,
+    count_inline_math_segments,
     count_structured_labels,
     visual_len,
 )
@@ -38,6 +43,8 @@ from env_util import atomic_write, is_icloud_placeholder, json_error, resolve_ob
 LABEL_SPLIT_SECTIONS = ("考点判断", "考点定位")
 # 修复 `- $$` 块公式破损的小节
 FORMULA_UNWRAP_SECTIONS = ("规范解法",)
+# 只报告「行内公式墙」的小节（无法安全自动拆，提示人工/教练重排）
+INLINE_WALL_REPORT_SECTIONS = ("规范解法",)
 # 只报告超长散文行的小节（数学一 + 408 详解小节）
 OVERLONG_REPORT_SECTIONS = (
     "考点判断", "第一步怎么想到", "规范解法", "错因定位", "易错点", "下次怎么做",
@@ -165,9 +172,41 @@ def find_overlong_bullets(block: str) -> List[str]:
     return flags
 
 
+def find_inline_wall_lines(block: str) -> List[str]:
+    """报告挤成一行连排多段行内 $...$ 的「行内公式墙」（只报告，不改写）。
+
+    跟踪 `$$` 块状态，只看块外文字行（去掉可能的 `- ` 旧前缀）。判墙要同时满足
+    「≥3 段行内 $...$」且「raw 长度 > MAX_SINGLE_LINE_FORMAL_RAW_LENGTH」——长度门槛
+    把正常的「取 $u$，$dv$，则 $v$」这类短设定行排除，只盯真正塞满整段推导的长行。
+    语义切分不安全，所以列入人工复核、提示经教练重排，绝不机械按句号拆。
+    """
+    flags: List[str] = []
+    in_block = False
+    for line in block.split("\n"):
+        if DISPLAY_DELIM_RE.match(line):
+            in_block = not in_block
+            continue
+        if in_block:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
+        if (
+            count_inline_math_segments(stripped) >= MAX_FORMAL_INLINE_SEGMENTS_PER_LINE
+            and len(stripped) > MAX_SINGLE_LINE_FORMAL_RAW_LENGTH
+        ):
+            flags.append(stripped[:50] + ("…" if len(stripped) > 50 else ""))
+    return flags
+
+
 def migrate_card(text: str) -> Tuple[str, Dict]:
-    """返回 (new_text, report)。report 含 label_splits / formula_unwraps / overlong_flags。"""
-    report: Dict = {"label_splits": [], "formula_unwraps": [], "overlong_flags": []}
+    """返回 (new_text, report)。report 含 label_splits / formula_unwraps / overlong_flags / inline_wall_flags。"""
+    report: Dict = {
+        "label_splits": [],
+        "formula_unwraps": [],
+        "overlong_flags": [],
+        "inline_wall_flags": [],
+    }
     new_text = text
     for heading in LABEL_SPLIT_SECTIONS:
         new_text, changed = rewrite_section(new_text, heading, transform_label_section)
@@ -183,6 +222,12 @@ def migrate_card(text: str) -> Tuple[str, Dict]:
             continue
         for excerpt in find_overlong_bullets(body):
             report["overlong_flags"].append({"section": heading, "excerpt": excerpt})
+    for heading in INLINE_WALL_REPORT_SECTIONS:
+        body = section_body(new_text, heading)
+        if body is None:
+            continue
+        for excerpt in find_inline_wall_lines(body):
+            report["inline_wall_flags"].append({"section": heading, "excerpt": excerpt})
     return new_text, report
 
 
@@ -199,6 +244,7 @@ def main() -> None:
     cards_root = obsidian_root / "错题本"
     changed_files: List[Dict] = []
     overlong_files: List[Dict] = []
+    inline_wall_files: List[Dict] = []
     skipped: List[Dict] = []
     scanned = 0
 
@@ -221,16 +267,20 @@ def main() -> None:
                 })
             if report["overlong_flags"]:
                 overlong_files.append({"path": rel, "flags": report["overlong_flags"]})
+            if report["inline_wall_flags"]:
+                inline_wall_files.append({"path": rel, "flags": report["inline_wall_flags"]})
 
     print(json.dumps({
         "applied": args.apply,
         "cards_scanned": scanned,
         "changed": changed_files,
         "overlong_manual_review": overlong_files,
+        "inline_wall_manual_review": inline_wall_files,
         "skipped": skipped,
         "summary": {
             "changed_count": len(changed_files),
             "overlong_count": sum(len(f["flags"]) for f in overlong_files),
+            "inline_wall_count": sum(len(f["flags"]) for f in inline_wall_files),
             "skipped_count": len(skipped),
         },
     }, ensure_ascii=False, indent=2))

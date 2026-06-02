@@ -656,3 +656,98 @@ def test_create_wrong_card_formal_solution_preserves_block_math_without_bullets(
     assert "- $$" not in formal_block
     assert "$$\nI=\\int t\\cot^2t\\,dt.\n$$" in formal_block
     assert "I=\\int t\\cot^2t\\,dt." in formal_block
+
+
+def test_create_wrong_card_formal_solution_airy_layout(vault_root):
+    """规范解法落盘即疏朗：紧凑多行输入 → 每步/每段块公式之间补恰好一个空行。"""
+    formal = (
+        "取 $u=\\arctan\\sqrt{e^x-1}$，则 $v=\\tfrac12 e^{2x}$。\n"
+        "$$\n"
+        "I=\\tfrac12 e^{2x}\\arctan\\sqrt{e^x-1}.\n"
+        "$$\n"
+        "令 $t=\\sqrt{e^x-1}$。\n"
+        "$$\n"
+        "\\int=\\tfrac23 t^3+2t.\n"
+        "$$\n"
+        "回代即得最终结果。"
+    )
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "疏朗版式",
+        "--source", "李林",
+        "--question-id", "qid-aaaa11112222",
+        "--question", "求该积分。",
+        *required_detail_args("数学一"),
+        "--formal-solution", formal,
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    formal_block = extract_heading_block(content, "规范解法", level=3)
+    # 块公式前后必有空行；步骤之间也有空行；但块内部仍单 \n 连续
+    assert "。\n\n$$" in formal_block
+    assert "$$\n\n令 $t=\\sqrt{e^x-1}$。" in formal_block
+    assert "$$\n\n回代即得最终结果。" in formal_block
+    assert "$$\nI=\\tfrac12 e^{2x}\\arctan\\sqrt{e^x-1}.\n$$" in formal_block
+    # 不出现三连空行
+    assert "\n\n\n" not in formal_block
+
+
+def test_create_wrong_card_formal_solution_spacing_idempotent(vault_root):
+    """模型已按疏朗风格留了空行：脚本归一为恰好单空行，不叠成三连空行。"""
+    formal = (
+        "先令 $t=\\arctan x$。\n"
+        "\n"
+        "$$\n"
+        "I=\\int t\\cot^2t\\,dt.\n"
+        "$$\n"
+        "\n"
+        "再用恒等式收口。"
+    )
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "空行归一",
+        "--source", "李林",
+        "--question-id", "qid-bbbb33334444",
+        "--question", "求该积分。",
+        *required_detail_args("数学一"),
+        "--formal-solution", formal,
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 0
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    formal_block = extract_heading_block(content, "规范解法", level=3)
+    assert "\n\n\n" not in formal_block
+    assert "先令 $t=\\arctan x$。\n\n$$" in formal_block
+    assert "$$\n\n再用恒等式收口。" in formal_block
+
+
+def test_create_wrong_card_rejects_inline_math_wall_formal_solution(vault_root):
+    """规范解法挤成一行连排多段行内 $...$（行内公式墙）→ 拒绝落盘，提示拆步骤。"""
+    wall = (
+        "取 $u=\\arctan\\sqrt{e^x-1}$，$dv=e^{2x}dx$，则 $v=\\frac{1}{2}e^{2x}$。"
+        "设 $y=\\sqrt{e^x-1}$，则 $1+y^2=e^x$，所以 $u'=\\frac{1}{2\\sqrt{e^x-1}}$。"
+    )
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "数学一",
+        "--chapter", "数列极限",
+        "--topic", "行内公式墙",
+        "--source", "李林",
+        "--question-id", "qid-cccc55556666",
+        "--question", "求该积分。",
+        *required_detail_args("数学一"),
+        "--formal-solution", wall,
+        "--today", "2026-03-23",
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert "规范解法排版过密" in data["message"]
+    assert "行内" in data["message"]

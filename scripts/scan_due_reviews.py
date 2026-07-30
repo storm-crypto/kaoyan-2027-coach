@@ -2,8 +2,12 @@
 """扫描错题本，返回今日到期的待复习错题（JSON）。
 同时对超期 7 天以上的卡片自动将 review_interval 重置为 1。
 
-用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--plain]
+用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--plain] [--by-cluster]
       环境变量 KAOYAN_OBSIDIAN_ROOT 可替代 CLI 参数
+
+--by-cluster: 额外返回 `clusters` 字段，把到期卡按 `错题本/_元技能索引.json` 的元技能簇
+分组，并按「每小时能清掉几张到期卡」降序排。到期量大时（> 30 道）应优先用这个视图，
+逐卡线性过 300 道赶不上考试。`due` 字段始终保留，向后兼容。
 """
 import argparse
 import json
@@ -15,6 +19,7 @@ from constants import SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
 from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
 from latex_to_unicode import latex_to_unicode
+from metaskill_index import group_due_by_cluster, load_index
 from study_ops import iter_review_cards, parse_today
 
 from constants import QUESTION_PREVIEW_LINE_LIMIT
@@ -62,6 +67,8 @@ def main() -> None:
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     parser.add_argument("--plain", action="store_true",
                         help="将 LaTeX 公式转为 Unicode 可读文本（适用于 CLI 环境）")
+    parser.add_argument("--by-cluster", dest="by_cluster", action="store_true",
+                        help="额外按元技能簇分组并按每小时清卡数排序")
     args = parser.parse_args()
 
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
@@ -115,6 +122,16 @@ def main() -> None:
 
     due.sort(key=lambda x: (x["review_interval"], x["subject"]))
     result = {"due": due, "degraded": degraded}
+    if args.by_cluster:
+        index = load_index(obsidian_root)
+        if index.get("clusters"):
+            result["clusters"] = group_due_by_cluster(due, index)
+        else:
+            result["clusters"] = []
+            result["cluster_warning"] = (
+                "未找到 错题本/_元技能索引.json，已退化为扁平模式；"
+                "先建索引再用 --by-cluster"
+            )
     if icloud_warnings:
         result["icloud_placeholders"] = icloud_warnings
     print(json.dumps(result, ensure_ascii=False, indent=2))

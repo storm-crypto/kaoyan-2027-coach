@@ -64,8 +64,14 @@ Kaoyan_2027_Prep/
      - **拒绝落盘的恢复闭环**：读取返回 JSON 的 `message`，其中 `候选: A；B；C` 列出最接近的叶子章节；从中挑与本题考点匹配的一项作为新的 `--chapter` 原样重试（别名容错，带不带序号/空格都能命中）。**禁止**为绕过报错而手动新建浅层目录或改用泛化章节名
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
-3. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
-4. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
+3. **推送相关题目**（调用 `find_related_cards.py --question-id [qid] --write`）：
+   - 建卡/更新卡完成后立即执行，把同元技能的兄弟卡以 wikilink 写进卡片的 `### 相关题目` 区块
+   - 新卡走 `predict` 模式（按考点词元 + 同叶子章节 + 题面结构相似度打分），返回的 `suggest_cluster` 是它最该加入的元技能簇
+   - **拿到 `suggest_cluster` 后，要把新卡的 qid 追加进 `错题本/_元技能索引.json` 对应簇的 `qids` 数组**，索引才不会随时间腐烂；若 `suggest_cluster` 为 null 或明显不匹配，就新开一个簇（id 沿用 `mNN-XX` 命名）
+   - 在对话里也要把相关题列给用户，一句话说明「同簇是因为同一个动作」，方便顺着链接连做一串
+   - 只写单向链接即可，Obsidian 的反向链接面板会自动在被指向的卡上显示来源
+4. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
+5. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
 
@@ -149,12 +155,13 @@ Kaoyan_2027_Prep/
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
-| `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本 | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain]` |
+| `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
+| `find_related_cards.py` | 查同元技能的相关题并回写 `### 相关题目` wikilink。数据源是 `错题本/_元技能索引.json`；qid 已在索引里走 `lookup`（同簇兄弟，不足 2 张时按 family 扩一跳），不在索引里走 `predict`（考点词元 + 同叶子章节 + 题面相似度加权，并给出 `suggest_cluster`）。刻意不使用 `error_tags`（该字段在本库 300 张卡上有 539 个标签、529 个只出现一次，无判别力）。写入幂等 | `python3 scripts/find_related_cards.py [$OBSIDIAN_ROOT] --question-id [qid] [--topic 考点] [--chapter 章节] [--question 题面] [--limit 4] [--write] [--backfill] [--dry-run]` |
 | `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
-| `build_daily_plan.py` | 生成今日计划 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
+| `build_daily_plan.py` | 生成今日计划；复习时段默认按元技能簇成串排（索引缺失时退化为 interval 最小的 10 道并注明原因） | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长]` |
 | `build_weekly_plan.py` | 生成周计划；可用 `--textbook` 注入「本周教材进度目标」行，并保留已存在的教材行 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
 | `update_textbook_progress.py` | 更新本周计划里某本教材的「当前」进度页码 | `python3 scripts/update_textbook_progress.py [$OBSIDIAN_ROOT] --textbook 教材 --current pXX` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
@@ -343,7 +350,8 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/plan_today [可用时长]` — 今日计划
 
 1. 运行 `build_daily_plan.py` 生成今日计划；脚本内部会读取聚焦问题并筛出到期错题
-2. 到期 > 10 道时取 interval 最小的 10 道
+2. **复习时段默认按元技能成串排**：脚本读 `错题本/_元技能索引.json`，挑效率最高的 1-3 个簇，每簇一条任务，标题就是那句「看到 X → 做 Y」。宁可略超 10 张也不拆开一个簇 —— 拆开就退化成逐卡复习，失去「同一动作换不同外衣」的检验作用
+3. 索引缺失时自动退化为「取 interval 最小的 10 道」，并在任务说明里注明原因，不静默降级
 3. 复习任务排在每个科目时段开头；无到期错题时提醒专注新内容
 4. 脚本会读取本周计划文件里的「本周教材进度目标」表，按 `(终点 - 当前) ÷ 剩余天数(含今日)` 渲染今日教材任务；本周计划缺该区块或表为空时跳过
 5. 结尾提醒 `/progress` 归档
@@ -423,6 +431,15 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 ### `/review` — 间隔复习
 
 在 Codex、Antigravity 等 CLI/对话框环境中，运行 `scan_due_reviews.py --plain`，优先展示适合聊天阅读的可读公式版 `题目`；如果是旧卡，历史 `选项（如有）` 会兼容拼回预览；Obsidian 卡片中仍保留原始 LaTeX。然后按科目分组显示到期卡 → 用户逐题回答 → `update_card.py` 更新卡片 + `update_knowledge_map.py` 回写。即使本次复习"会"了，也要调用 `update_knowledge_map.py`（不带 `--finding-add` 即可），脚本会自动扫描所有 qid 对应错题卡，把 `review_interval` ≥ 14 天的备注条目划掉
+
+**到期量大时（> 30 道）必须加 `--by-cluster`，按元技能成串复习，禁止逐题线性过：**
+
+- `scan_due_reviews.py --plain --by-cluster` 会返回 `clusters` 字段：到期卡已按 `错题本/_元技能索引.json` 分好组，并按「每小时能清掉几张到期卡」降序排好。**直接取前 1-2 个簇，不要自己手工归类**
+- 一次只攻一个簇：先把该簇的 `skill`（那句「看到 X → 做 Y」）念给用户，**让他先别看卡**，再连做该簇全部题 —— 同一个动作换不同外衣，这才是检验迁移
+- 一簇过完后统一调 `update_card.py`：簇内做对的升级，仍卡住的留 `不会` 并补一条 `--finding-add`
+- `landmark: true` 的簇是档案反复点名的标杆弱项，排序已加权 1.6 倍，优先攻
+- `cluster_id` 为 `unclustered` 的桶排在最后，它提示这些卡还没并入索引，应在本次复习后补进 `_元技能索引.json`
+- 理由：逐卡复习 N 张要 N 次检索且只学到 N 道题的解法；按簇一次检索就拿到一个可迁移决策。考场上的题一定不在错题本里，只有决策能迁移
 
 ### `/recap [week|month]` — 周/月复盘
 

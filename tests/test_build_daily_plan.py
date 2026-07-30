@@ -60,6 +60,30 @@ def test_build_daily_plan_caps_due_selection(sample_archive, vault_root):
     assert data["due_selected"] == 10
 
 
+def test_build_daily_plan_write_lands_markdown(sample_archive, vault_root):
+    _make_due_card(vault_root, "数学一", "math-1.md", "2026-03-23", interval=1)
+
+    rc, out, _ = run_script("build_daily_plan.py", [
+        str(vault_root), "4", "--today", "2026-03-23", "--write"
+    ])
+
+    assert rc == 0
+    data = json.loads(out)
+    plan_file = vault_root / "周计划" / "_今日计划.md"
+    assert data["plan_path"] == str(plan_file)
+    assert plan_file.read_text(encoding="utf-8") == data["markdown"]
+
+
+def test_build_daily_plan_without_write_leaves_no_file(sample_archive, vault_root):
+    rc, out, _ = run_script("build_daily_plan.py", [
+        str(vault_root), "4", "--today", "2026-03-23"
+    ])
+
+    assert rc == 0
+    assert json.loads(out)["plan_path"] is None
+    assert not (vault_root / "周计划" / "_今日计划.md").exists()
+
+
 def test_build_daily_plan_due_only_tiebreak_uses_plan_order(vault_root):
     archive = vault_root / "我的学习者档案.md"
     archive.write_text(textwrap.dedent("""\

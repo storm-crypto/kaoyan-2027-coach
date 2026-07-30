@@ -19,9 +19,10 @@ from constants import (
     DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS,
     DAILY_PLAN_PRIMARY_SUBJECT_SHARE,
     DAILY_PLAN_PROGRESS_WRAPUP_MINUTES,
+    DAILY_PLAN_RELATIVE_PATH,
     DAILY_PLAN_REVIEW_HOURS_RATIO,
 )
-from env_util import json_error, resolve_obsidian_root, split_optional_root_and_value
+from env_util import atomic_write, json_error, resolve_obsidian_root, split_optional_root_and_value
 from metaskill_index import (
     dominant_subject,
     group_due_by_cluster,
@@ -44,14 +45,16 @@ class PlanTask(TypedDict):
     detail: str
 
 
-def parse_args() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def parse_args() -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
     parser = argparse.ArgumentParser(description="生成今日计划")
     parser.add_argument("arg1", nargs="?", default=None, help="Obsidian vault 根目录或今日可用时长")
     parser.add_argument("arg2", nargs="?", default=None, help="今日可用时长（小时）")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
+    parser.add_argument("--write", action="store_true",
+                        help=f"把渲染好的计划落盘到 {DAILY_PLAN_RELATIVE_PATH} 并返回 plan_path")
     args = parser.parse_args()
     obsidian_root_arg, available_hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
-    return obsidian_root_arg, available_hours_arg, args.today
+    return obsidian_root_arg, available_hours_arg, args.today, args.write
 
 
 def rank_subjects(focus_counts: Mapping[str, int], due_counts: Mapping[str, int]) -> List[str]:
@@ -188,7 +191,7 @@ def render_tasks(tasks: Sequence[PlanTask]) -> str:
 
 
 def main() -> None:
-    obsidian_root_arg, available_hours_arg, today_arg = parse_args()
+    obsidian_root_arg, available_hours_arg, today_arg, write_plan = parse_args()
     obsidian_root = resolve_obsidian_root(obsidian_root_arg)
     _, archive_text = load_archive_text(obsidian_root)
     today = parse_today(today_arg)
@@ -235,6 +238,14 @@ def main() -> None:
     for key, value in replacements.items():
         content = content.replace(f"{{{key}}}", value)
 
+    markdown = content + "\n"
+    plan_path: Optional[str] = None
+    if write_plan:
+        target = obsidian_root / DAILY_PLAN_RELATIVE_PATH
+        target.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(target, markdown)
+        plan_path = str(target)
+
     print(json.dumps({
         "date": today.isoformat(),
         "available_hours": round(available_hours, 2),
@@ -254,7 +265,8 @@ def main() -> None:
             }
             for item in textbook_items
         ],
-        "markdown": content + "\n",
+        "plan_path": plan_path,
+        "markdown": markdown,
     }, ensure_ascii=False, indent=2))
 
 

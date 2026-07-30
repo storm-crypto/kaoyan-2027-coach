@@ -10,6 +10,7 @@ from wrong_card_path_map import (  # noqa: E402
     WRONG_CARD_PATH_MAP,
     _build_alias_map,
     canonical_chapter_display,
+    resolve_wrong_card_chapter,
 )
 
 
@@ -50,3 +51,36 @@ def test_canonical_chapter_display_empty_for_unknown_or_unmapped_subject():
     """未配置章节、或没有目录表的科目，反解失败返回空串，交由调用方退化处理。"""
     assert canonical_chapter_display("数学一", "未配置章节") == ""
     assert canonical_chapter_display("408", "数据结构") == ""
+
+
+def test_math1_first_kind_line_integral_resolves_to_13_02():
+    """第一型曲线积分必须进入 ch13.02，不能误挂到三重积分或第二型曲线积分。"""
+    resolution = resolve_wrong_card_chapter(
+        "数学一", "13.02 第二节 第一型曲线积分"
+    )
+    assert resolution.chapter_display == "13.02 第二节 第一型曲线积分"
+    assert resolution.chapter_id == "math1:gaoshu:13:02"
+
+
+@pytest.mark.parametrize(
+    ("chapter", "display", "chapter_id"),
+    [
+        (
+            "14.03 第三节 第二型曲线、曲面积分的奇偶对称性",
+            "14.03 第三节 第二型曲线、曲面积分的奇偶对称性",
+            "math1:gaoshu:14:03",
+        ),
+        (
+            "14.04 第四节 场论简介",
+            "14.04 第四节 场论简介",
+            "math1:gaoshu:14:04",
+        ),
+    ],
+)
+def test_math1_late_chapter_14_sections_resolve_to_canonical_dirs(
+    chapter, display, chapter_id
+):
+    """ch14.03/14.04 必须与知识地图一致，不得退化挂靠到 14.01/14.02。"""
+    resolution = resolve_wrong_card_chapter("数学一", chapter)
+    assert resolution.chapter_display == display
+    assert resolution.chapter_id == chapter_id

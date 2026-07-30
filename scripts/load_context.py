@@ -100,7 +100,7 @@ def parse_report_sort_date(filename: str) -> Optional[date]:
     if mock_match:
         return date.fromisoformat(mock_match.group(1))
 
-    week_match = re.match(r"(\d{4})-W(\d{2})-周复盘\.md$", filename)
+    week_match = re.match(r"(\d{4})-W(\d{2})(?:-\d{4}-\d{4})?-周复盘\.md$", filename)
     if week_match:
         year = int(week_match.group(1))
         week = int(week_match.group(2))

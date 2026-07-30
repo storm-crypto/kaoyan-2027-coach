@@ -24,6 +24,7 @@ from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
 from frontmatter import parse_frontmatter
 from score_record_lib import collect_score_records, top_weakness_from_408_record
 from study_ops import iter_review_cards
+from duration_parser import parse_logged_hours
 
 
 SUBJECT_TO_KM_FILE = {
@@ -43,7 +44,6 @@ HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
 EXAM_DATE_RE = re.compile(r"考试日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})")
 UPDATE_DATE_RE = re.compile(r"最近更新日期\*\*[:：]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})")
 STAGE_RE = re.compile(r"当前阶段关键词\*\*[:：]\s*(.+)")
-LOG_HOURS_RE = re.compile(r"时长[^0-9\n]*([0-9]+(?:\.[0-9]+)?)")
 
 
 def safe_read_text(path: Path) -> str:
@@ -130,8 +130,7 @@ def parse_log_entry(log_path: Path) -> Optional[Dict[str, object]]:
         return None
     topic_match = re.search(r"\*\*主题\*\*:\s*(.+)", text)
     topic = topic_match.group(1).strip() if topic_match else ""
-    hours_match = LOG_HOURS_RE.search(text)
-    hours = float(hours_match.group(1)) if hours_match else None
+    hours = parse_logged_hours(text) if "时长" in text else None
     learned = extract_list_items(text, "学到了什么")
     blockers = extract_list_items(text, "卡壳与挣扎")
     review = extract_list_items(text, "下次需要复习")

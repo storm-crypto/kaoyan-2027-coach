@@ -50,6 +50,7 @@ from note_scan import (
     scan_notes_in_range,
 )
 from study_ops import PLAN_SUBJECTS, format_hours, parse_today
+from duration_parser import parse_logged_hours
 
 HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) - (不会|半会|会) -", re.M)
 LEGACY_SCORE_SECTION_RE = re.compile(
@@ -76,9 +77,6 @@ def get_date_range(today, period):
     return start, end, label, filename
 
 
-def parse_logged_hours(text):
-    match = re.search(r"时长[^0-9\n]*([0-9]+(?:\.[0-9]+)?)", text)
-    return float(match.group(1)) if match else 0.0
 def recap_hours(value):
     return f"{format_hours(value)} 小时"
 

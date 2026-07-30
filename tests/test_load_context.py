@@ -9,7 +9,13 @@ from helpers import run_script
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from load_context import latest_log_info
+from load_context import latest_log_info, parse_report_sort_date
+
+
+def test_parse_report_sort_date_supports_old_and_ranged_weekly_names():
+    expected = parse_report_sort_date("2026-W12-周复盘.md")
+    assert expected is not None
+    assert parse_report_sort_date("2026-W12-0316-0322-周复盘.md") == expected
 
 
 def _write_log(vault_root, day, blocker):

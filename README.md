@@ -7,6 +7,7 @@
 - 支持数学一、408、政治、英语一四科
 - 首次 `/load` 自动初始化 Obsidian 学习档案
 - `/wrong` 负责讲题并把错题归档到本地 Markdown
+- 空间/结构/时序类题目（积分区域、函数作图、Cache 位段、流水线时空图、TCP 时序等）会自动配一张 SVG 矢量图，Obsidian 原生渲染、深浅主题自适应
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
 - `/help`、`/help wrong`、`/help progress`、`/help score` 负责说明“命令最好怎么填”

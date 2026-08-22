@@ -32,6 +32,7 @@ Kaoyan_2027_Prep/
 ├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /grill 写入
 ├── 资料库/408/gemini_kaoda/**/*.json  ← Voyager 导出收件箱
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
+├── 错题本/_附图/[qid]/*.svg  ← /wrong /review 的配图（create_figure.py 写入）
 ├── 知识笔记/                 ← 可选
 └── 复盘报告/                 ← /recalibrate /recap 写入
 ```
@@ -64,6 +65,7 @@ Kaoyan_2027_Prep/
      - **拒绝落盘的恢复闭环**：读取返回 JSON 的 `message`，其中 `候选: A；B；C` 列出最接近的叶子章节；从中挑与本题考点匹配的一项作为新的 `--chapter` 原样重试（别名容错，带不带序号/空格都能命中）。**禁止**为绕过报错而手动新建浅层目录或改用泛化章节名
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
+   - **调用建卡/更新卡之前，先过配图决策门**（详见下方「配图规则（SVG 矢量图）」）：命中白名单的题，先读 `references/svg-figure-guide.md` 取对应骨架，用 `create_figure.py` 落盘 SVG，再把它返回的 `figure_arg` 原样传进 `create_wrong_card.py --figure`（旧卡补图则传 `update_card.py --figure`）。不命中白名单就不画，别为了好看硬画
 3. **推送相关题目**（调用 `find_related_cards.py --question-id [qid] --write`）：
    - 建卡/更新卡完成后立即执行，把同元技能的兄弟卡以 wikilink 写进卡片的 `### 相关题目` 区块
    - 新卡走 `predict` 模式（按考点词元 + 同叶子章节 + 题面结构相似度打分），返回的 `suggest_cluster` 是它最该加入的元技能簇
@@ -72,6 +74,7 @@ Kaoyan_2027_Prep/
    - 只写单向链接即可，Obsidian 的反向链接面板会自动在被指向的卡上显示来源
 4. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
 5. **打开新卡当场自检**：调用 `open_in_obsidian.py --path [create/update_card 返回的 path]`（**须绕过沙箱**），把卡片弹到 Obsidian 里，和用户一起确认 LaTeX 有没有渲染错、`规范解法` 有没有挤成一坨、有没有残留「待补充」占位符。发现问题立刻改，不要等下次 `/review` 才发现
+   - **有配图时额外确认三件事**：图有没有真的渲染出来（不是一个空白框或死链接）、有没有超出画布被裁掉、切到深色主题还读不读得清
 6. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
@@ -108,6 +111,33 @@ Kaoyan_2027_Prep/
 - 如果因为 CLI 参数长度限制导致无法一次传完，则在 `create_wrong_card.py` 返回路径后，**立即**用文件编辑工具将剩余解析写入对应区块，不得等用户提醒
 - 建卡完成后，检查卡片中是否还存在 "待补充" 占位符；如果有，说明解析未落盘，必须立刻补写
 
+**配图规则（SVG 矢量图）：**
+
+错题卡是在 Obsidian 里读的，Obsidian 原生渲染 `.svg`。有些题的关键信息本质是**空间的 / 结构的 / 时序的**，文字加 LaTeX 说清楚要绕一大圈，画出来一眼就懂。这类题必须配图；其余题一律不配。
+
+**决策门（判据一句话：如果这张图删掉，解释力没有损失，就不该画）：**
+
+- **该画（数学一）**：二重/三重积分的积分区域与换序、极坐标扇形区域、曲线曲面积分的路径与方向及格林补线、函数作图（极值/拐点/渐近线/凹凸）、方程根的个数讨论、定积分几何应用的微元、空间平面与直线的位置关系、级数收敛域数轴、二维随机变量的分布区域与几何概型
+- **该画（408）**：树/图/B+ 树分裂/哈希冲突处理、KMP next 表、排序过程快照、Cache 地址位段划分与映射方式、流水线时空图、浮点数位域、存储器扩展连线、进程状态转移、页表与多级页表地址翻译、磁盘调度磁头轨迹、文件多级索引、分层封装、子网划分、TCP 三次握手与滑动窗口时序、CSMA/CD 时间轴
+- **禁止画**：纯代数变形与计算题、纯概念辨析题、题面已给图且图上没有新增信息的题、纯装饰性的图
+
+**画之前先读 `references/svg-figure-guide.md`**，取对应类别的骨架改，不要从零手搓——那份文件里有自适应配色骨架、画布约定和每类图的最小要素清单。
+
+**落盘链路：** `create_figure.py`（校验 + 落盘）→ 拿 `figure_arg` → `create_wrong_card.py --figure` / `update_card.py --figure`。**禁止**自己写文件再手动编辑卡片插 `![[...]]`，脚本的校验是唯一能拦住「画出来渲染不了」的关卡。
+
+- `--figure` 落在 `### 图示`（详解区，紧跟突破口小节之后）
+- `--question-figure` 只用于**题面本来就带的图**；解题辅助图放这里会让 `/review` 一打开卡片就泄题
+- caption 统一写成 `图N：一句话`，并在 `规范解法` 里用「见图1」引用，图文才对得上
+- 一张图只承载一个认知动作；要画两个阶段（如换序前/换序后、分裂前/分裂后）就出两张图
+
+**配图防幻觉硬约束：**
+
+1. 图上只能出现**题面给定量**和**已经推出来的量**，禁止臆造坐标、交点、数值
+2. 位段图（Cache/浮点/IP）各段宽度必须与位宽成正比，且**必须写出位宽求和校验**（如 `20 + 7 + 5 = 32 ✓`），画完自己核一遍
+3. 图中标注必须与 `规范解法` 的文字逐字一致；解法里写 $y=x^2$，图上就不能写成 $y=x^3$
+4. 形状/比例拿不准时，宁可画示意图并标注「示意，非按比例」，也不要画一张看起来精确但其实错的图
+5. 图里不写最终答案——`/review` 时卡片一打开就看到答案，这张卡就废了
+
 **去重收口规则：**
 - 只要传入了 `question_id`，就先把它当成唯一主键，并跨科全库检索
 - `question_id` 未命中时，默认按 `new` 处理，避免把新题误合并到旧卡
@@ -140,6 +170,7 @@ Kaoyan_2027_Prep/
 2. 禁止编造具体真题年份/题号，不确定时写"常见变式包括…"
 3. `/mock` 出题必须基于已归档错题或档案短板
 4. 不确定的判断标注"经验判断"
+5. 配图同样是幻觉面：图上只画题面给定量与已推出的量，位段图必须写出位宽求和校验，标注要和 `规范解法` 逐字一致（详见「配图规则（SVG 矢量图）」）
 
 ### 文件操作
 
@@ -155,12 +186,13 @@ Kaoyan_2027_Prep/
 | `init_vault.py` | 初始化 vault，并可注入首次建档信息 | `python3 scripts/init_vault.py [$OBSIDIAN_ROOT] [--school-major 名称] [--target-total 分数] [--exam-date YYYY-MM-DD] [--daily-hours 时长] [--stage 阶段]` |
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
-| `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会]` |
+| `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会] [--figure "vault相对路径\|图N：说明"] [--question-figure "..."]` |
+| `create_figure.py` | 生成并校验错题卡 SVG 配图。落盘到 `错题本/_附图/[qid]/`，返回可直接传给 `--figure` 的 `figure_arg`。落盘前硬校验：viewBox、禁 `<script>`/`<foreignObject>`/外链、字号 ≥12px、字体带兜底、必须内嵌 `prefers-color-scheme`、`<text>` 里的 `$...$` 自动转 Unicode。画之前先读 `references/svg-figure-guide.md` 取骨架 | `python3 scripts/create_figure.py [$OBSIDIAN_ROOT] --question-id [qid] --slug [短名] --caption [图N：说明] [--index N] [--width 480] [--svg-file PATH] [--allow-fixed-theme] [--dry-run]`（不传 `--svg-file` 时从 stdin 读，推荐 heredoc） |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster]` |
 | `open_in_obsidian.py` | 把 vault 内文件用 `obsidian://open` 唤到 Obsidian 前台，让用户读渲染好的 LaTeX 原文而不是 CLI 降级文本。vault 根从目标文件向上找 `.obsidian/` 判定，跨子目录也不会错。**macOS 沙箱会拦 `open`（报 `procNotFound`），这条命令必须绕过沙箱执行** | `python3 scripts/open_in_obsidian.py [$OBSIDIAN_ROOT] (--path 文件路径 \| --question-id qid-xxxx) [--background] [--print-only]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `find_related_cards.py` | 查同元技能的相关题并回写 `### 相关题目` wikilink。数据源是 `错题本/_元技能索引.json`；qid 已在索引里走 `lookup`（同簇兄弟，不足 2 张时按 family 扩一跳），不在索引里走 `predict`（考点词元 + 同叶子章节 + 题面相似度加权，并给出 `suggest_cluster`）。刻意不使用 `error_tags`（该字段在本库 300 张卡上有 539 个标签、529 个只出现一次，无判别力）。写入幂等 | `python3 scripts/find_related_cards.py [$OBSIDIAN_ROOT] --question-id [qid] [--topic 考点] [--chapter 章节] [--question 题面] [--limit 4] [--write] [--backfill] [--dry-run]` |
-| `update_card.py` | 更新错题卡 | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid]` |
+| `update_card.py` | 更新错题卡；`--figure` 可在复习时补图（已有 `### 图示` 追加而不覆盖） | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid] [--figure "vault相对路径\|图N：说明"]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 生成今日计划；复习时段默认按元技能簇成串排（索引缺失时退化为 interval 最小的 10 道并注明原因）。`--write` 会把渲染好的计划落盘到 `周计划/_今日计划.md` 并返回 `plan_path`，供 `open_in_obsidian.py` 打开 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--write]` |
@@ -309,15 +341,17 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. **考点定位**：题型、考点、考频（定性）、难度
 2. **科目专项分析**（见下方）—— 在内部先完成全部解析文本
 3. **易错点** + **追问检查**（每次必追问 1-2 题检验理解）
-4. **归档（解析+建卡一步到位）**：按「错题归档流程」执行。调用 `create_wrong_card.py` 时，**必须同时传入所有详解参数**（如 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等），确保卡片创建时解析已完整落盘。禁止先建空壳卡片再手动补写
-5. **保留题面**：归档时把完整题面写入 `### 题目`；有选项时直接并入同一区块
+4. **过配图决策门**：对照「配图规则（SVG 矢量图）」的白名单判断这题该不该配图。该配就先读 `references/svg-figure-guide.md` 取骨架，调 `create_figure.py` 落盘，拿到 `figure_arg`；不该配就跳过，不要为了好看硬画
+5. **归档（解析+建卡一步到位）**：按「错题归档流程」执行。调用 `create_wrong_card.py` 时，**必须同时传入所有详解参数**（如 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等；有配图时把上一步的 `figure_arg` 一并传 `--figure`），确保卡片创建时解析已完整落盘。禁止先建空壳卡片再手动补写
+6. **保留题面**：归档时把完整题面写入 `### 题目`；有选项时直接并入同一区块
    数学一与 408 的详解区分别按对应参考模板写入固定小节
-6. **落盘校验**：建卡脚本返回后，如果解析内容因 CLI 长度限制未完整写入，立即用文件编辑工具补齐，不得等用户提醒
+7. **落盘校验**：建卡脚本返回后，如果解析内容因 CLI 长度限制未完整写入，立即用文件编辑工具补齐，不得等用户提醒
 
 **数学一：**
 处理数学题时，先读取 `references/math-coaching.md`，按其中的答疑结构执行；只加载与当前题型相关的部分。
 1. 先讲突破口：`看到 [条件] → 联想 [定理/性质] → 为什么优先走这条路`
 2. 规范解题：完整步骤，关键转折标注定理/性质，优先给考场上最稳的写法；**排版必须分层，不得把“规范解法”挤成一整段长文**
+   - 命中配图白名单（积分区域/换序、函数作图、根的个数、二维分布区域等）时，先读 `references/svg-figure-guide.md` 取骨架画图，并在解法里用「见图1」引用
 3. 错因定位：如果用户给了错解，要指出错在第几步、为什么会这样错、以后怎么自查
 4. 迁移总结：压缩成一句“下次遇到这类题先看什么、再想什么、最后防什么坑”
 5. 追问重点："第一步怎么想到的"、"哪个条件触发了对应定理"、"条件改掉后方法还成不成立"
@@ -336,6 +370,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 逐项辨析：每个选项都要说明为什么对/错、混淆了什么，不允许只给结论
 3. 双轨解释：关键概念同时给 [A] 学术严谨版 + [B] 通俗理解版，类比只能辅助不能替代正式结论
 4. 知识串联：把题目挂回数据结构/组成原理/操作系统/计算机网络的知识网络，并补一个短记忆钩子
+   - 命中配图白名单（Cache 位段、流水线时空图、页表翻译、树/图结构、TCP 时序、子网划分等）时，先读 `references/svg-figure-guide.md` 取骨架画图，图放在选项辨析之前
 5. 追问重点："这个干扰项偷换了什么概念"、"删掉某个条件答案会不会变"；加"引导"时切换苏格拉底模式
 
 **政治：**
@@ -442,6 +477,8 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 - 卡片结构是「题目 → 考点判断 → 规范解法」，详解就在题面正下方。所以出题时要附一句「先别往下滚」，等用户答完再让他对照 `规范解法` 和 `下次怎么做`
 - **这条命令必须绕过沙箱执行**：macOS 沙箱里 `open` 会以 `procNotFound` 失败
 - 打开失败不阻塞复习：脚本返回 `opened: false` 时，照常用 CLI 的 `question_preview` 出题，并把返回的 `uri` 贴给用户让他自己点
+- **卡住在"想不出来那个形状/结构长什么样"时，当场补图**：这张卡还没有 `### 图示`、而用户明显卡在空间/结构/时序的想象上，就按「配图规则（SVG 矢量图）」现画一张，`create_figure.py` 落盘后用 `update_card.py --figure` 并入卡片，并在对话里说明补了什么图、它解决的是哪一步的想象障碍。已有图示区块会追加而不是覆盖
+- CLI 预览里出现「（本题有配图，请在 Obsidian 中查看）」说明这题带图，务必让用户在 Obsidian 里看，别对着降级文本硬答
 
 **到期量大时（> 30 道）必须加 `--by-cluster`，按元技能成串复习，禁止逐题线性过：**
 

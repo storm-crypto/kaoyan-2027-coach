@@ -2,6 +2,7 @@
 import json
 import textwrap
 from datetime import date
+from pathlib import Path
 
 from helpers import run_script
 
@@ -239,3 +240,73 @@ def test_update_card_preserves_legacy_option_section(vault_root):
     # 同时正常完成 update_card 的本职：status + 历史记录
     assert "status: 半会" in content
     assert f"- {TODAY} - 半会 - 再做一遍" in content
+
+
+# ---------- 复习时补图 ----------
+
+FIGURE_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320">
+  <style>:root{--ink:#1f2933;--bg:#fdfdfb}
+  @media (prefers-color-scheme: dark){:root{--ink:#e6e8eb;--bg:#1e1f22}}
+  text{font-family:Arial,sans-serif;font-size:14px}
+  .bg{fill:var(--bg)} .ink{fill:var(--ink)}</style>
+  <rect class="bg" width="480" height="320" fill="#fdfdfb"/>
+  <text class="ink" x="40" y="40" fill="#1f2933">D</text>
+</svg>"""
+
+
+def make_figure(vault_root, question_id, slug, caption):
+    import os
+    import subprocess
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    result = subprocess.run(
+        ["python3", str(scripts_dir / "create_figure.py"), str(vault_root),
+         "--question-id", question_id, "--slug", slug, "--caption", caption],
+        input=FIGURE_SVG, capture_output=True, text=True,
+        env=os.environ.copy(), cwd=str(scripts_dir),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)["figure_arg"]
+
+
+def test_figure_section_inserted_above_anchor_section(vault_root, sample_card):
+    figure_arg = make_figure(vault_root, "qid-f728c5b18974", "极坐标区域", "图1：极坐标下的积分区域")
+    rc, out, err = run_script("update_card.py", [
+        str(sample_card), "--status", "半会", "--comment", "补了张图", "--figure", figure_arg,
+    ])
+    assert rc == 0, out + err
+    assert json.loads(out)["figure_added"] == 1
+    text = sample_card.read_text(encoding="utf-8")
+    assert "### 图示" in text
+    assert text.index("### 正确思路 / 核心结论") < text.index("### 图示") < text.index("### 易错点 / 变式提醒")
+    assert "- 图1：极坐标下的积分区域" in text
+
+
+def test_second_figure_appends_instead_of_overwriting(vault_root, sample_card):
+    first = make_figure(vault_root, "qid-f728c5b18974", "极坐标区域", "图1：极坐标下的积分区域")
+    run_script("update_card.py", [str(sample_card), "--status", "半会", "--figure", first])
+    second = make_figure(vault_root, "qid-f728c5b18974", "换序后", "图2：换序后的条带方向")
+    rc, out, err = run_script("update_card.py", [str(sample_card), "--status", "会", "--figure", second])
+    assert rc == 0, out + err
+    text = sample_card.read_text(encoding="utf-8")
+    assert text.count("### 图示") == 1
+    assert "图1：极坐标下的积分区域" in text
+    assert "图2：换序后的条带方向" in text
+    # 图示区块与下一个小节之间必须留空行，否则 Obsidian 里会挤成一坨
+    assert "\n\n### 易错点 / 变式提醒" in text
+
+
+def test_update_without_figure_leaves_card_untouched(vault_root, sample_card):
+    rc, out, err = run_script("update_card.py", [str(sample_card), "--status", "会"])
+    assert rc == 0, out + err
+    assert "figure_added" not in json.loads(out)
+    assert "### 图示" not in sample_card.read_text(encoding="utf-8")
+
+
+def test_rejects_figure_pointing_outside_vault(vault_root, sample_card, tmp_path):
+    outside = tmp_path.parent / "outside-update.svg"
+    outside.write_text(FIGURE_SVG, encoding="utf-8")
+    rc, out, _ = run_script("update_card.py", [
+        str(sample_card), "--status", "会", "--figure", f"{outside}|图1：越界",
+    ])
+    assert rc == 1
+    assert "vault 之外" in json.loads(out)["message"]

@@ -97,6 +97,17 @@
 - `scripts/log_progress.py`：`main` 开头会跑 `auto_fill_created_frontmatter`（幂等），日志段「今日新增笔记」每次重跑都重生成，**不走 `merge_with_existing`**——这是因为该段由文件系统派生，不存在"用户手写后被脚本覆盖"的风险
 - `scripts/build_recap.py`：`collect_note_stats / collect_wrong_exposure / collect_cross_signals` 周/月通用；`collect_coverage` 仅月复盘调用，依赖 `knowledge_map_parser`
 
+### 错题卡配图（SVG）相关改动
+
+涉及「图示区块 / SVG 校验 / 配图决策门」的改动，重点关注：
+
+- `scripts/figure_ops.py`：**单一事实源**。`figure_arg`（`"vault相对路径|说明[|宽度]"`）的解析、`### 图示` 的渲染与插入位置、CLI 预览剔除嵌入，全部收口在这里。`create_wrong_card.py` 和 `update_card.py` 必须复用它，不要各写一份
+- `FIGURE_ANCHOR_HEADINGS`：图示区块的位置规则是「插在锚点小节之前」。数学一 `第一步怎么想到 → 图示 → 规范解法`，408 `题干突破口 → 图示 → 选项逐个辨析`。改小节名时必须同步这个元组，否则图会掉到卡片末尾
+- `upsert_figure_section` 刻意**不用** `archive_ops.replace_heading_block`：后者会把区块末尾空行规整掉，导致下一个 `### ` 标题贴在图说明后面。这里自己用 `FIGURE_SECTION_RE` 定位并保留空行
+- `scripts/create_figure.py`：所有校验都是 fail-fast，理由统一是「Obsidian 用 `<img>` 渲染 svg」。新增校验前先确认它属于这条因果链，否则应该写进 `references/svg-figure-guide.md` 当建议而不是硬拦
+- `references/svg-figure-guide.md`：骨架库。**改了骨架就要确认它仍能通过 `create_figure.py --dry-run`**，否则等于教模型踩坑
+- 配图白名单（哪些题该画）有三处必须同步：`SKILL.md` 的「配图规则（SVG 矢量图）」、`references/math-coaching.md` 的 `3.5 配图`、`references/408-coaching.md` 的 `2.5 配图`
+
 ### 周/月复盘渲染相关改动
 
 涉及"产出聚类/教材进度/wikilink/智能建议"的改动，重点关注：

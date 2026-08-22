@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """更新错题卡的 YAML frontmatter 并追加历史记录。
 
-用法: python3 update_card.py [卡片路径] --status [不会/半会/会] [--comment 简评] [--question-id QUESTION_ID] [--today YYYY-MM-DD]
+用法: python3 update_card.py [卡片路径] --status [不会/半会/会] [--comment 简评] [--question-id QUESTION_ID]
+      [--figure "vault相对路径|图N：说明[|宽度]"] [--today YYYY-MM-DD]
 
 自动处理:
 - 更新 status, last_review_at, wrong_count, next_review, review_interval, ease_factor
 - 根据 status 调整 review_interval 和 ease_factor（改进版 SRS）
 - 回填 question_id 时，将旧卡重命名为规范文件名
 - 在"### 历史记录"下追加一行
+- --figure 把 create_figure.py 产出的配图并入"### 图示"（已有则追加，没有则按位置插入）
 """
 import argparse
 from datetime import date, timedelta
@@ -24,6 +26,7 @@ from constants import (
     SRS_GRADUATED_INTERVAL_DAYS,
     SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
 )
+from figure_ops import parse_figure_specs, upsert_figure_section
 from frontmatter import parse_frontmatter, serialize_frontmatter
 from env_util import atomic_write, json_error, safe_int, safe_float
 from study_ops import parse_today
@@ -118,6 +121,12 @@ def main() -> None:
     parser.add_argument("--status", required=True, choices=["不会", "半会", "会"], help="复习结果")
     parser.add_argument("--comment", default="", help="本次复习简评")
     parser.add_argument("--question-id", help="回填或校验 question_id")
+    parser.add_argument(
+        "--figure",
+        action="append",
+        default=[],
+        help='复习时补图，格式 "vault相对路径|图N：说明[|宽度]"，可重复；来自 create_figure.py 的 figure_arg',
+    )
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     args = parser.parse_args()
 
@@ -173,6 +182,11 @@ def main() -> None:
     for old_status in ("不会", "半会", "会"):
         body = body.replace(f"#status/{old_status}", f"#status/{args.status}")
 
+    # 补图：图示区块要落在历史记录之上，所以先并图再追加历史
+    figure_specs = parse_figure_specs("--figure", args.figure, wrongbook_root.parent)
+    if figure_specs:
+        body = upsert_figure_section(body, figure_specs)
+
     # 追加历史记录
     history_line = f"\n- {today} - {args.status} - {args.comment}"
     if "### 历史记录" in body:
@@ -194,6 +208,8 @@ def main() -> None:
         "ease_factor": f"{new_ease:.2f}",
         "next_review": fm["next_review"],
     }
+    if figure_specs:
+        result["figure_added"] = len(figure_specs)
     if renamed_from:
         result["renamed_from"] = renamed_from
     print(json.dumps(result, ensure_ascii=False))

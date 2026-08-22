@@ -24,7 +24,7 @@ from env_util import resolve_obsidian_root, resolve_skill_root, atomic_write
 SUBJECT_FILES = ["数学一.md", "408.md", "政治.md", "英语一.md"]
 ROOT_DIRS = [
     "知识地图", "学习日志",
-    "错题本", "错题本/数学一", "错题本/408", "错题本/政治", "错题本/英语一",
+    "错题本", "错题本/数学一", "错题本/408", "错题本/政治", "错题本/英语一", "错题本/_附图",
     "知识笔记", "知识笔记/408", "复盘报告", "周计划",
 ]
 

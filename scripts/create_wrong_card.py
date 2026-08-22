@@ -27,12 +27,16 @@
       [--knowledge-link 文本]
       [--memory-hook 文本]
       [--check-question 文本]
+      [--figure "vault相对路径|图N：说明[|宽度]"]
+      [--question-figure "vault相对路径|图N：说明[|宽度]"]
       [--status 不会|半会|会]
       [--comment 简评]
       [--today YYYY-MM-DD]
 
 说明:
 - 题面统一只写入“### 题目”，不再单独生成“### 选项（如有）”区块。
+- 配图先用 create_figure.py 生成，再把它返回的 figure_arg 原样传给 --figure；
+  --figure 落在“### 图示”（紧跟突破口小节之后），--question-figure 落在题面末尾。
 - 若传入 --options/--option，会直接按原顺序拼接到题目正文末尾。
 - 新建卡片时必须一次性传入完整解析；脚本会拒绝写出“待补充”占位符。
 - 题干、选项与详解中的数学公式必须使用 $...$ 或 $$...$$ 包裹。
@@ -52,6 +56,7 @@ from constants import (
     SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
 )
 from env_util import atomic_write, json_error, resolve_obsidian_root, sanitize_path_segment
+from figure_ops import figure_captions, parse_figure_specs, render_figure_block
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
 from wrong_card_path_map import resolve_wrong_card_chapter
@@ -85,6 +90,7 @@ MAX_FORMAL_INLINE_SEGMENTS_PER_LINE = 3
 MAX_SINGLE_LINE_FORMAL_RAW_LENGTH = 140
 # 考点判断/考点定位 里若把多个字段塞进同一行，就属于拥挤；这些是结构化字段标签。
 STRUCTURED_POINT_LABELS = ("题型", "章节", "考点", "难度", "考频", "突破口")
+
 
 SUBJECT_MAP = {
     "数学一": "数学一",
@@ -145,6 +151,18 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
         action="append",
         default=[],
         help="理解检查问题（数学一/408 通用），可重复传入",
+    )
+    parser.add_argument(
+        "--figure",
+        action="append",
+        default=[],
+        help='解题辅助图，格式 "vault相对路径|图N：说明[|宽度]"，可重复；来自 create_figure.py 的 figure_arg',
+    )
+    parser.add_argument(
+        "--question-figure",
+        action="append",
+        default=[],
+        help='题面自带的图（题目原本就画了图），格式同 --figure，落在题面末尾而非详解区',
     )
     parser.add_argument(
         "--status",
@@ -359,8 +377,13 @@ def find_unwrapped_math_excerpt(text: str) -> Optional[str]:
     return None
 
 
-def validate_latex_wrapping(args: argparse.Namespace, explicit_options: Sequence[str]) -> None:
+def validate_latex_wrapping(
+    args: argparse.Namespace,
+    explicit_options: Sequence[str],
+    figure_caption_values: Sequence[str] = (),
+) -> None:
     field_values = [
+        ("--figure 说明", list(figure_caption_values)),
         ("--question", [args.question]),
         ("--option", explicit_options),
         ("--wrong-reason", [args.wrong_reason]),
@@ -545,10 +568,17 @@ def ensure_no_placeholder_tokens(card_text: str) -> None:
         json_error(f"卡片仍包含未落盘占位符: {', '.join(remaining)}")
 
 
-def build_math_detail_sections(args: argparse.Namespace) -> str:
+def render_figure_section(figure_block: str) -> str:
+    """图示区块；没有图时返回空串，绝不留空壳小节。"""
+    return f"### 图示\n{figure_block}\n\n" if figure_block else ""
+
+
+def build_math_detail_sections(args: argparse.Namespace, figure_block: str = "") -> str:
+    # 图示紧跟「第一步怎么想到」：图就是突破口的可视化，规范解法里可以直接写「见图1」。
     return (
         f"### 考点判断\n{render_bullet_block(split_nonempty_lines(args.point_judgment), '待补充')}\n\n"
         f"### 第一步怎么想到\n{render_bullet_block(split_nonempty_lines(args.first_step), '待补充')}\n\n"
+        f"{render_figure_section(figure_block)}"
         f"### 规范解法\n{render_markdown_block(args.formal_solution, '待补充')}\n\n"
         f"### 错因定位\n{render_bullet_block(split_nonempty_lines(args.mistake_analysis), '待补充')}\n\n"
         f"### 易错点\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n\n"
@@ -557,10 +587,12 @@ def build_math_detail_sections(args: argparse.Namespace) -> str:
     )
 
 
-def build_408_detail_sections(args: argparse.Namespace) -> str:
+def build_408_detail_sections(args: argparse.Namespace, figure_block: str = "") -> str:
+    # 图示紧跟「题干突破口」：先把机制图摆出来，再逐项辨析选项。
     return (
         f"### 考点定位\n{render_bullet_block(split_nonempty_lines(args.point_location), '待补充')}\n\n"
         f"### 题干突破口\n{render_bullet_block(split_nonempty_lines(args.breakthrough), '待补充')}\n\n"
+        f"{render_figure_section(figure_block)}"
         f"### 选项逐个辨析\n{render_bullet_block(split_nonempty_lines(args.option_analysis), '待补充')}\n\n"
         f"### 双轨解释\n{render_bullet_block(split_nonempty_lines(args.dual_track), '待补充')}\n\n"
         f"### 干扰项陷阱\n{render_bullet_block(split_nonempty_lines(args.trap), '待补充')}\n\n"
@@ -570,20 +602,21 @@ def build_408_detail_sections(args: argparse.Namespace) -> str:
     )
 
 
-def build_generic_detail_sections(args: argparse.Namespace) -> str:
+def build_generic_detail_sections(args: argparse.Namespace, figure_block: str = "") -> str:
     return (
         f"### 错误原因\n{render_bullet_block(split_nonempty_lines(args.wrong_reason), '待补充')}\n\n"
         f"### 正确思路 / 核心结论\n{render_bullet_block(split_nonempty_lines(args.solution), '待补充')}\n\n"
+        f"{render_figure_section(figure_block)}"
         f"### 易错点 / 变式提醒\n{render_bullet_block(split_nonempty_lines(args.pitfall), '待补充')}\n"
     )
 
 
-def build_detail_sections(subject: str, args: argparse.Namespace) -> str:
+def build_detail_sections(subject: str, args: argparse.Namespace, figure_block: str = "") -> str:
     if subject == "数学一":
-        return build_math_detail_sections(args)
+        return build_math_detail_sections(args, figure_block)
     if subject == "408":
-        return build_408_detail_sections(args)
-    return build_generic_detail_sections(args)
+        return build_408_detail_sections(args, figure_block)
+    return build_generic_detail_sections(args, figure_block)
 
 
 def compute_initial_review_schedule(status: str) -> Tuple[int, float]:
@@ -602,6 +635,7 @@ def build_card_body(
     source: str,
     question_id: str,
     question_lines: Sequence[str],
+    question_figure_block: str,
     detail_sections: str,
     status: str,
     comment: str,
@@ -610,11 +644,14 @@ def build_card_body(
     topic_tag = sanitize_tag_value(topic)
     source_tag = sanitize_tag_value(source)
     subject_tag = SUBJECT_TAGS[subject]
+    question_block = render_bullet_block(question_lines, "待补题干")
+    if question_figure_block:
+        question_block = f"{question_block}\n\n{question_figure_block}"
 
     return (
         f"\n#subject/{subject_tag} #topic/{topic_tag} #status/{status} #source/{source_tag}\n\n"
         f"## {topic} — {source} — {question_id}\n\n"
-        f"### 题目\n{render_bullet_block(question_lines, '待补题干')}\n\n"
+        f"### 题目\n{question_block}\n\n"
         f"{detail_sections}\n\n"
         f"### 历史记录\n- {today} - {status} - {comment.strip() or '首次归档'}\n"
     )
@@ -640,8 +677,14 @@ def main() -> None:
     question_lines, options_source = build_question_lines(args.question, explicit_options)
     if not question_lines:
         json_error("题目不能为空")
+    figure_specs = parse_figure_specs("--figure", args.figure, obsidian_root)
+    question_figure_specs = parse_figure_specs("--question-figure", args.question_figure, obsidian_root)
     validate_required_detail_fields(subject, args)
-    validate_latex_wrapping(args, explicit_options)
+    validate_latex_wrapping(
+        args,
+        explicit_options,
+        figure_captions(figure_specs) + figure_captions(question_figure_specs),
+    )
     validate_readable_layout(subject, args)
 
     today_obj = parse_today(args.today)
@@ -701,13 +744,14 @@ def main() -> None:
         "ease_factor",
     ]
 
-    detail_sections = build_detail_sections(subject, args)
+    detail_sections = build_detail_sections(subject, args, render_figure_block(figure_specs))
     body = build_card_body(
         subject=subject,
         topic=args.topic.strip(),
         source=args.source.strip(),
         question_id=args.question_id,
         question_lines=question_lines,
+        question_figure_block=render_figure_block(question_figure_specs),
         detail_sections=detail_sections,
         status=args.status,
         comment=args.comment,
@@ -727,6 +771,8 @@ def main() -> None:
         "question_id": args.question_id,
         "question_line_count": len(question_lines),
         "option_count": len(explicit_options),
+        "figure_count": len(figure_specs),
+        "question_figure_count": len(question_figure_specs),
         "options_source": options_source,
     }, ensure_ascii=False, indent=2))
 

@@ -751,3 +751,126 @@ def test_create_wrong_card_rejects_inline_math_wall_formal_solution(vault_root):
     data = json.loads(out)
     assert "规范解法排版过密" in data["message"]
     assert "行内" in data["message"]
+
+
+# ---------- 配图 ----------
+
+FIGURE_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320">
+  <style>:root{--ink:#1f2933;--bg:#fdfdfb}
+  @media (prefers-color-scheme: dark){:root{--ink:#e6e8eb;--bg:#1e1f22}}
+  text{font-family:Arial,sans-serif;font-size:14px}
+  .bg{fill:var(--bg)} .ink{fill:var(--ink)}</style>
+  <rect class="bg" width="480" height="320" fill="#fdfdfb"/>
+  <text class="ink" x="40" y="40" fill="#1f2933">D</text>
+</svg>"""
+
+
+def make_figure(vault_root, question_id, slug="积分区域", caption="图1：原积分区域 D"):
+    """落一张真图，返回可直接传给 --figure 的 figure_arg。"""
+    import os
+    import subprocess
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    result = subprocess.run(
+        ["python3", str(scripts_dir / "create_figure.py"), str(vault_root),
+         "--question-id", question_id, "--slug", slug, "--caption", caption],
+        input=FIGURE_SVG, capture_output=True, text=True,
+        env=os.environ.copy(), cwd=str(scripts_dir),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)["figure_arg"]
+
+
+def create_card(vault_root, subject, question_id, chapter, extra=None):
+    return run_script("create_wrong_card.py", [
+        str(vault_root), subject,
+        "--chapter", chapter,
+        "--topic", "配图测试",
+        "--source", "900题",
+        "--question-id", question_id,
+        "--question", "题面正文。",
+    ] + required_detail_args(subject) + (extra or []))
+
+
+def test_math_figure_section_sits_between_first_step_and_formal_solution(vault_root):
+    qid = "qid-a1b2c3d4e5f6"
+    figure_arg = make_figure(vault_root, qid)
+    rc, out, err = create_card(vault_root, "数学一", qid, "数列极限", ["--figure", figure_arg])
+    assert rc == 0, out + err
+    payload = json.loads(out)
+    assert payload["figure_count"] == 1
+    text = Path(payload["path"]).read_text(encoding="utf-8")
+    assert "### 图示" in text
+    assert text.index("### 第一步怎么想到") < text.index("### 图示") < text.index("### 规范解法")
+    assert "![[错题本/_附图/qid-a1b2c3d4e5f6/qid-a1b2c3d4e5f6-01-积分区域.svg|480]]" in text
+    assert "- 图1：原积分区域 D" in text
+
+
+def test_408_figure_section_sits_between_breakthrough_and_option_analysis(vault_root):
+    qid = "qid-b1b2c3d4e5f6"
+    figure_arg = make_figure(vault_root, qid, slug="位段图", caption="图1：Cache 地址位段划分")
+    rc, out, err = create_card(vault_root, "408", qid, "数据结构", ["--figure", figure_arg])
+    assert rc == 0, out + err
+    text = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert text.index("### 题干突破口") < text.index("### 图示") < text.index("### 选项逐个辨析")
+
+
+def test_no_figure_section_when_no_figure_passed(vault_root):
+    rc, out, err = create_card(vault_root, "数学一", "qid-c1b2c3d4e5f6", "数列极限")
+    assert rc == 0, out + err
+    payload = json.loads(out)
+    assert payload["figure_count"] == 0
+    assert "### 图示" not in Path(payload["path"]).read_text(encoding="utf-8")
+
+
+def test_question_figure_lands_in_question_block(vault_root):
+    qid = "qid-d1b2c3d4e5f6"
+    figure_arg = make_figure(vault_root, qid, slug="题面图", caption="图0：题面所给几何图")
+    rc, out, err = create_card(vault_root, "数学一", qid, "数列极限", ["--question-figure", figure_arg])
+    assert rc == 0, out + err
+    payload = json.loads(out)
+    assert payload["question_figure_count"] == 1
+    text = Path(payload["path"]).read_text(encoding="utf-8")
+    question_block = extract_heading_block(text, "题目", level=3)
+    assert "图0：题面所给几何图" in question_block
+    assert "### 图示" not in text
+
+
+def test_rejects_missing_figure_file(vault_root):
+    rc, out, _ = create_card(
+        vault_root, "数学一", "qid-e1b2c3d4e5f6", "数列极限",
+        ["--figure", "错题本/_附图/qid-e1b2c3d4e5f6/不存在.svg|图1：不存在"],
+    )
+    assert rc == 1
+    assert "配图不存在" in json.loads(out)["message"]
+
+
+def test_rejects_figure_outside_vault(vault_root, tmp_path):
+    # vault_root fixture 就是 tmp_path 本身，所以「vault 外」要往上一层放
+    outside = tmp_path.parent / "outside.svg"
+    outside.write_text(FIGURE_SVG, encoding="utf-8")
+    rc, out, _ = create_card(
+        vault_root, "数学一", "qid-f1b2c3d4e5f6", "数列极限",
+        ["--figure", f"{outside}|图1：越界"],
+    )
+    assert rc == 1
+    assert "vault 之外" in json.loads(out)["message"]
+
+
+def test_rejects_non_svg_figure(vault_root):
+    png = vault_root / "错题本" / "fake.png"
+    png.write_text("not really a png", encoding="utf-8")
+    rc, out, _ = create_card(
+        vault_root, "数学一", "qid-01b2c3d4e5f6", "数列极限",
+        ["--figure", "错题本/fake.png|图1：位图"],
+    )
+    assert rc == 1
+    assert "只接受 .svg" in json.loads(out)["message"]
+
+
+def test_rejects_malformed_figure_spec(vault_root):
+    rc, out, _ = create_card(
+        vault_root, "数学一", "qid-11b2c3d4e5f6", "数列极限",
+        ["--figure", "只有路径没有说明.svg"],
+    )
+    assert rc == 1
+    assert "格式应为" in json.loads(out)["message"]

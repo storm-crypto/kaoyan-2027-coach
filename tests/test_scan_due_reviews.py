@@ -211,3 +211,30 @@ def test_plain_handles_nested_math_readably(vault_root):
     assert "((x+1)/(x-1))²" in item["question_text"]
     assert "√(1+1/x)" in item["question_text"]
     assert "√(1+1/x)" in item["options_text"]
+
+
+def test_question_figure_embed_is_replaced_in_cli_preview(vault_root):
+    """CLI 预览里不该出现 `![[...svg]]`：那玩意只有 Obsidian 渲染得出来。"""
+    _make_card(
+        vault_root,
+        "with-figure.md",
+        TODAY,
+        2,
+        question_lines=[
+            "- 如图所示的电路，求等效电阻。",
+            "",
+            "![[错题本/_附图/qid-000000000001/qid-000000000001-01-电路.svg|480]]",
+            "- 图1：题面所给电路",
+            "![[错题本/_附图/qid-000000000001/qid-000000000001-02-等效.svg|480]]",
+            "- 图2：等效变换后",
+        ],
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY, "--plain"])
+    assert rc == 0
+    card = json.loads(out)["due"][0]
+    for field in ("question_text", "question_preview"):
+        assert "![[" not in card[field], card[field]
+        assert "（本题有配图，请在 Obsidian 中查看）" in card[field]
+    # 连续两张图只提示一次，别把预览占满
+    assert card["question_text"].count("（本题有配图，请在 Obsidian 中查看）") == 2
+    assert "如图所示的电路" in card["question_text"]

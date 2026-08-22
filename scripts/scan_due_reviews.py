@@ -18,6 +18,7 @@ from archive_ops import extract_heading_block
 from constants import SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
 from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
+from figure_ops import replace_figure_embeds_for_cli
 from latex_to_unicode import latex_to_unicode
 from metaskill_index import group_due_by_cluster, load_index
 from study_ops import iter_review_cards, parse_today
@@ -53,7 +54,9 @@ def build_question_payload(body: str, topic: str) -> Tuple[str, str, str]:
       保留字段是为了向后兼容直接消费它的下游；新代码不应再依赖它。
     - `preview`：基于 merged 题面取前 N 行，给 CLI/对话框预览用。
     """
-    question_text = normalize_block(extract_heading_block(body, "题目", level=3))
+    question_text = replace_figure_embeds_for_cli(
+        normalize_block(extract_heading_block(body, "题目", level=3))
+    )
     options_text = normalize_block(extract_heading_block(body, "选项（如有）", level=3))
     merged_question_text = merge_question_and_legacy_options(question_text, options_text)
     preview_source = merged_question_text or topic or "未记录题目"

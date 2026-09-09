@@ -233,3 +233,186 @@ def test_no_paint_warning_for_well_formed_svg(vault_root):
     rc, payload = make_figure(vault_root)
     assert rc == 0, payload
     assert not any("兜底色" in w for w in payload["warnings"]), payload["warnings"]
+
+
+# ---------- TikZ / Mermaid 图源 ----------
+
+VALID_TIKZ = r"""\usepackage{tikz-3dplot}
+\usetikzlibrary{arrows.meta}
+\begin{document}
+\tdplotsetmaincoords{65}{125}
+\begin{tikzpicture}[tdplot_main_coords, >=Stealth]
+  \draw[->] (0,0,0) -- (1.5,0,0) node[anchor=north east]{$x$};
+  \draw[thick, fill=blue!10] plot[domain=0:360, samples=60, variable=\t] ({cos(\t)},{sin(\t)},1) -- cycle;
+\end{tikzpicture}
+\end{document}"""
+
+VALID_MERMAID = """flowchart LR
+  PC["PC"] -->|"PCout=1, MARin=1 (T0)"| MAR["MAR"]
+  MAR -->|"MemR=1 (T1)"| MEM["主存"]
+  MEM -->|"MDRinE=1"| MDR["MDR"]"""
+
+
+def make_kind(vault_root, kind, source, slug="立体", caption="图1：立体 Ω 及其投影", extra=None):
+    return make_figure(vault_root, svg=source, slug=slug, caption=caption, extra=["--kind", kind] + (extra or []))
+
+
+def test_tikz_lands_as_tikz_file_and_code_block_embed(vault_root):
+    rc, payload = make_kind(vault_root, "tikz", VALID_TIKZ)
+    assert rc == 0, payload
+    assert payload["kind"] == "tikz"
+    assert payload["relative_path"].endswith(f"{QID}-01-立体.tikz")
+    assert Path(payload["path"]).is_file()
+    assert payload["embed"].startswith(f"%%图源：{payload['relative_path']}%%\n```tikz\n")
+    assert payload["embed"].rstrip().endswith("```")
+    assert payload["figure_arg"] == f"{payload['relative_path']}|图1：立体 Ω 及其投影"
+    assert payload["warnings"] == []
+
+
+def test_mermaid_lands_as_mmd_file_and_code_block_embed(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", VALID_MERMAID, slug="取指通路", caption="图1：取指周期局部数据流向链")
+    assert rc == 0, payload
+    assert payload["kind"] == "mermaid"
+    assert payload["relative_path"].endswith(".mmd")
+    assert "```mermaid\nflowchart LR" in payload["embed"]
+    assert payload["warnings"] == []
+
+
+def test_index_is_shared_across_kinds(vault_root):
+    """同一题的 svg / tikz / mermaid 序号连续编号，卡片里「图1 图2 图3」才对得上。"""
+    rc, first = make_figure(vault_root)
+    assert rc == 0
+    rc, second = make_kind(vault_root, "mermaid", VALID_MERMAID, slug="通路", caption="图2：通路")
+    assert rc == 0, second
+    rc, third = make_kind(vault_root, "tikz", VALID_TIKZ, slug="立体", caption="图3：立体")
+    assert rc == 0, third
+    assert (first["index"], second["index"], third["index"]) == (1, 2, 3)
+
+
+def test_width_is_ignored_for_code_figures_with_warning(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", VALID_MERMAID, extra=["--width", "640"])
+    assert rc == 0, payload
+    assert "|640" not in payload["figure_arg"]
+    assert any("--width 只对 svg 有效" in w for w in payload["warnings"])
+
+
+def test_rejects_fenced_source(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", "```mermaid\n" + VALID_MERMAID + "\n```")
+    assert rc != 0
+    assert "围栏" in payload["message"]
+
+
+def test_tikz_rejects_missing_document_env(vault_root):
+    rc, payload = make_kind(vault_root, "tikz", r"\begin{tikzpicture}\draw (0,0)--(1,1);\end{tikzpicture}")
+    assert rc != 0
+    assert "begin{document}" in payload["message"]
+
+
+def test_tikz_rejects_cjk_text(vault_root):
+    src = VALID_TIKZ.replace("{$x$}", "{投影}")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc != 0
+    assert "中文" in payload["message"]
+
+
+def test_tikz_allows_cjk_in_comments(vault_root):
+    src = VALID_TIKZ.replace("\\begin{tikzpicture}", "% 三维视角\n\\begin{tikzpicture}")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc == 0, payload
+
+
+def test_tikz_rejects_unknown_package(vault_root):
+    src = VALID_TIKZ.replace("\\usepackage{tikz-3dplot}", "\\usepackage{tikz-3dplot}\n\\usepackage{ctex}")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc != 0
+    assert "ctex" in payload["message"]
+
+
+def test_tikz_rejects_unbalanced_braces(vault_root):
+    src = VALID_TIKZ.replace("node[anchor=north east]{$x$}", "node[anchor=north east]{$x$")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc != 0
+    assert "花括号" in payload["message"]
+
+
+def test_tikz_rejects_unbalanced_environment(vault_root):
+    src = VALID_TIKZ.replace("\\end{tikzpicture}\n", "")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc != 0
+    assert "环境不配平" in payload["message"]
+
+
+def test_tikz_rejects_documentclass_and_io(vault_root):
+    src = "\\documentclass{standalone}\n" + VALID_TIKZ
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc != 0
+    assert "documentclass" in payload["message"]
+
+
+def test_tikz_warns_on_3dplot_without_maincoords(vault_root):
+    src = VALID_TIKZ.replace("\\tdplotsetmaincoords{65}{125}\n", "")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc == 0, payload
+    assert any("tdplotsetmaincoords" in w for w in payload["warnings"])
+
+
+def test_tikz_warns_on_pgfplots_without_compat(vault_root):
+    src = "\\usepackage{pgfplots}\n" + VALID_TIKZ.replace(
+        "\\begin{tikzpicture}[tdplot_main_coords, >=Stealth]",
+        "\\begin{tikzpicture}\\begin{axis}\\addplot{x^2};\\end{axis}",
+    ).replace("\\end{tikzpicture}", "\\end{tikzpicture}")
+    rc, payload = make_kind(vault_root, "tikz", src)
+    assert rc == 0, payload
+    assert any("compat" in w for w in payload["warnings"])
+
+
+def test_mermaid_rejects_missing_diagram_type(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", "A --> B")
+    assert rc != 0
+    assert "图类型" in payload["message"]
+
+
+def test_mermaid_rejects_unquoted_pipe_in_label(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", "flowchart LR\n  A[PC|out] --> B[MAR]")
+    assert rc != 0
+    assert "引号" in payload["message"]
+
+
+def test_mermaid_rejects_click_and_init_directive(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", VALID_MERMAID + "\n  click PC \"x\"")
+    assert rc != 0
+    assert "click" in payload["message"]
+    rc, payload = make_kind(vault_root, "mermaid", "%%{init: {'theme':'dark'}}%%\n" + VALID_MERMAID)
+    assert rc != 0
+    assert "init" in payload["message"]
+
+
+def test_mermaid_rejects_unbalanced_brackets(vault_root):
+    rc, payload = make_kind(vault_root, "mermaid", 'flowchart LR\n  A["PC" --> B["MAR"]')
+    assert rc != 0
+    assert "括号" in payload["message"]
+
+
+def test_mermaid_warns_on_too_many_nodes_and_latex(vault_root):
+    edges = "\n".join(f'  N{i}["n{i}"] --> N{i + 1}["n{i + 1}"]' for i in range(17))
+    rc, payload = make_kind(vault_root, "mermaid", "flowchart LR\n" + edges + '\n  X["$y$"]')
+    assert rc == 0, payload
+    assert any("节点" in w for w in payload["warnings"])
+    assert any("$" in w for w in payload["warnings"])
+
+
+def test_mermaid_accepts_sequence_and_state_diagrams(vault_root):
+    seq = "sequenceDiagram\n  participant C as Client\n  C->>S: SYN seq=x\n  S-->>C: SYN+ACK\n  Note over C: ESTABLISHED"
+    rc, payload = make_kind(vault_root, "mermaid", seq, slug="握手", caption="图1：三次握手")
+    assert rc == 0, payload
+    state = "stateDiagram-v2\n  就绪 --> 运行: 调度\n  运行 --> 就绪: 时间片到"
+    rc, payload = make_kind(vault_root, "mermaid", state, slug="状态", caption="图2：进程状态")
+    assert rc == 0, payload
+
+
+def test_legacy_svg_file_flag_still_works(vault_root, tmp_path):
+    svg_path = tmp_path / "a.svg"
+    svg_path.write_text(VALID_SVG, encoding="utf-8")
+    rc, payload = make_figure(vault_root, svg="", extra=["--svg-file", str(svg_path)])
+    assert rc == 0, payload
+    assert payload["kind"] == "svg"

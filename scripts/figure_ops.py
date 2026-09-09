@@ -1,8 +1,14 @@
-"""错题卡配图（SVG）的共享解析与渲染逻辑。
+"""错题卡配图（SVG / TikZ / Mermaid）的共享解析与渲染逻辑。
 
 建卡（create_wrong_card.py）和复习补图（update_card.py）都要把 `create_figure.py` 产出的
 `figure_arg`（`"vault相对路径|图N：说明[|宽度]"`）落成卡片里的「嵌入 + 说明」块，
 两边必须用同一套解析、同一套排版、同一套插入位置规则，所以统一收口在这里。
+
+三种图源的落法不同，但对调用方是同一个 `figure_arg`：
+- `.svg`  → `![[路径|宽度]]`，Obsidian 以 <img> 渲染
+- `.tikz` → 把源码内联成 ```tikz 代码块，由 TikZJax 插件在打开卡片时编译
+- `.mmd`  → 把源码内联成 ```mermaid 代码块，Obsidian 原生渲染
+代码块前留一行 `%%图源：路径%%` Obsidian 注释（阅读视图不可见），重画时能追溯到源文件。
 """
 import re
 from pathlib import Path
@@ -14,6 +20,11 @@ FIGURE_SPEC_SEPARATOR = "|"
 DEFAULT_FIGURE_WIDTH = 480
 MIN_FIGURE_WIDTH = 200
 MAX_FIGURE_WIDTH = 900
+
+# 图源后缀 → 卡片里的代码块语言。svg 不在这里：它走 ![[...]] 嵌入而不是代码块。
+CODE_FIGURE_LANGS = {".tikz": "tikz", ".mmd": "mermaid"}
+SUPPORTED_FIGURE_SUFFIXES = (".svg",) + tuple(CODE_FIGURE_LANGS)
+FIGURE_SOURCE_COMMENT_PREFIX = "%%图源："
 
 FIGURE_HEADING = "图示"
 FIGURE_HEADING_LINE = f"### {FIGURE_HEADING}"
@@ -34,11 +45,20 @@ FIGURE_ANCHOR_HEADINGS = (
     "### 历史记录",
 )
 
-# CLI/对话框里 `![[xxx.svg|480]]` 是纯噪音（只有 Obsidian 渲染得出来），换成一句提示。
+# CLI/对话框里 `![[xxx.svg|480]]` 和 ```tikz / ```mermaid 代码块都是纯噪音
+# （只有 Obsidian 渲染得出来），统一换成一句提示。
 FIGURE_EMBED_LINE_RE = re.compile(r"^[ \t]*!\[\[[^\]\n]*?\.svg(?:\|[^\]\n]*)?\]\][ \t]*$", re.M | re.I)
+FIGURE_CODE_BLOCK_RE = re.compile(
+    r"^[ \t]*```(?:tikz|mermaid)[ \t]*\r?\n.*?^[ \t]*```[ \t]*$",
+    re.M | re.S | re.I,
+)
+FIGURE_SOURCE_COMMENT_RE = re.compile(
+    rf"^[ \t]*{re.escape(FIGURE_SOURCE_COMMENT_PREFIX)}[^\n]*%%[ \t]*\r?\n?", re.M
+)
 CLI_FIGURE_PLACEHOLDER = "（本题有配图，请在 Obsidian 中查看）"
 
-FigureSpec = Tuple[str, str, int]
+# (vault 相对路径, 说明, 嵌入宽度, 源码)。源码只对 .tikz/.mmd 非空，svg 走文件嵌入不需要读内容。
+FigureSpec = Tuple[str, str, int, str]
 
 
 def parse_figure_specs(
@@ -79,25 +99,48 @@ def parse_figure_specs(
             relative_path = resolved.relative_to(root)
         except ValueError:
             json_error(f"{field_name} 指向 vault 之外的路径: {relative_raw}")
-        if resolved.suffix.lower() != ".svg":
-            json_error(f"{field_name} 只接受 .svg 矢量图，实际: {relative_raw}")
+        suffix = resolved.suffix.lower()
+        if suffix not in SUPPORTED_FIGURE_SUFFIXES:
+            json_error(
+                f"{field_name} 只接受 {' / '.join(SUPPORTED_FIGURE_SUFFIXES)} 图源，实际: {relative_raw}"
+            )
         if not resolved.is_file():
             json_error(
                 f"{field_name} 指向的配图不存在: {relative_raw}。"
                 "请先用 create_figure.py 生成，再把它返回的 figure_arg 原样传进来"
             )
-        specs.append((relative_path.as_posix(), caption, width))
+        source = ""
+        if suffix in CODE_FIGURE_LANGS:
+            source = resolved.read_text(encoding="utf-8").strip("\r\n")
+            if not source.strip():
+                json_error(f"{field_name} 指向的图源是空文件: {relative_raw}")
+        specs.append((relative_path.as_posix(), caption, width, source))
     return specs
+
+
+def figure_lang(path: str) -> str:
+    """图源路径 → 代码块语言；svg 返回空串。"""
+    return CODE_FIGURE_LANGS.get(Path(path).suffix.lower(), "")
+
+
+def render_figure_embed(path: str, width: int, source: str) -> str:
+    lang = figure_lang(path)
+    if not lang:
+        return f"![[{path}|{width}]]"
+    return f"{FIGURE_SOURCE_COMMENT_PREFIX}{path}%%\n```{lang}\n{source}\n```"
 
 
 def render_figure_block(specs: Sequence[FigureSpec]) -> str:
     """渲染成「嵌入 + 说明」成对的块，块之间空一行，Obsidian 里不会挤成一坨。"""
-    chunks = [f"![[{path}|{width}]]\n- {caption}" for path, caption, width in specs]
+    chunks = [
+        f"{render_figure_embed(path, width, source)}\n- {caption}"
+        for path, caption, width, source in specs
+    ]
     return "\n\n".join(chunks)
 
 
 def figure_captions(specs: Sequence[FigureSpec]) -> List[str]:
-    return [caption for _, caption, _ in specs]
+    return [caption for _, caption, _, _ in specs]
 
 
 def upsert_figure_section(body: str, specs: Sequence[FigureSpec]) -> str:
@@ -126,13 +169,15 @@ def upsert_figure_section(body: str, specs: Sequence[FigureSpec]) -> str:
 
 
 def replace_figure_embeds_for_cli(text: str) -> str:
-    """把 svg 嵌入行换成一句提示，供 `--plain` 之类的 CLI 预览使用。
+    """把 svg 嵌入行和 tikz/mermaid 代码块换成一句提示，供 `--plain` 之类的 CLI 预览使用。
 
     连续多张图只保留一句提示，避免预览被占满。
     """
     if not text:
         return text
-    replaced = FIGURE_EMBED_LINE_RE.sub(CLI_FIGURE_PLACEHOLDER, text)
+    replaced = FIGURE_SOURCE_COMMENT_RE.sub("", text)
+    replaced = FIGURE_CODE_BLOCK_RE.sub(CLI_FIGURE_PLACEHOLDER, replaced)
+    replaced = FIGURE_EMBED_LINE_RE.sub(CLI_FIGURE_PLACEHOLDER, replaced)
     lines = replaced.splitlines()
     deduped = [
         line

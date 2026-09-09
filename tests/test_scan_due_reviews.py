@@ -238,3 +238,37 @@ def test_question_figure_embed_is_replaced_in_cli_preview(vault_root):
     # 连续两张图只提示一次，别把预览占满
     assert card["question_text"].count("（本题有配图，请在 Obsidian 中查看）") == 2
     assert "如图所示的电路" in card["question_text"]
+
+
+def test_code_block_figures_are_replaced_in_cli_preview(vault_root):
+    """tikz / mermaid 代码块在 CLI 里是满屏源码，和 svg 嵌入一样换成一句提示。"""
+    _make_card(
+        vault_root,
+        "with-code-figure.md",
+        TODAY,
+        2,
+        question_lines=[
+            "- 如图所示的数据通路，写出取指周期的微操作。",
+            "",
+            "%%图源：错题本/_附图/qid-000000000002/qid-000000000002-01-通路.mmd%%",
+            "```mermaid",
+            "flowchart LR",
+            '  PC["PC"] -->|"PCout=1"| MAR["MAR"]',
+            "```",
+            "- 图1：题面所给数据通路",
+            "```tikz",
+            "\\begin{document}\\begin{tikzpicture}\\draw (0,0)--(1,1);\\end{tikzpicture}\\end{document}",
+            "```",
+            "- 图2：立体",
+        ],
+    )
+    rc, out, _ = run_script("scan_due_reviews.py", [str(vault_root), "--today", TODAY, "--plain"])
+    assert rc == 0
+    card = json.loads(out)["due"][0]
+    for field in ("question_text", "question_preview"):
+        assert "```" not in card[field], card[field]
+        assert "%%图源" not in card[field], card[field]
+        assert "flowchart" not in card[field], card[field]
+    assert card["question_text"].count("（本题有配图，请在 Obsidian 中查看）") == 2
+    assert "如图所示的数据通路" in card["question_text"]
+    assert "- 图1：题面所给数据通路" in card["question_text"]

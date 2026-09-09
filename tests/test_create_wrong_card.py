@@ -856,6 +856,61 @@ def test_rejects_figure_outside_vault(vault_root, tmp_path):
     assert "vault 之外" in json.loads(out)["message"]
 
 
+def make_code_figure(vault_root, question_id, kind, source, slug, caption):
+    """落一张 tikz / mermaid 图源，返回 figure_arg。"""
+    import os
+    import subprocess
+    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+    result = subprocess.run(
+        ["python3", str(scripts_dir / "create_figure.py"), str(vault_root),
+         "--question-id", question_id, "--slug", slug, "--caption", caption, "--kind", kind],
+        input=source, capture_output=True, text=True, env=os.environ.copy(), cwd=str(scripts_dir),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)["figure_arg"]
+
+
+def test_mermaid_figure_is_inlined_as_code_block(vault_root):
+    qid = "qid-e1b2c3d4e5f9"
+    figure_arg = make_code_figure(
+        vault_root, qid, "mermaid",
+        'flowchart LR\n  PC["PC"] -->|"PCout=1, MARin=1"| MAR["MAR"]',
+        "取指通路", "图1：取指周期局部数据流向链",
+    )
+    rc, out, err = create_card(vault_root, "408", qid, "Cache 映射", ["--figure", figure_arg])
+    assert rc == 0, err
+    body = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    section = body.split("### 图示", 1)[1].split("### 选项逐个辨析", 1)[0]
+    assert "%%图源：错题本/_附图/" in section
+    assert "```mermaid\nflowchart LR" in section
+    assert 'MAR["MAR"]\n```\n- 图1：取指周期局部数据流向链' in section
+    assert "![[" not in section
+
+
+def test_tikz_figure_is_inlined_as_code_block(vault_root):
+    qid = "qid-e1b2c3d4e5fa"
+    tikz = "\\begin{document}\n\\begin{tikzpicture}\n\\draw (0,0) -- (1,1);\n\\end{tikzpicture}\n\\end{document}"
+    figure_arg = make_code_figure(vault_root, qid, "tikz", tikz, "立体", "图1：立体")
+    rc, out, err = create_card(vault_root, "数学一", qid, "数列极限", ["--figure", figure_arg])
+    assert rc == 0, err
+    body = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    assert "```tikz\n\\begin{document}" in body
+    assert "\\end{document}\n```\n- 图1：立体" in body
+
+
+def test_rejects_empty_code_figure_file(vault_root):
+    qid = "qid-e1b2c3d4e5fb"
+    figure_dir = vault_root / "错题本" / "_附图" / qid
+    figure_dir.mkdir(parents=True)
+    (figure_dir / f"{qid}-01-空.mmd").write_text("  \n", encoding="utf-8")
+    rc, out, err = create_card(
+        vault_root, "数学一", qid, "数列极限",
+        ["--figure", f"错题本/_附图/{qid}/{qid}-01-空.mmd|图1：空图"],
+    )
+    assert rc != 0
+    assert "空文件" in (out + err)
+
+
 def test_rejects_non_svg_figure(vault_root):
     png = vault_root / "错题本" / "fake.png"
     png.write_text("not really a png", encoding="utf-8")
@@ -874,6 +929,7 @@ def test_rejects_malformed_figure_spec(vault_root):
     )
     assert rc == 1
     assert "格式应为" in json.loads(out)["message"]
+
 
 def test_create_wrong_card_uses_laotang_multilevel_path_for_408(vault_root):
     """408 走老汤大纲三层目录：子科目 / NN第N章章名 / MM节名，别名「银行家算法」要落到 08.02 死锁。"""

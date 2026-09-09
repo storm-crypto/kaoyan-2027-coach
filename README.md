@@ -8,7 +8,8 @@
 - 数学一知识地图按李林讲义章节组织，408 知识地图与错题目录按《老汤讲408》一轮大纲组织（4 模块 / 32 章 / 147 节，含课时对照表 `references/408-laotang-outline.md`）
 - 首次 `/load` 自动初始化 Obsidian 学习档案
 - `/wrong` 负责讲题并把错题归档到本地 Markdown
-- 空间/结构/时序类题目（积分区域、函数作图、Cache 位段、流水线时空图、TCP 时序等）会自动配一张 SVG 矢量图，Obsidian 原生渲染、深浅主题自适应
+- 空间/结构/时序类题目会自动配图：平面示意用 SVG，立体与精确曲线用 TikZ，结构与时序用 Mermaid，位段与时空网格用表格；Obsidian 原生渲染、深浅主题自适应
+- 408 综合题按采分模板输出：数据通路节拍对照表、PV 四步法、逐跳封装表、拥塞控制演进表等
 - `/review` 按 SRS 扫描到期卡片并更新掌握度
 - `/plan_today`、`/plan_week` 负责学习节奏安排
 - `/help`、`/help wrong`、`/help progress`、`/help score` 负责说明“命令最好怎么填”

@@ -110,16 +110,20 @@
 - `scripts/log_progress.py`：`main` 开头会跑 `auto_fill_created_frontmatter`（幂等），日志段「今日新增笔记」每次重跑都重生成，**不走 `merge_with_existing`**——这是因为该段由文件系统派生，不存在"用户手写后被脚本覆盖"的风险
 - `scripts/build_recap.py`：`collect_note_stats / collect_wrong_exposure / collect_cross_signals` 周/月通用；`collect_coverage` 仅月复盘调用，依赖 `knowledge_map_parser`
 
-### 错题卡配图（SVG）相关改动
+### 错题卡配图（SVG / TikZ / Mermaid）相关改动
 
-涉及「图示区块 / SVG 校验 / 配图决策门」的改动，重点关注：
+涉及「图示区块 / 图源校验 / 配图决策门」的改动，重点关注：
 
-- `scripts/figure_ops.py`：**单一事实源**。`figure_arg`（`"vault相对路径|说明[|宽度]"`）的解析、`### 图示` 的渲染与插入位置、CLI 预览剔除嵌入，全部收口在这里。`create_wrong_card.py` 和 `update_card.py` 必须复用它，不要各写一份
+- `scripts/figure_ops.py`：**单一事实源**。`figure_arg`（`"vault相对路径|说明[|宽度]"`）的解析、三种图源的渲染（svg 走 `![[...]]`，`.tikz` / `.mmd` 读文件内联成代码块并加 `%%图源：路径%%` 注释）、`### 图示` 的插入位置、CLI 预览剔除嵌入与代码块，全部收口在这里。`create_wrong_card.py` 和 `update_card.py` 必须复用它，不要各写一份
+- 新增图源类型时改三处：`figure_ops.CODE_FIGURE_LANGS`（后缀 → 代码块语言）、`create_figure.FIGURE_KINDS`（kind → 后缀）加对应的 `validate_xxx`、`figure_ops.FIGURE_CODE_BLOCK_RE`（CLI 降级要认得新语言）
+- TikZ 与 Mermaid 本机没有编译器，`create_figure.py` 只能做白名单静态检查（宏包、库、中文、括号配平、图类型、标签引号）。**不要**为了严谨去引入 TeX 或 mermaid-cli 依赖，用户机器上也没有；发现新的编译失败模式就往白名单或正则里加一条
+- `TIKZ_ALLOWED_PACKAGES` 对应 obsidian-tikzjax 插件内置的宏包列表，插件升级后核对一次
 - `FIGURE_ANCHOR_HEADINGS`：图示区块的位置规则是「插在锚点小节之前」。数学一 `第一步怎么想到 → 图示 → 规范解法`，408 `题干突破口 → 图示 → 选项逐个辨析`。改小节名时必须同步这个元组，否则图会掉到卡片末尾
 - `upsert_figure_section` 刻意**不用** `archive_ops.replace_heading_block`：后者会把区块末尾空行规整掉，导致下一个 `### ` 标题贴在图说明后面。这里自己用 `FIGURE_SECTION_RE` 定位并保留空行
-- `scripts/create_figure.py`：所有校验都是 fail-fast，理由统一是「Obsidian 用 `<img>` 渲染 svg」。新增校验前先确认它属于这条因果链，否则应该写进 `references/svg-figure-guide.md` 当建议而不是硬拦
-- `references/svg-figure-guide.md`：骨架库。**改了骨架就要确认它仍能通过 `create_figure.py --dry-run`**，否则等于教模型踩坑
-- 配图白名单（哪些题该画）有三处必须同步：`SKILL.md` 的「配图规则（SVG 矢量图）」、`references/math-coaching.md` 的 `3.5 配图`、`references/408-coaching.md` 的 `2.5 配图`
+- `scripts/create_figure.py`：SVG 校验都是 fail-fast，理由统一是「Obsidian 用 `<img>` 渲染 svg」。新增校验前先确认它属于这条因果链，否则应该写进骨架文件当建议而不是硬拦
+- `references/svg-figure-guide.md` / `tikz-figure-guide.md` / `mermaid-figure-guide.md`：骨架库。**改了骨架就要确认它仍能通过 `create_figure.py --kind ... --dry-run`**，否则等于教模型踩坑
+- 配图白名单与图源选型有三处必须同步：`SKILL.md` 的「配图规则」、`references/math-coaching.md` 的 `3.5 配图`、`references/408-coaching.md` 的 `2.5 配图与可视化呈现`
+- `references/408-answer-templates.md` 只在综合题时加载。往里加模板时保持「必须输出的结构 + 最小要素 + 图表格式」三件套，不要写成讲义；选择题相关的内容放回 `408-coaching.md`
 
 ### 周/月复盘渲染相关改动
 

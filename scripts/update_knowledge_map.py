@@ -128,11 +128,10 @@ def main():
         print(json.dumps({"error": True, "message": f"文件不存在: {filepath}"}, ensure_ascii=False))
         sys.exit(1)
 
-    if subject in {"数学一", "数学"}:
-        from wrong_card_path_map import resolve_math1_knowledge_map_alias
-        aliased_keyword = resolve_math1_knowledge_map_alias(keyword)
-    else:
-        aliased_keyword = keyword
+    # 数学一：旧通用桶名 → 李林叶子行；408：节名/别名（如「银行家算法」）→ 老汤叶子行
+    # `NN.MM 节名`。都不命中时原样透传，下面还会用原始关键词再兜底一次。
+    from wrong_card_path_map import resolve_knowledge_map_keyword
+    aliased_keyword = resolve_knowledge_map_keyword(subject, keyword)
 
     lines = filepath.read_text(encoding="utf-8").split("\n")
 

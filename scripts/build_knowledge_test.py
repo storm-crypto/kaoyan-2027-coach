@@ -269,13 +269,13 @@ def main():
 
     rows = parse_knowledge_map(knowledge_map_path)
 
-    # 数学一场景:旧通用桶名 → 新李林叶子;alias 命中为 0 时回退原始过滤词,
-    # 让旧结构知识地图或用户自由输入仍能工作。
+    # 数学一：旧通用桶名 → 李林叶子；408：节名/别名（如「页面置换」）→ 老汤叶子行。
+    # alias 命中为 0 时回退原始过滤词，让旧结构知识地图或用户自由输入仍能工作。
     chapter_filter = args.chapter
     aliased_chapter = chapter_filter
-    if chapter_filter and canonical_subject == "数学一":
-        from wrong_card_path_map import resolve_math1_knowledge_map_alias
-        aliased_chapter = resolve_math1_knowledge_map_alias(chapter_filter)
+    if chapter_filter:
+        from wrong_card_path_map import resolve_knowledge_map_keyword
+        aliased_chapter = resolve_knowledge_map_keyword(canonical_subject, chapter_filter)
 
     def pick_candidates(filter_text):
         items = [

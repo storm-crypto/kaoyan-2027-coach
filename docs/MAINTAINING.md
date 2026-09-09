@@ -88,6 +88,19 @@
 - 脚本中的学科分支
 - `SKILL.md` 的学科说明
 
+### 408 章节体系（老汤大纲）相关改动
+
+408 的章节编号与节名只有一个真源：`scripts/wrong_card_path_map.py` 里的 `_408_OUTLINE`（模块 → `NN 第N章 章名` → `MM 节名` + 别名）。改节名、加节、调章序时，下面几处必须同步，测试会拦住前两处的漂移：
+
+- `templates/学习者档案与知识地图模板.md` 的 `知识地图/408.md` 块：叶子行必须逐字等于 `iter_408_knowledge_map_rows()` 产出的 `NN.MM 节名`（`tests/test_wrong_card_path_map.py::test_408_template_matches_path_map_outline`）
+- `references/gemini-prompts/408-chapter-grill.md` 末尾附录：Gemini 只会照抄这里的节名，不同步就等于让 `/grill` 回写全部落空（`tests/test_import_chapter_grill.py::test_grill_prompt_appendix_matches_outline`）
+- `references/408-laotang-outline.md`：人读的课时对照表，节名列与真源一致，课时区间手工维护
+- `scripts/log_bullet.py` 的 `CHAPTER_KEYWORD_HINTS[("408", 模块)]`：日志隐式章节推断用的关键词，章号必须是老汤章号
+- 节名不能含 `/ \ : * ? " < > |`（`_build_408_path_map` 会拒绝）：`Path(relative_dir).parts` 会把 `CSMA/CD` 拆成两级目录。原写法放进别名元组即可，`CSMA/CD` 与 `CSMA-CD` 都能命中
+- 别名跨节重复会在 import 时抛错（如 `MIPS` 既像性能指标又像指令集），宁可少一个别名也不要让 `dict` 字面量静默覆盖
+
+**为什么不用王道章序**：用户的 408 一轮课程、知识笔记目录（`知识笔记/408/计组/ch3 存储器/37 ....md`）都按老汤编号，知识地图跟着课程走才能在 `/progress` 和月复盘里把笔记、错题、知识地图三张表 join 到同一章。
+
 ### 笔记追踪相关改动
 
 涉及「今日新增笔记」「知识沉淀」「知识地图覆盖」的改动，重点关注：

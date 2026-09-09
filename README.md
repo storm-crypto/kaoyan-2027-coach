@@ -5,6 +5,7 @@
 ## 功能概览
 
 - 支持数学一、408、政治、英语一四科
+- 数学一知识地图按李林讲义章节组织，408 知识地图与错题目录按《老汤讲408》一轮大纲组织（4 模块 / 32 章 / 147 节，含课时对照表 `references/408-laotang-outline.md`）
 - 首次 `/load` 自动初始化 Obsidian 学习档案
 - `/wrong` 负责讲题并把错题归档到本地 Markdown
 - 空间/结构/时序类题目（积分区域、函数作图、Cache 位段、流水线时空图、TCP 时序等）会自动配一张 SVG 矢量图，Obsidian 原生渲染、深浅主题自适应
@@ -109,7 +110,7 @@ python3 scripts/build_dashboard.py "$KAOYAN_OBSIDIAN_ROOT"
 - `SKILL.md`：skill 触发与行为规则
 - `scripts/`：建档、归档、复习、复盘等确定性脚本
 - `templates/`：Obsidian Markdown 模板
-- `references/`：数学一和 408 的专项答疑参考，以及 Gemini prompt 真源
+- `references/`：数学一和 408 的专项答疑参考、408 老汤大纲章节对照表，以及 Gemini prompt 真源
 - `tests/`：主要脚本的回归测试
 
 ## Gemini 导入收件箱

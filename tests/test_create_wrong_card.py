@@ -45,7 +45,7 @@ def test_create_wrong_card_preserves_all_explicit_options(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
-        "--chapter", "操作系统",
+        "--chapter", "单就绪队列调度算法",
         "--topic", "进程调度",
         "--source", "王道",
         "--question-id", "qid-aabbccddeeff",
@@ -76,7 +76,7 @@ def test_create_wrong_card_keeps_inline_options_inside_question_block(vault_root
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
-        "--chapter", "数据结构",
+        "--chapter", "二叉树的遍历与构造",
         "--topic", "二叉树遍历",
         "--source", "王道",
         "--question-id", "qid-112233445566",
@@ -102,7 +102,7 @@ def test_create_wrong_card_keeps_inline_options_inside_question_block(vault_root
 def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         "408",
-        "--chapter", "计算机组成原理",
+        "--chapter", "总线仲裁",
         "--topic", "总线仲裁",
         "--source", "王道",
         "--question-id", "qid-5566778899aa",
@@ -220,7 +220,7 @@ def test_create_wrong_card_keeps_option_like_stem_and_following_lines_together(v
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
-        "--chapter", "操作系统",
+        "--chapter", "07.02 单就绪队列调度算法",
         "--topic", "进程调度判断轴",
         "--source", "王道",
         "--question-id", "qid-334455667788",
@@ -387,7 +387,7 @@ def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
-        "--chapter", "操作系统",
+        "--chapter", "时间片轮转",
         "--topic", "进程调度",
         "--source", "王道",
         "--question-id", "qid-b1c2d3e4f5a6",
@@ -498,7 +498,7 @@ def test_create_wrong_card_rejects_duplicate_options_double_passed(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),
         "408",
-        "--chapter", "操作系统",
+        "--chapter", "单就绪队列调度算法",
         "--topic", "进程调度",
         "--source", "王道",
         "--question-id", "qid-ddee7788ee99",
@@ -808,7 +808,7 @@ def test_math_figure_section_sits_between_first_step_and_formal_solution(vault_r
 def test_408_figure_section_sits_between_breakthrough_and_option_analysis(vault_root):
     qid = "qid-b1b2c3d4e5f6"
     figure_arg = make_figure(vault_root, qid, slug="位段图", caption="图1：Cache 地址位段划分")
-    rc, out, err = create_card(vault_root, "408", qid, "数据结构", ["--figure", figure_arg])
+    rc, out, err = create_card(vault_root, "408", qid, "Cache 映射", ["--figure", figure_arg])
     assert rc == 0, out + err
     text = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
     assert text.index("### 题干突破口") < text.index("### 图示") < text.index("### 选项逐个辨析")
@@ -874,3 +874,49 @@ def test_rejects_malformed_figure_spec(vault_root):
     )
     assert rc == 1
     assert "格式应为" in json.loads(out)["message"]
+
+def test_create_wrong_card_uses_laotang_multilevel_path_for_408(vault_root):
+    """408 走老汤大纲三层目录：子科目 / NN第N章章名 / MM节名，别名「银行家算法」要落到 08.02 死锁。"""
+    rc, out, err = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "408",
+        "--chapter", "银行家算法",
+        "--topic", "安全序列判定",
+        "--source", "王道",
+        "--question-id", "qid-0808dead0001",
+        "--question", "系统当前状态是否安全？",
+        *required_detail_args("408"),
+        "--today", "2026-09-10",
+    ])
+
+    assert rc == 0, out + err
+    data = json.loads(out)
+    card_path = Path(data["path"])
+    rel = card_path.relative_to(vault_root)
+    assert rel.parts[:5] == ("错题本", "408", "操作系统", "08第八章互斥和同步", "02死锁")
+    fm, _, _ = parse_frontmatter(card_path.read_text(encoding="utf-8"))
+    assert fm["chapter_id"] == "408:os:08:02"
+    assert fm["chapter_display"] == "08.02 死锁"
+    assert fm["chapter_path"] == "操作系统/08第八章互斥和同步/02死锁"
+
+
+def test_create_wrong_card_rejects_408_module_level_chapter_with_leaf_candidates(vault_root):
+    """408 传模块名/章名（如「操作系统」「线性表」）必须被拒，并列出叶子节候选供重试。"""
+    rc, out, _ = run_script("create_wrong_card.py", [
+        str(vault_root),
+        "408",
+        "--chapter", "线性表",
+        "--topic", "顺序表插入",
+        "--source", "王道",
+        "--question-id", "qid-0202aaaa0002",
+        "--question", "顺序表插入的平均移动次数？",
+        *required_detail_args("408"),
+    ])
+
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True
+    assert "无法识别 408 章节" in data["message"]
+    assert "02.01 顺序表" in data["message"]
+    assert "02.03 线性表的应用" in data["message"]
+    assert not (vault_root / "错题本" / "408" / "线性表").exists()

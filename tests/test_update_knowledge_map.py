@@ -345,3 +345,55 @@ def test_finding_add_invalid_format_returns_error(knowledge_map, vault_root):
     data = json.loads(out)
     assert data["error"] is True
     assert "格式错误" in data["message"]
+
+
+@pytest.fixture
+def laotang_408_map(vault_root):
+    """老汤结构的 408 知识地图片段（从模板真源抽出来的两个模块）。"""
+    km_dir = vault_root / "知识地图"
+    km_dir.mkdir(exist_ok=True)
+    content = (
+        "## 计算机组成原理 (约 45 分)\n"
+        "| 考点 | 掌握度 | 信心 | 备注 |\n"
+        "|------|--------|------|------|\n"
+        "| **03 第三章 主存储器** | | | |\n"
+        "| 03.03 Cache 基本原理与映射方式 | | | |\n"
+        "| 03.04 Cache 替换算法与一致性 | | | |\n"
+        "\n"
+        "## 操作系统 (约 35 分)\n"
+        "| 考点 | 掌握度 | 信心 | 备注 |\n"
+        "|------|--------|------|------|\n"
+        "| **08 第八章 互斥和同步** | | | |\n"
+        "| 08.01 临界区与锁 | | | |\n"
+        "| 08.02 死锁 | | | |\n"
+    )
+    (km_dir / "408.md").write_text(content, encoding="utf-8")
+    return km_dir
+
+
+def test_408_alias_resolves_to_laotang_leaf(laotang_408_map, vault_root):
+    """传「银行家算法」这种别名，应通过老汤别名表命中 08.02 死锁。"""
+    rc, out, _ = run_script("update_knowledge_map.py", [
+        str(vault_root), "408", "银行家算法", "不会",
+        "--finding-add", "qid-0808dead0001|2026-09-10|安全序列判断只会背步骤",
+    ])
+    assert rc == 0, out
+    data = json.loads(out)
+    assert data["updated"] == "08.02 死锁"
+    content = (laotang_408_map / "408.md").read_text(encoding="utf-8")
+    assert "| 08.02 死锁 | 不会 |" in content
+    assert "(qid-0808dead0001)" in content
+
+
+def test_408_ambiguous_keyword_lists_laotang_candidates(laotang_408_map, vault_root):
+    """「Cache」同时命中两节，不能猜，必须报候选让调用方选。"""
+    rc, out, _ = run_script("update_knowledge_map.py", [
+        str(vault_root), "408", "Cache", "半会",
+    ])
+    assert rc == 1
+    data = json.loads(out)
+    assert data["error"] is True
+    assert set(data["candidates"]) == {
+        "03.03 Cache 基本原理与映射方式",
+        "03.04 Cache 替换算法与一致性",
+    }

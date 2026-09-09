@@ -305,3 +305,104 @@ def test_import_chapter_grill_reads_latest_from_fixed_inbox_and_syncs_log(vault_
     assert "408 章节拷打：计算机组成原理 / 01 计算机系统概述" in log_text
     assert "性能指标（CPI/MIPS/主频）的推理链条还不稳" in log_text
     assert "24小时内：重讲一次 CPU 执行时间公式" in log_text
+
+
+def test_grill_prompt_appendix_matches_outline():
+    """Gemini prompt 末尾的章节/节名附录必须与 _408_OUTLINE 完全一致。
+
+    Gemini 只会照抄附录里的节名写【可映射考点】；附录漂移 = 回写全部落到「未回写」。
+    """
+    import re
+    import sys
+    from pathlib import Path
+
+    skill_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(skill_root / "scripts"))
+    from wrong_card_path_map import iter_408_knowledge_map_rows
+
+    text = (skill_root / "references" / "gemini-prompts" / "408-chapter-grill.md").read_text(encoding="utf-8")
+    appendix = text[text.index("## 附录：408 章节与节名"):]
+    rows = []
+    module = chapter = ""
+    for line in appendix.splitlines():
+        if line.startswith("### "):
+            module = line[4:].strip()
+        elif re.match(r"^- \*\*(.+)\*\*$", line.strip()):
+            chapter = re.match(r"^- \*\*(.+)\*\*$", line.strip()).group(1)
+        elif line.startswith("  - "):
+            rows.append((module, chapter, line[4:].strip()))
+    assert rows == iter_408_knowledge_map_rows()
+
+
+def test_import_chapter_grill_writes_back_laotang_leaf_names(vault_root, tmp_path):
+    """按老汤节名写的【可映射考点】要能精确命中新版知识地图行（带或不带 NN.MM 序号）。"""
+    content = textwrap.dedent("""\
+        ## 计算机组成原理 (约 45 分)
+        | 考点 | 掌握度 | 信心 | 备注 |
+        |------|--------|------|------|
+        | **03 第三章 主存储器** | | | |
+        | 03.03 Cache 基本原理与映射方式 | | | |
+        | 03.04 Cache 替换算法与一致性 | | | |
+        | 03.05 多模块存储器与存储周期 | | | |
+    """)
+    knowledge_map_path = vault_root / "知识地图" / "408.md"
+    knowledge_map_path.write_text(content, encoding="utf-8")
+    payload = {
+        "format": "gemini-voyager.chat.v1",
+        "exportedAt": "2026-09-10T02:41:32.818Z",
+        "count": 1,
+        "title": "计组第三章拷打",
+        "items": [{
+            "user": "结束本章，按模板总评",
+            "assistant": textwrap.dedent("""\
+                【章节信息】
+                - 科目：408
+                - 模块：计算机组成原理
+                - 章节：03 第三章 主存储器
+                - 资料来源：老汤讲408 一轮
+
+                【本章结论】
+                - 总体掌握：半会
+                - 一句话结论：映射能算，替换和写策略讲不清。
+
+                【已掌握】
+                - 直接映射的地址划分
+
+                【半会但不稳】
+                - 组相联的组号计算
+
+                【不会或有能力错觉】
+                - 写回法和写直达的脏位处理
+
+                【关键漏洞】
+                - 说不清写回法为什么需要脏位
+
+                【下一步复习动作】
+                - 24小时内：重画一次三种映射的地址位段
+                - 3天内：做两道 Cache 综合题
+                - 下次开始前：脱稿讲一遍写策略
+
+                【可映射考点】
+                - 03.03 Cache 基本原理与映射方式|半会|组相联的组号计算不稳
+                - Cache 替换算法与一致性|不会|说不清写回法为什么需要脏位
+                - Cache|半会|多义标签应被跳过
+            """),
+        }],
+    }
+    voyager_path = _write_voyager_json(tmp_path, payload)
+
+    rc, out, _ = run_script("import_chapter_grill.py", [str(vault_root), str(voyager_path)])
+
+    assert rc == 0, out
+    data = json.loads(out)
+    updated = {item["topic"]: item["matched_topic"] for item in data["knowledge_map_updated"]}
+    assert updated == {
+        "03.03 Cache 基本原理与映射方式": "Cache 基本原理与映射方式",
+        "Cache 替换算法与一致性": "Cache 替换算法与一致性",
+    }
+    skipped = {item["topic"]: item["reason"] for item in data["knowledge_map_skipped"]}
+    assert "Cache" in skipped
+    km_content = knowledge_map_path.read_text(encoding="utf-8")
+    assert "| 03.03 Cache 基本原理与映射方式 | 半会 |" in km_content
+    assert "| 03.04 Cache 替换算法与一致性 | 不会 |" in km_content
+    assert "| 03.05 多模块存储器与存储周期 | | | |" in km_content

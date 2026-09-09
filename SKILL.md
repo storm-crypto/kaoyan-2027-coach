@@ -61,7 +61,7 @@ Kaoyan_2027_Prep/
 1. 生成 `question_id`（调用 `generate_question_id.py`）
 2. 搜索已有卡片（调用 `find_card.py`）→ verdict 判断新旧：
    - `question_id` 精确匹配时跨科全库检索，避免因自动判错科目而重复建卡
-   - `new` → 调用 `create_wrong_card.py` 新建卡片到规范章节目录。数学一（已配置规范多级目录的科目）的 `--chapter` 必须能解析到具体叶子章节，否则脚本返回 `{"error": true, ...}` 拒绝落盘
+   - `new` → 调用 `create_wrong_card.py` 新建卡片到规范章节目录。数学一和 408（已配置规范多级目录的科目）的 `--chapter` 必须能解析到具体叶子章节，否则脚本返回 `{"error": true, ...}` 拒绝落盘。408 的叶子章节是《老汤讲408》一轮大纲的节（`references/408-laotang-outline.md`），传节名或别名（「银行家算法」「三次握手」「Cache 映射」）都能命中，传模块名「操作系统」或章名「线性表」会被拒
      - **拒绝落盘的恢复闭环**：读取返回 JSON 的 `message`，其中 `候选: A；B；C` 列出最接近的叶子章节；从中挑与本题考点匹配的一项作为新的 `--chapter` 原样重试（别名容错，带不带序号/空格都能命中）。**禁止**为绕过报错而手动新建浅层目录或改用泛化章节名
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
@@ -366,6 +366,8 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 **408：**
 处理 408 题目时，先读取 `references/408-coaching.md`，按其中的答疑结构执行；只加载与当前模块和题型相关的部分。
+- **章节体系以《老汤讲408》一轮大纲为准**（`references/408-laotang-outline.md`，4 模块 / 32 章 / 147 节）：`知识地图/408.md` 的叶子行、`create_wrong_card.py --chapter`、`update_knowledge_map.py` 的关键词、`/grill` 的可映射考点、日志标签 `(408·CO·chN)` 的章号，全部用同一套节名。章序和王道不同（计组 ch2 总线 / ch3 主存储器含 Cache；操作系统 ch2 文件系统 / ch3 I/O；KMP 是 DS ch7），别按王道章号写
+- 用户问「老汤第几节讲的」或要排 408 一轮进度时，读同一份大纲文件里的课时列回答；标了「综 / 应 / 算」的节是大题高发区，排计划时优先
 1. 先抓判断轴：题干关键词、限定条件、决定答案的核心标准，以及最容易混淆的概念边界
 2. 逐项辨析：每个选项都要说明为什么对/错、混淆了什么，不允许只给结论
 3. 双轨解释：关键概念同时给 [A] 学术严谨版 + [B] 通俗理解版，类比只能辅助不能替代正式结论
@@ -428,7 +430,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 3. **结构化 bullet 硬约束**：所有 `--learned` / `--blocker` 必须写成 `类型::内容 (科目·子科目·chN)` 的形态：
    - **类型保留集**：`教材` / `学习` / `卡点` / `总结` / `试错`
-   - **章节标签放末尾小括号**：`(数学一·高数·ch2)` / `(408·DS·ch3)` / `(英语一·ch1)`
+   - **章节标签放末尾小括号**：`(数学一·高数·ch2)` / `(408·DS·ch3)` / `(英语一·ch1)`；408 的章号按老汤大纲（`references/408-laotang-outline.md`），例如 B+ 树属于 `(408·DS·ch6)`、Cache 属于 `(408·CO·ch3)`、文件系统属于 `(408·OS·ch2)`
    - 章节归属优先级：错题/笔记**路径**直接给 → 显式标签优先 → log_bullet 的关键词推断兜底
    - **禁止照搬"今天xxx"、"若干xxx"、"明显加深"这类模糊表达**
    - 教材进度统一写 `推进到 pXX` 或 `pXX → pYY`，让脚本能聚合页码区间
@@ -511,7 +513,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 1. 这个入口只支持 `408`，只吃 `Voyager` 导出的 `gemini-voyager.chat.v1` JSON
 2. 正常流程：你先在 Gemini 里完成整章拷打，结束时输入 `结束本章，按模板总评`
-3. Gemini 应按 `references/gemini-prompts/408-chapter-grill.md` 的结束协议输出固定标签总评块
+3. Gemini 应按 `references/gemini-prompts/408-chapter-grill.md` 的结束协议输出固定标签总评块；该 prompt 末尾附有老汤大纲的章名与节名清单，`【章节信息】- 章节` 写 `NN 第N章 章名`，`【可映射考点】` 的考点名写节名（如 `03.03 Cache 基本原理与映射方式`），回写才会命中
 4. Voyager 导出的 JSON 默认收件箱固定为 `资料库/408/gemini_kaoda/`
 5. 调用 `import_chapter_grill.py` 读取 `items[].user / items[].assistant`；传 `latest` 或省略路径时，递归扫描收件箱及其子目录，自动抓最新的 JSON
 6. 若检测到固定总评块，则高置信导入；未检测到时退化为 transcript 弱结构化导入，并在报告里标记 `import_confidence=low`

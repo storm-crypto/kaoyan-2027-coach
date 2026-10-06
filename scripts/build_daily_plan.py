@@ -2,6 +2,7 @@
 """基于档案聚焦问题和到期复习生成今日计划。"""
 import argparse
 import json
+import math
 from collections import Counter
 from typing import List, Mapping, Optional, Sequence, Tuple, TypedDict
 
@@ -35,6 +36,7 @@ from textbook_progress import (
     load_week_textbook_rows,
     render_today_textbook_section,
 )
+from daily_plan_state import preserve_completed_tasks
 
 
 class PlanTask(TypedDict):
@@ -76,15 +78,20 @@ def build_task_list(
     due_cards: Sequence[DueCard],
     cluster_groups: Optional[Sequence[dict]] = None,
 ) -> Tuple[List[PlanTask], List[DueCard], List[str]]:
-    # 复习时段默认按元技能成串排：挑效率最高的 1-3 个簇，宁可略超 DAILY_PLAN_DUE_LIMIT
-    # 也不把簇拆开——拆开就退化成逐卡复习，失去「同一动作换不同外衣」的检验作用。
-    # 索引缺失时 cluster_groups 为空，自动退化为原来的扁平取前 N 张。
+    # 优先选择时间预算内的完整专题；放不下时按预算抽样，不压缩每题预计用时。
+    review_budget = min(available_hours, max(
+        available_hours * DAILY_PLAN_REVIEW_HOURS_RATIO,
+        DAILY_PLAN_MIN_REVIEW_HOURS if available_hours >= DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS else 0,
+    ))
+    card_limit = min(DAILY_PLAN_DUE_LIMIT, int((review_budget + 1e-9) / DAILY_PLAN_CARD_HOURS))
     picked_clusters: List[dict] = []
     if cluster_groups:
-        picked_clusters = pick_clusters_for_session(cluster_groups, DAILY_PLAN_DUE_LIMIT)
+        picked_clusters = pick_clusters_for_session(cluster_groups, DAILY_PLAN_DUE_LIMIT, max_minutes=review_budget * 60)
         selected_due = [card for group in picked_clusters for card in group["cards"]]
+        if not picked_clusters:
+            selected_due = [card for group in cluster_groups for card in group["cards"]][:card_limit]
     else:
-        selected_due = list(due_cards[:DAILY_PLAN_DUE_LIMIT])
+        selected_due = list(due_cards[:card_limit])
     selected_due_count = len(selected_due)
     due_counts = Counter(card["subject"] for card in selected_due)
     focus_counts = infer_subject_mentions(focus_items)
@@ -108,9 +115,9 @@ def build_task_list(
 
     tasks: List[PlanTask] = []
     if picked_clusters:
-        # 一个簇一条复习任务，标题就是那句「看到 X → 做 Y」
+        # 一个簇一条任务，标题只定位专题，不预先泄露解题口令。
         for group in picked_clusters:
-            share = group["due_count"] / selected_due_count if selected_due_count else 0
+            group_hours = (group.get("min") or 30) / 60.0
             topics = "、".join(card["topic"] for card in group["cards"][:4] if card.get("topic"))
             if group["due_count"] > 4:
                 topics += f" 等 {group['due_count']} 张"
@@ -118,10 +125,10 @@ def build_task_list(
             tasks.append({
                 "type": "review",
                 "subject": dominant_subject(group),
-                "hours": round(review_hours * share, 2),
-                "title": f"元技能专题 {group['cluster_id']}：{group['skill']}{mark}",
+                "hours": round(group_hours, 2),
+                "title": f"专题复习 {group['cluster_id']}：{group.get('ch') or dominant_subject(group)}{mark}",
                 "detail": f"本簇到期 {group['due_count']} 张｜{group['ch']}｜{topics}"
-                          f"\n先不看卡念一遍上面那句口令，再连做全簇——同一动作换不同外衣才算检验迁移。",
+                          "\n先独立作答，再按需提示；解题口令用于作答后的总结，不提前作为提示。",
             })
     else:
         for subject in ranked_subjects:
@@ -134,7 +141,11 @@ def build_task_list(
                 "subject": subject,
                 "hours": round(subject_review_hours, 2),
                 "title": f"先复习 {count} 道到期旧题",
-                "detail": "元技能索引缺失，暂按 interval 最小排；建好索引后会自动改为按簇成串。",
+                "detail": (
+                    "完整专题超出当前复习预算，本次只做无提示抽样诊断，其余题另排时段。"
+                    if cluster_groups else
+                    "元技能索引缺失，暂按 interval 最小排；题量已按时间预算减少。"
+                ),
             })
 
     major_subjects = ranked_subjects[:2] if available_hours >= 3 else ranked_subjects[:1]
@@ -177,9 +188,9 @@ def build_task_list(
 
 def render_tasks(tasks: Sequence[PlanTask]) -> str:
     lines: List[str] = []
-    for index, task in enumerate(tasks, start=1):
+    for task in tasks:
         lines.append(
-            f"{index}. [{task['subject']}] {task['title']}（{format_hours(task['hours'])} 小时）"
+            f"- [ ] [{task['subject']}] {task['title']}（{task['hours']:g} 小时）"
         )
         # detail 可以是多行（如元技能专题会附卡片清单 + 口令提示）；
         # 每行都要缩进成同一个 bullet 的续行，否则会跳出列表破坏渲染。
@@ -187,6 +198,8 @@ def render_tasks(tasks: Sequence[PlanTask]) -> str:
             part = part.strip()
             if part:
                 lines.append(f"   - {part}")
+        criterion = "独立作答并说明理由；记录是否用过提示，卡住时保留具体卡点。" if task["type"] == "review" else "完成上面的具体目标，并用一道自测或复述核对理解；记录未完成原因。"
+        lines.append(f"   - 完成标准：{criterion}")
     return "\n".join(lines)
 
 
@@ -203,6 +216,8 @@ def main() -> None:
         if daily_hours is None:
             json_error("缺少今日可用时长：请在档案中补充“每日可投入时长”，或执行 /plan_today 时显式传入今日可用时长")
         available_hours = daily_hours
+    if not math.isfinite(available_hours) or available_hours <= 0:
+        json_error("今日可用时长必须是大于 0 的有限数值")
 
     focus_items = extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）")
     due_cards = collect_due_cards(obsidian_root, today)
@@ -243,6 +258,8 @@ def main() -> None:
     if write_plan:
         target = obsidian_root / DAILY_PLAN_RELATIVE_PATH
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            markdown = preserve_completed_tasks(markdown, target.read_text(encoding="utf-8"))
         atomic_write(target, markdown)
         plan_path = str(target)
 

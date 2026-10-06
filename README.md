@@ -15,7 +15,7 @@
 - `/help`、`/help wrong`、`/help progress`、`/help score` 负责说明“命令最好怎么填”
 - `/progress`、`/score`、`/recap`、`/recalibrate` 负责日志、卷子级成绩记录、单科摘要表、复盘和策略校准
 - `/grill` 可把 Gemini + Voyager 的整章拷打记录导入为 Obsidian 章节掌握报告（兼容旧写法 `/chapter_grill_import`）
-- `build_dashboard.py` 可把现有档案、日志、错题卡和知识地图导出成可直接打开的静态 HTML 学习驾驶舱
+- `/desk` 打开学习工作台：今日行动、复习队列、知识地图、进展与收尾；原有成绩趋势保留在历史统计页
 - 所有学习状态都外置到本地文件，跨 AI 工具可恢复
 
 ## 适合谁
@@ -90,13 +90,15 @@ source ~/.zshrc
 
 普通使用者不需要手动运行 `scripts/` 里的 Python 脚本；正常情况下直接通过对话指令使用即可。
 
-如果你想把当前沉淀下来的学习状态变成一个可双击打开的可视化面板，可以额外运行：
+直接发送 `/desk` 即可生成并打开工作台。也可以手动运行：
 
 ```bash
-python3 scripts/build_dashboard.py "$KAOYAN_OBSIDIAN_ROOT"
+python3 scripts/build_dashboard.py "$KAOYAN_OBSIDIAN_ROOT" --open
 ```
 
-默认会生成到 `Kaoyan_2027_Prep/可视化面板/index.html`。
+默认生成 `可视化面板/index.html`，原有统计保留在 `index-statistics.html`。页面读取本地数据；复制指令后需粘贴到教练对话执行，完成任务在 Obsidian 原计划里勾选。
+
+教练完成学习记录写入后会刷新已有工作台。手动修改文件后再执行 `/desk`；浏览器刷新不会重新扫描学习库。
 
 ## 文档
 

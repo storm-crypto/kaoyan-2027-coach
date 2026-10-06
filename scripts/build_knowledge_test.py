@@ -154,13 +154,13 @@ def normalize_topic(text):
 def normalize_mastery(text):
     value = (text or "").strip()
     if not value:
-        return "不会"
+        return "待测"
     return value
 
 
 def mastery_priority(text):
     mastery = normalize_mastery(text)
-    if mastery == "不会":
+    if mastery in {"不会", "待测"}:
         return 0
     if mastery == "半会":
         return 1

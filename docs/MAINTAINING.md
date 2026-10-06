@@ -202,3 +202,12 @@ python3 -m pytest tests/ -v
 
 如果这两个问题都能回答“是”，这次改动通常就比较稳。
 
+
+## 工作台
+
+- `dashboard_payload.py` 收集数据；档案旧表仅在内存中迁移，构建工作台不能写学习记录。
+- `workbench_payload.py` 只读计划、教材进度、结构化卡点与复习证据，复用现有 URI、日志路径与知识地图解析器。
+- `workbench_view.py` 输出自包含页面；不把 Markdown/备注当作 HTML 执行，不在浏览器另存学习状态。
+- `build_dashboard.py` 默认生成工作台与同名 `-statistics.html` 历史统计页；`--if-exists` 在未建工作台时不产生输出文件。
+- `daily_plan_state.py` 解析原生复选框及旧编号任务；完成状态只在同日按科目+任务名继承，保留执行备注。
+- 回归重点：只读构建、过期计划隔离、同日重排保留完成记录、空白掌握度、证据链接、时间预算与 HTML 转义。

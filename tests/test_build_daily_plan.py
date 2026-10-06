@@ -57,7 +57,7 @@ def test_build_daily_plan_caps_due_selection(sample_archive, vault_root):
     assert rc == 0
     data = json.loads(out)
     assert data["due_total"] == 12
-    assert data["due_selected"] == 10
+    assert data["due_selected"] == 8  # 5 小时的复习预算 2 小时，15 分钟/题。
 
 
 def test_build_daily_plan_write_lands_markdown(sample_archive, vault_root):

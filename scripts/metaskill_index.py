@@ -122,18 +122,25 @@ def pick_clusters_for_session(
     groups: Sequence[Dict[str, Any]],
     target_cards: int,
     max_clusters: int = 3,
+    max_minutes: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """从已排序的分组里挑够一次复习时段的簇。
 
     宁可略微超出 target_cards 也不要把一个簇拆开——拆开就退化成逐卡复习，
     失去了「同一动作换不同外衣」的检验作用。
+    提供 max_minutes 时只选择预算内的完整簇；没有合适的簇时由调用方安排抽样。
     """
     picked: List[Dict[str, Any]] = []
     total = 0
+    minutes = 0.0
     for group in groups:
         if picked and (total >= target_cards or len(picked) >= max_clusters):
             break
+        duration = group.get("min") or 30
+        if max_minutes is not None and minutes + duration > max_minutes:
+            continue
         picked.append(group)
+        minutes += duration
         total += group["due_count"]
     return picked
 

@@ -126,6 +126,9 @@ def test_build_dashboard_outputs_payload_and_html(sample_archive, sample_card, k
     output_path = vault_root / "可视化面板" / "index.html"
     assert output_path.exists()
     html = output_path.read_text(encoding="utf-8")
+    assert "考研 · 学习工作台" in html
+    assert Path(data["statistics_path"]).name in html
+    html = Path(data["statistics_path"]).read_text(encoding="utf-8")
     assert "Kaoyan Coach 学习驾驶舱" in html
     assert "总览卡片" in html
     assert "科目进度总览" in html

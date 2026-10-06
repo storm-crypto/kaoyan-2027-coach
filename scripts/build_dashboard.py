@@ -22,6 +22,7 @@ from dashboard_payload import build_payload, format_number
 from env_util import atomic_write, resolve_obsidian_root
 from score_record_lib import format_optional_number, top_weakness_from_408_record
 from study_ops import parse_today
+from workbench_view import render_workbench
 
 SUBJECT_BY_TAB_ID = {meta["tab_id"]: subject for subject, meta in SUBJECT_META.items()}
 
@@ -31,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("obsidian_root", nargs="?", default=None, help="Obsidian vault 根目录")
     parser.add_argument("--output", help="输出 HTML 文件路径；默认写到 OBSIDIAN_ROOT/可视化面板/index.html")
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
+    parser.add_argument("--open", action="store_true", help="生成后用默认浏览器打开工作台")
+    parser.add_argument("--if-exists", action="store_true", help="仅刷新已经生成过的工作台")
     return parser.parse_args()
 
 
@@ -682,7 +685,7 @@ def render_recent_outputs(recent_outputs: Mapping[str, Mapping[str, int]]) -> st
     return "".join(parts)
 
 
-def render_html(payload: Mapping[str, object]) -> str:
+def render_statistics_html(payload: Mapping[str, object], workbench_href: str = "index.html") -> str:
     overview = payload["overview"]
     subjects = payload["subjects"]
     reviews = payload["reviews"]
@@ -1249,6 +1252,7 @@ def render_html(payload: Mapping[str, object]) -> str:
         <span>当前阶段 {e(overview["stage"] or "未记录")}</span>
       </div>
       <div class="nav">
+        <a href="{e(workbench_href)}">返回学习工作台</a>
         <a href="#overview">总览</a>
         <a href="#subjects">科目进度</a>
         <a href="#score-trends">成绩趋势</a>
@@ -1438,15 +1442,23 @@ def main() -> None:
     args = parse_args()
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     today = parse_today(args.today)
-    payload = build_payload(obsidian_root, today)
-
     output_path = resolve_output_path(obsidian_root, args.output)
+    if args.if_exists and not output_path.exists():
+        print(json.dumps({"skipped": True, "reason": "工作台尚未创建", "path": str(output_path)}, ensure_ascii=False))
+        return
+    payload = build_payload(obsidian_root, today)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html_content = render_html(payload)
+    statistics_path = output_path.with_name(output_path.stem + "-statistics.html")
+    html_content = render_workbench(payload, statistics_path.name)
+    atomic_write(statistics_path, render_statistics_html(payload, output_path.name))
     atomic_write(output_path, html_content)
 
     result = dict(payload)
     result["path"] = str(output_path)
+    result["statistics_path"] = str(statistics_path)
+    if args.open:
+        import webbrowser
+        result["opened"] = webbrowser.open(output_path.resolve().as_uri())
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

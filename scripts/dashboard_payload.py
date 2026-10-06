@@ -18,7 +18,7 @@ from archive_ops import (
     parse_mock_rows,
     parse_score_cell,
     parse_subject_score_rows,
-    safe_load_archive_text,
+    migrate_archive_schemas,
 )
 from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS, SUBJECT_META
 from frontmatter import parse_frontmatter
@@ -238,6 +238,12 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
         promoted = any(history in {"半会", "会"} for history in history_statuses)
         cards.append({
             "path": str(path),
+            "question_id": str(fm.get("question_id", "")),
+            "recent_failures": sum(
+                1 for day, result in HISTORY_RE.findall(item["body"])
+                if result == "不会" and parse_iso_date(day)
+                and today - timedelta(days=30) <= parse_iso_date(day) <= today
+            ),
             "subject": item["subject"],
             "topic": str(fm.get("topic", item["topic"])).strip() or item["topic"],
             "chapter": chapter,
@@ -935,7 +941,9 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
 
 
 def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
-    archive_path, archive_text = safe_load_archive_text(obsidian_root)
+    archive_path = obsidian_root / "我的学习者档案.md"
+    # 兼容旧表只在内存中迁移；打开工作台不能改写档案。
+    archive_text = migrate_archive_schemas(safe_read_text(archive_path))
     archive_exists = bool(archive_text)
     archive_basic = parse_archive_basic_info(archive_text, today) if archive_text else {
         "exam_date": "-",
@@ -981,10 +989,13 @@ def build_payload(obsidian_root: Path, today: date) -> Dict[str, object]:
     )
     results = build_results_payload(cards, chapter_reports)
     overview = build_overview_payload(archive_basic, logs, cards, reports, activity, structured_subjects, today)
+    from workbench_payload import build_workbench
+    workbench = build_workbench(obsidian_root, today, cards, archive_basic, logs)
 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "today": today.isoformat(),
+        "workbench": workbench,
         "overview": overview,
         "subjects": {
             "progress": subject_rows,

@@ -420,6 +420,36 @@ def test_create_wrong_card_renders_408_detailed_sections(vault_root):
     assert "交互看响应，吞吐看整体。" in content
 
 
+def test_408_explanations_preserve_markdown_structure(vault_root):
+    blocks = {
+        "--breakthrough": ("题干突破口", "先确定判断范围。\n\n**核心条件：** 访问时间基本与位置无关。"),
+        "--option-analysis": ("选项逐个辨析", "| 器件 | 方式 |\n|---|---|\n| EPROM | 随机存取 |\n| CDROM | 直接存取 |"),
+        "--dual-track": ("双轨解释", "#### 判断标准\n\n1. 按地址定位。\n2. 检查访问时间。\n\n地址数量示例：\n\n$$\nN=2^n\n$$"),
+        "--trap": ("干扰项陷阱", "> [!note]\n> 只读属性与存取方式要分开判断。"),
+        "--knowledge-link": ("知识网络串联", "- 定位方式\n  - 电子选址\n  - 机械定位"),
+        "--memory-hook": ("记忆钩子", "**只读看能否改，随机看怎样找。**"),
+    }
+    details = required_detail_args("408")
+    for flag, (_, body) in blocks.items():
+        details[details.index(flag) + 1] = body
+    rc, out, err = run_script("create_wrong_card.py", [
+        str(vault_root), "408",
+        "--chapter", "半导体存储芯片",
+        "--topic", "存取方式",
+        "--source", "排版回归样例",
+        "--question-id", "qid-d1e2f3a4b5c6",
+        "--question", "以下器件采用哪种存取方式？",
+        *details,
+        "--today", "2026-10-09",
+    ])
+
+    assert rc == 0, err or out
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    for heading, body in blocks.values():
+        # 验证落盘结果：不能新增列表前缀、丢空行、拆表格或破坏嵌套缩进。
+        assert extract_heading_block(content, heading, level=3).strip() == body
+
+
 def test_create_wrong_card_requires_complete_math_details(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         str(vault_root),

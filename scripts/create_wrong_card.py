@@ -246,6 +246,11 @@ def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
     return "\n".join(f"- {line}" for line in items)
 
 
+def render_preserved_markdown_block(text: str, fallback: str) -> str:
+    """保留作者写出的段落、标题、表格和列表，不把每一行强制变成 bullet。"""
+    return text.strip() or fallback
+
+
 def render_markdown_block(text: str, fallback: str) -> str:
     """把规范解法规整成「疏朗」版式：块单元之间留恰好一个空行。
 
@@ -590,15 +595,15 @@ def build_math_detail_sections(args: argparse.Namespace, figure_block: str = "")
 def build_408_detail_sections(args: argparse.Namespace, figure_block: str = "") -> str:
     # 图示紧跟「题干突破口」：先把机制图摆出来，再逐项辨析选项。
     return (
-        f"### 考点定位\n{render_bullet_block(split_nonempty_lines(args.point_location), '待补充')}\n\n"
-        f"### 题干突破口\n{render_bullet_block(split_nonempty_lines(args.breakthrough), '待补充')}\n\n"
+        f"### 考点定位\n\n{render_bullet_block(split_nonempty_lines(args.point_location), '待补充')}\n\n"
+        f"### 题干突破口\n\n{render_preserved_markdown_block(args.breakthrough, '待补充')}\n\n"
         f"{render_figure_section(figure_block)}"
-        f"### 选项逐个辨析\n{render_bullet_block(split_nonempty_lines(args.option_analysis), '待补充')}\n\n"
-        f"### 双轨解释\n{render_bullet_block(split_nonempty_lines(args.dual_track), '待补充')}\n\n"
-        f"### 干扰项陷阱\n{render_bullet_block(split_nonempty_lines(args.trap), '待补充')}\n\n"
-        f"### 知识网络串联\n{render_bullet_block(split_nonempty_lines(args.knowledge_link), '待补充')}\n\n"
-        f"### 记忆钩子\n{render_bullet_block(split_nonempty_lines(args.memory_hook), '待补充')}\n\n"
-        f"### 检查你是否真的懂了\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
+        f"### 选项逐个辨析\n\n{render_preserved_markdown_block(args.option_analysis, '待补充')}\n\n"
+        f"### 双轨解释\n\n{render_preserved_markdown_block(args.dual_track, '待补充')}\n\n"
+        f"### 干扰项陷阱\n\n{render_preserved_markdown_block(args.trap, '待补充')}\n\n"
+        f"### 知识网络串联\n\n{render_preserved_markdown_block(args.knowledge_link, '待补充')}\n\n"
+        f"### 记忆钩子\n\n{render_preserved_markdown_block(args.memory_hook, '待补充')}\n\n"
+        f"### 检查你是否真的懂了\n\n{render_numbered_block(merge_repeated_lines(args.check_question), '待补充')}\n"
     )
 
 

@@ -1,18 +1,48 @@
 """卷面错题的 JSON 落盘格式、参数校验及题号/日期范围查询。"""
 import json
 import re
+import unicodedata
 from datetime import date
 
 
 BLOCK_RE = re.compile(r'^## 卷子错题\s*\n+```json\s*\n(.*?)\n```', re.M | re.S)
 
 
-def parse_numbered_values(value, subject, label):
+def is_old_math_paper(paper, paper_type):
+    if paper_type != "真题":
+        return False
+    years = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)",
+                           unicodedata.normalize("NFKC", str(paper))))
+    return len(years) == 1 and int(next(iter(years))) <= 2020
+
+
+def objective_max_score(paper, paper_type):
+    return 56 if is_old_math_paper(paper, paper_type) else 80
+
+
+def _question_limit(subject, paper="", paper_type=None, section="整卷"):
+    """卷面题号统一上限；/wrong 未知卷型时仍可存旧制题号。"""
+    if section not in {"整卷", "选填"}:
+        raise ValueError("section 必须是整卷 / 选填")
+    if section == "选填":
+        if subject != "数学一":
+            raise ValueError("选填模式目前只支持数学一")
+        return 14 if is_old_math_paper(paper, paper_type) else 16
+    if subject == "408":
+        return 47
+    if subject != "数学一":
+        return None
+    if paper_type is None:
+        return 23  # /wrong 的通用题号字段不区分卷型。
+    return 23 if is_old_math_paper(paper, paper_type) else 22
+
+
+def parse_numbered_values(value, subject, label, paper="", paper_type="真题", section="整卷"):
     if value is None:
         return None
     if subject not in {"数学一", "408"}:
         raise ValueError(f"{label} 目前只支持数学一 / 408")
-    limit = 22 if subject == "数学一" else 47
+    limit = _question_limit(subject, paper, paper_type, section)
     result = {}
     if not value.strip():
         return result
@@ -29,9 +59,9 @@ def parse_numbered_values(value, subject, label):
     return result
 
 
-def build_wrong_questions(value, topics, subject, record_date):
-    errors = parse_numbered_values(value, subject, "wrong-questions")
-    topic_map = parse_numbered_values(topics, subject, "question-topics") or {}
+def build_wrong_questions(value, topics, subject, record_date, paper="", paper_type="真题", section="整卷"):
+    errors = parse_numbered_values(value, subject, "wrong-questions", paper, paper_type, section)
+    topic_map = parse_numbered_values(topics, subject, "question-topics", paper, paper_type, section) or {}
     if errors is None:
         if topic_map:
             raise ValueError("question-topics 需要同时传入 wrong-questions")
@@ -80,5 +110,5 @@ def query_wrong_questions(records, question_number=None, start_date=None, end_da
             if end_date is not None and day > end_date:
                 continue
             result.append({**question, "paper": record["paper"], "subject": record["subject"],
-                           "paper_type": record["paper_type"], "path": record["path"]})
+                           "paper_type": record["paper_type"], "section": record.get("section", "整卷"), "path": record["path"]})
     return result

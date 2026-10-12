@@ -169,17 +169,17 @@ def test_wrong_questions_round_trip_and_score_only_update_preserves_them(sample_
     assert parse_score_record(path)["wrong_questions"] == []
 
 
-@pytest.mark.parametrize("subject,number", [("数学一", 22), ("408", 40), ("408", 41), ("408", 47)])
+@pytest.mark.parametrize("subject,number", [("数学一", 22), ("数学一", 23), ("408", 40), ("408", 41), ("408", 47)])
 def test_wrong_question_number_boundaries(sample_archive, vault_root, subject, number):
-    rc, out, err = run_script("record_paper_score.py", [str(vault_root), subject, "--paper", "测试卷",
-        "--paper-type", "模拟", "--total", "100", "--issues", "测试", "--wrong-questions", f"{number}:不会"])
+    rc, out, err = run_script("record_paper_score.py", [str(vault_root), subject, "--paper", "2010真题",
+        "--paper-type", "真题", "--total", "100", "--issues", "测试", "--wrong-questions", f"{number}:不会"])
     assert rc == 0, (out, err)
     record = parse_score_record(Path(json.loads(out)["record_path"]))
     assert record["wrong_questions"][0]["question_number"] == number
 
 
 @pytest.mark.parametrize("subject,errors,topics", [
-    ("数学一", "23:不会", None), ("408", "48:不会", None),
+    ("数学一", "24:不会", None), ("408", "48:不会", None),
     ("数学一", "0:不会", None), ("数学一", "-1:不会", None),
     ("数学一", "x:不会", None), ("数学一", "3:", None),
     ("数学一", "3:不会;3:算错", None), ("数学一", "3没思路", None),
@@ -195,3 +195,25 @@ def test_invalid_wrong_questions_do_not_write(sample_archive, vault_root, subjec
     assert rc == 1 and json.loads(out)["error"]
     assert sample_archive.read_bytes() == old_archive
     assert not (vault_root / "成绩记录").exists()
+
+
+@pytest.mark.parametrize("paper,paper_type,accepted", [
+    ("2010真题", "真题", True), ("2020真题", "真题", True),
+    ("２０２０ 数学一真题", "真题", True), ("2021真题", "真题", False),
+    ("2026真题", "真题", False), ("未注明年份的真题", "真题", False),
+    ("李林预测卷一", "模拟", False), ("2010模拟卷", "模拟", False),
+    ("20101题真题", "真题", False), ("2010真题2026重编", "真题", False),
+])
+def test_math_23_limit_depends_on_paper_type_and_year(sample_archive, vault_root, paper, paper_type, accepted):
+    archive_before = sample_archive.read_bytes()
+    args = [str(vault_root), "数学一", "--paper", paper, "--paper-type", paper_type,
+            "--total", "100", "--wrong-questions", "23:不会", "--question-topics", "23:概率分布"]
+    rc, out, err = run_script("record_paper_score.py", args)
+    if accepted:
+        assert rc == 0, out + err
+        stored = parse_score_record(Path(json.loads(out)["record_path"]))
+        assert stored["wrong_questions"][0]["question_number"] == 23
+    else:
+        assert rc == 1 and "1–22" in json.loads(out)["message"]
+        assert sample_archive.read_bytes() == archive_before
+        assert not (vault_root / "成绩记录").exists()

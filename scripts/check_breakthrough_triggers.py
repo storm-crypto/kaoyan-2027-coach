@@ -2,163 +2,128 @@
 """统计近期同考点错题；仅提供证据，不创建突破单。"""
 import argparse
 import json
-import re
 from collections import defaultdict
 from datetime import date, timedelta
 
-from archive_ops import extract_heading_block
+from card_history import consecutive_failures, error_events, first_wrong_day, history_entries
+from paper_card_links import card_paper_reference, paper_key, source_paper
+from paper_analysis_lib import module_scores
 from env_util import json_error, resolve_obsidian_root
 from paper_wrong_questions import query_wrong_questions
 from score_record_lib import collect_score_records
 from study_ops import iter_review_cards, parse_today
 
 
-def normalize_topic(value):
-    value = re.sub(r"^#?(?:topic|chapter)/", "", str(value).strip())
-    return re.sub(r"^\d+(?:\.\d+)*\s+", "", value).strip()
-
-
-def card_topics(card):
-    fm = card["frontmatter"]
-    tags = fm.get("tags", [])
-    if isinstance(tags, str):
-        tags = [tags]
-    topic_tags = [tag for tag in tags if str(tag).lstrip("#").startswith("topic/")]
-    chapter_tags = [tag for tag in tags if str(tag).lstrip("#").startswith("chapter/")]
-    values = fm.get("topic") or topic_tags or re.findall(r"(?<!\S)#topic/([^\s#]+)", card["body"])
-    if not values:
-        values = fm.get("chapter_display") or fm.get("chapter") or chapter_tags or re.findall(
-            r"(?<!\S)#chapter/([^\s#]+)", card["body"])
-    if isinstance(values, str):
-        values = [values]
-    return {normalize_topic(value) for value in values or [] if normalize_topic(value)}
-
-
-def topic_vocabulary(root, cards, questions):
-    vocabulary = defaultdict(set)
-    for card in cards:
-        vocabulary[card["subject"]].update(card_topics(card))
-    for question in questions:
-        if question.get("topic"):
-            vocabulary[question["subject"]].add(normalize_topic(question["topic"]))
-    map_root = root / "知识地图"
-    for path in sorted(map_root.glob("*.md")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.lstrip().startswith("|"):
-                continue
-            keyword = normalize_topic(line.split("|")[1].strip().strip("*"))
-            if keyword and keyword != "考点" and not re.fullmatch(r"[- :]+", keyword):
-                vocabulary[path.stem].add(keyword)
-    return vocabulary
-
-
-def matching_topics(description, vocabulary):
-    text = re.sub(r"\s+", "", description).casefold()
-    matches = set()
-    for topic in vocabulary:
-        keyword = re.sub(r"\s+", "", topic).casefold()
-        pattern = re.escape(keyword)
-        if keyword.isascii():
-            pattern = rf"(?<![a-z0-9]){pattern}(?![a-z0-9])"
-        if re.search(pattern, text):
-            matches.add(topic)
-    # 同一次错误只落入最具体的关键词，避免同时触发其上位词。
-    return {topic for topic in matches if not any(
-        topic != other and topic.casefold() in other.casefold() for other in matches)}
-
-
-def wrong_events(card):
-    fm = card["frontmatter"]
-    first_day = None
-    first = fm.get("first_wrong_at")
-    if first:
-        try:
-            first_day = date.fromisoformat(str(first))
-        except ValueError:
-            pass
-    events = [(first_day, "first")] if first_day else []
-    seen = set()
-    initial_history_seen = False
-    history = extract_heading_block(card["body"], "历史记录", level=3)
-    for line in history.splitlines():
-        match = re.match(r"^-\s*(\d{4}-\d{2}-\d{2})\s*-\s*(不会|半会|会)\s*-", line.strip())
-        if not match or line.strip() in seen:
-            continue
-        seen.add(line.strip())
-        try:
-            day = date.fromisoformat(match.group(1))
-        except ValueError:
-            continue
-        # 首次归档已由 first_wrong_at 表示，不能重复计入；之后真实重错仍计数。
-        if day == first_day and not initial_history_seen:
-            initial_history_seen = True
-            continue
-        if match.group(2) != "会":
-            events.append((day, line.strip()))
-    return sorted(events)  # 完全相同的历史行去重，不使用累计 wrong_count。
-
-
-def card_paper_reference(card):
-    fm = card["frontmatter"]
-    if fm.get("paper") and str(fm.get("question_number", "")).isdigit():
-        return str(fm["paper"]).strip(), int(fm["question_number"])
-    # 只有来源明确含卷面题号时才关联，不能按关键词猜同一题。
-    match = re.fullmatch(r"(.+?)\s*第\s*(\d+)\s*题", str(fm.get("source", "")).strip())
-    return (match.group(1).strip(), int(match.group(2))) if match else None
+def structured_topic(fields):
+    chapter_id = str(fields.get("chapter_id") or "").strip()
+    topic = str(fields.get("topic") or "").strip()
+    if not chapter_id and not topic:
+        return None
+    return {"key": ("chapter_id", chapter_id) if chapter_id else ("topic", topic),
+            "topic": topic or str(fields.get("chapter_display") or chapter_id).strip(),
+            "chapter_id": chapter_id}
 
 
 def check_triggers(root, today, days=3):
     if days < 1:
         raise ValueError("days 必须大于 0")
     start = today - timedelta(days=days - 1)
-    questions = query_wrong_questions(collect_score_records(root), start_date=start, end_date=today)
+    records = collect_score_records(root, section=None)
+    questions = query_wrong_questions(records, start_date=start, end_date=today)
     cards = [card for card in iter_review_cards(root) if not card["icloud_placeholder"]]
-    vocabulary = topic_vocabulary(root, cards, questions)
+    by_qid = {str(card["frontmatter"].get("question_id")): card for card in cards if card["frontmatter"].get("question_id")}
     events = {}
     paper_keys = defaultdict(list)
     unmapped = []
 
-    def add_event(key, topics, source):
-        event = events.setdefault(key, {"topics": set(), "source": source})
-        event["topics"].update(topics)
+    def add_event(key, metadata, source):
+        event = events.setdefault(key, {"metadata": metadata, "source": source})
+        if metadata and (not event["metadata"] or metadata["chapter_id"]):
+            event["metadata"] = metadata
 
     for question in questions:
         subject, day = question["subject"], date.fromisoformat(question["record_date"])
         number, paper = question["question_number"], question["paper"]
-        key = (subject, day, question["path"], number)
-        paper_keys[(subject, day, paper, number)].append(key)
+        # 同卷同日的整卷/选填摘要是同一道错题的两种归档范围，不重复计数。
+        canonical_paper = paper_key(source_paper(paper))
+        key = (subject, day, question['paper_type'], canonical_paper, number)
+        reference_key = (subject, day, canonical_paper, number)
+        if key not in paper_keys[reference_key]:
+            paper_keys[reference_key].append(key)
         source = f"{paper}第{number}题"
-        topics = ({normalize_topic(question["topic"])} if question.get("topic") else
-                  matching_topics(question["error_description"], vocabulary[subject]))
-        add_event(key, topics, source)
+        linked = by_qid.get(question.get("question_id"))
+        fields = linked["frontmatter"] if linked and linked["subject"] == subject else question
+        add_event(key, structured_topic(fields), source)
 
     for card in cards:
         subject = card["subject"]
-        reference = card_paper_reference(card)
+        try:
+            reference = card_paper_reference(card)
+        except ValueError:
+            reference = None
         qid = card["frontmatter"].get("question_id") or str(card["path"])
         linked_days = set()
-        for day, marker in wrong_events(card):
+        for day, marker in error_events(card):
             if not start <= day <= today:
                 continue
-            matches = paper_keys.get((subject, day, *reference), []) if reference else []
+            matches = paper_keys.get((subject, day, paper_key(reference[0]), reference[1]), []) if reference else []
             if len(matches) == 1 and day not in linked_days:
                 key = matches[0]
                 linked_days.add(day)
             else:
                 key = (subject, day, qid, marker)
-            add_event(key, card_topics(card), str(qid))
+            add_event(key, structured_topic(card["frontmatter"]), str(qid))
 
-    buckets = defaultdict(list)
+    buckets = {}
     for key, event in events.items():
-        if not event["topics"]:
+        metadata = event["metadata"]
+        if not metadata:
             unmapped.append({"source": event["source"], "subject": key[0], "record_date": key[1].isoformat()})
-        for topic in sorted(event["topics"]):
-            buckets[(key[0], topic)].append(event["source"])
-    triggered = [
-        {"topic": topic, "count": len(sources), "sources": sources, "subject": subject}
-        for (subject, topic), sources in sorted(buckets.items()) if len(sources) >= 3
-    ]
+            continue
+        bucket = buckets.setdefault((key[0], metadata["key"]), {"metadata": metadata, "sources": []})
+        bucket["sources"].append(event["source"])
+    triggered = []
+    for (subject, _), bucket in sorted(buckets.items()):
+        if len(bucket["sources"]) < 3:
+            continue
+        metadata = bucket["metadata"]
+        entry = {"topic": metadata["topic"], "count": len(bucket["sources"]),
+                 "sources": bucket["sources"], "subject": subject}
+        if metadata["chapter_id"]:
+            entry["chapter_id"] = metadata["chapter_id"]
+        triggered.append(entry)
+
     result = {"triggered": triggered}
+    signals = []
+    for card in cards:
+        first = first_wrong_day(card)
+        if first and first > today:
+            continue
+        # 不能把历史回放窗口之后发生的翻车当成今天的信号。
+        entries = history_entries(card['body'])
+        last_review = str(card['frontmatter'].get('last_review_at') or '')
+        if (last_review and last_review > today.isoformat()) or any(entry['date'] > today for entry in entries):
+            continue
+        streak = consecutive_failures(card['frontmatter'], card['body'])
+        if streak >= 3:
+            signals.append({"reason": "consecutive_failures", "subject": card['subject'],
+                            "question_id": str(card['frontmatter'].get('question_id') or ''),
+                            "topic": str(card['frontmatter'].get('topic') or ''),
+                            "chapter_id": str(card['frontmatter'].get('chapter_id') or ''),
+                            "consecutive_failures": streak, "card_path": str(card['path'])})
+    for record in records:
+        day = date.fromisoformat(record['exam_date'])
+        if not start <= day <= today:
+            continue
+        for module, metrics in module_scores(record).items():
+            if 'accuracy' in metrics and metrics['accuracy'] < 0.6:
+                signals.append({"reason": "module_accuracy", "subject": record['subject'],
+                                "module": module, "accuracy": metrics['accuracy'],
+                                "score": metrics['score'], "max_score": metrics['max_score'],
+                                "paper": record['paper'], "date": record['exam_date'],
+                                "section": record.get('section', '整卷')})
+    if signals:
+        result['strong_signals'] = signals
     if unmapped:
         result["unmapped"] = unmapped
     return result

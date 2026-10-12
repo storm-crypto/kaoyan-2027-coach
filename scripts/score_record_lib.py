@@ -1,6 +1,7 @@
 """成绩记录共享工具：卷子级成绩记录的落盘、读取和字段校验。"""
 from __future__ import annotations
 
+import math
 import re
 from datetime import date
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from archive_ops import format_number
 from env_util import atomic_write, json_error
 from frontmatter import Frontmatter, parse_frontmatter, serialize_frontmatter
-from paper_wrong_questions import parse_wrong_questions, render_wrong_questions
+from paper_wrong_questions import objective_max_score, parse_wrong_questions, render_wrong_questions
 
 SUBJECT_ALIASES = {
     "数学": "数学一",
@@ -55,6 +56,7 @@ RECORD_KEY_ORDER = [
     "subject",
     "paper",
     "paper_type",
+    "section",
     "exam_date",
     "total_score",
     "issues",
@@ -134,8 +136,10 @@ def format_optional_number(value: Optional[float]) -> str:
     return format_number(value)
 
 
-def build_record_path(obsidian_root: Path, subject: str, exam_day: str, paper_type: str, paper: str) -> Path:
-    filename = f"{exam_day}-{sanitize_filename_segment(paper_type)}-{sanitize_filename_segment(paper)}.md"
+def build_record_path(obsidian_root: Path, subject: str, exam_day: str, paper_type: str, paper: str,
+                      section: str = "整卷") -> Path:
+    prefix = f"{exam_day}-选填" if section == "选填" else exam_day
+    filename = f"{prefix}-{sanitize_filename_segment(paper_type)}-{sanitize_filename_segment(paper)}.md"
     return Path(obsidian_root) / "成绩记录" / subject / filename
 
 
@@ -151,16 +155,23 @@ def validate_score_breakdown(subject: str, total_score: float, fields: Mapping[s
 
 
 def build_record_body(subject: str, data: Mapping[str, str]) -> str:
+    objective_only = data.get('section') == '选填'
+    score_label = '选填得分' if objective_only else '总分'
     lines = [
         f"# 成绩记录：{subject} / {data['paper']}",
         "",
         "## 摘要",
         f"- **卷型**：{data['paper_type']}",
         f"- **日期**：{data['exam_date']}",
-        f"- **总分**：{data['total_score']}",
+        f"- **{score_label}**：{data['total_score']}",
         f"- **主要问题**：{data['issues']}",
         f"- **备注**：{data['note'] or '-'}",
     ]
+    if objective_only:
+        lines.extend([f"- **范围**：选填", f"- **满分**：{data['max_score']}"])
+        if data.get('loss_objective'):
+            lines.append(f"- 选填失分：{data['loss_objective']}")
+        return '\n'.join(lines) + '\n'
 
     detail_lines: List[str] = []
     if subject == "数学一":
@@ -221,25 +232,44 @@ def write_score_record(
     note: str,
     extra_fields: Mapping[str, Optional[float]],
     wrong_questions: Optional[Sequence[Mapping[str, object]]] = None,
+    wrong_questions_mode: Optional[str] = None,
+    section: str = "整卷",
 ) -> Path:
-    record_path = build_record_path(obsidian_root, subject, exam_day, paper_type, paper)
-    if wrong_questions is None and record_path.exists():
-        wrong_questions = parse_wrong_questions(record_path.read_text(encoding="utf-8"))
+    if section not in {'整卷', '选填'} or (section == '选填' and subject != '数学一'):
+        raise ValueError('选填模式目前只支持数学一；section 须为整卷 / 选填')
+    if section == '选填':
+        maximum = objective_max_score(paper, paper_type)
+        if not math.isfinite(total_score) or not 0 <= total_score <= maximum:
+            raise ValueError(f'选填得分必须在 0–{maximum} 之间')
+        extra_fields = {'score_objective': total_score, 'loss_objective': extra_fields.get('loss_objective')}
+    record_path = build_record_path(obsidian_root, subject, exam_day, paper_type, paper, section)
+    if record_path.exists():
+        previous = record_path.read_text(encoding="utf-8")
+        if wrong_questions is None:
+            wrong_questions = parse_wrong_questions(previous)
+        if wrong_questions_mode is None:
+            old_frontmatter, _, _ = parse_frontmatter(previous)
+            wrong_questions_mode = str(old_frontmatter.get('wrong_questions_mode') or '')
     record_path.parent.mkdir(parents=True, exist_ok=True)
 
     fm: Frontmatter = {
         "subject": subject,
         "paper": paper,
         "paper_type": paper_type,
+        "section": section,
         "exam_date": exam_day,
         "total_score": format_number(total_score),
         "issues": issues,
         "note": note or "",
     }
+    if section == '选填':
+        fm['max_score'] = str(objective_max_score(paper, paper_type))
     for field, value in extra_fields.items():
         if value is None:
             continue
         fm[field] = format_number(value)
+    if wrong_questions_mode:
+        fm['wrong_questions_mode'] = wrong_questions_mode
 
     body = "\n" + build_record_body(subject, {key: str(value) for key, value in fm.items()}) + "\n"
     if wrong_questions:
@@ -269,6 +299,8 @@ def parse_score_record(path: Path) -> Optional[Dict[str, object]]:
         "subject": subject,
         "paper": str(fm.get("paper", "")).strip(),
         "paper_type": str(fm.get("paper_type", "")).strip() or infer_paper_type(str(fm.get("paper", ""))),
+        "section": str(fm.get('section') or '整卷').strip(),
+        "max_score": parse_record_numeric(fm.get('max_score')),
         "exam_date": str(fm.get("exam_date", "")).strip(),
         "total_score": parse_record_numeric(fm.get("total_score")),
         "issues": str(fm.get("issues", "")).strip(),
@@ -277,6 +309,7 @@ def parse_score_record(path: Path) -> Optional[Dict[str, object]]:
         "body": body,
         "key_order": key_order,
         "wrong_questions": parse_wrong_questions(body),
+        "wrong_questions_mode": str(fm.get('wrong_questions_mode') or ''),
     }
     for field in RECORD_KEY_ORDER:
         if field.startswith("score_") or field.startswith("loss_"):
@@ -284,7 +317,9 @@ def parse_score_record(path: Path) -> Optional[Dict[str, object]]:
     return record
 
 
-def collect_score_records(obsidian_root: Path, subjects: Optional[Sequence[str]] = None) -> List[Dict[str, object]]:
+def collect_score_records(obsidian_root: Path, subjects: Optional[Sequence[str]] = None,
+                          section: Optional[str] = "整卷") -> List[Dict[str, object]]:
+    """默认只读整卷，避免专项污染总分趋势；section=None 显式读取所有范围。"""
     root = Path(obsidian_root) / "成绩记录"
     if not root.exists():
         return []
@@ -299,6 +334,8 @@ def collect_score_records(obsidian_root: Path, subjects: Optional[Sequence[str]]
         if not record:
             continue
         if subject_set and record["subject"] not in subject_set:
+            continue
+        if section is not None and record['section'] != section:
             continue
         records.append(record)
 

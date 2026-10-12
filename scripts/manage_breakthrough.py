@@ -54,9 +54,10 @@ def get_item(items: list, item_id: str) -> dict:
 
 
 def create(root: Path, goal: str, source: str, plan: str, criteria: str,
-           item_id: str = None, today: date = None) -> dict:
+           item_id: str = None, today: date = None, topic_ids=None) -> dict:
     path, text, items = load(root)
     today = today or date.today()
+    topic_ids = list(dict.fromkeys(single_line(value, '考点id') for value in topic_ids or []))
     if item_id:
         if not re.fullmatch(r"突破单-\d{8}-\d{2,}", item_id):
             raise ValueError("id 格式须为 突破单-YYYYMMDD-NN")
@@ -68,9 +69,10 @@ def create(root: Path, goal: str, source: str, plan: str, criteria: str,
     source = single_line(source, '来源')
     criteria = single_line(criteria, '验收标准')
     days = parse_plan(plan)
-    signature = hashlib.sha256(json.dumps(
-        [today.isoformat(), goal, source, days, criteria], ensure_ascii=False,
-    ).encode()).hexdigest()[:16]
+    signature_fields = [today.isoformat(), goal, source, days, criteria]
+    if topic_ids:
+        signature_fields.append(topic_ids)
+    signature = hashlib.sha256(json.dumps(signature_fields, ensure_ascii=False).encode()).hexdigest()[:16]
     create_marker = f'<!-- breakthrough-create:{signature} -->'
     if not item_id:
         # 标记原始请求，疗程后来延期也不会让 create 重试产生新条目。
@@ -81,7 +83,7 @@ def create(root: Path, goal: str, source: str, plan: str, criteria: str,
         # 手工条目没有执行标记时按原始字段匹配。
         for item in items:
             if (item['created_date'], item['goal'], item['source'], item['plan'], item['criteria']) == (
-                    today.isoformat(), goal, source, days, criteria):
+                    today.isoformat(), goal, source, days, criteria) and item['topic_ids'] == topic_ids:
                 return {"id": item['id'], "created": False}
         prefix = f"突破单-{today.strftime('%Y%m%d')}-"
         numbers = [int(item['id'].rsplit('-', 1)[1]) for item in items if item['id'].startswith(prefix)]
@@ -93,6 +95,8 @@ def create(root: Path, goal: str, source: str, plan: str, criteria: str,
         f"- 状态：进行中（Day1/共{len(days)}天）", f"- 创建日期：{today.isoformat()}",
         create_marker,
     ])
+    if topic_ids:
+        raw = set_field(raw, '考点IDs', json.dumps(topic_ids, ensure_ascii=False))
     text = ensure_section(text)
     _, end = section_span(text)
     text = text[:end].rstrip() + '\n\n' + raw + '\n\n' + text[end:]
@@ -165,6 +169,7 @@ def main() -> None:
     p.add_argument('--criteria', required=True)
     p.add_argument('--id')
     p.add_argument('--today', help='编号与创建日期 YYYY-MM-DD')
+    p.add_argument('--topic-id', action='append', default=[], help='疗程叶子考点 chapter_id，可重复')
     p = sub.add_parser('update-status')
     p.add_argument('obsidian_root', nargs='?')
     p.add_argument('--id', required=True)
@@ -182,7 +187,8 @@ def main() -> None:
     try:
         root = resolve_obsidian_root(args.obsidian_root)
         if args.command == 'create':
-            result = create(root, args.goal, args.source, args.plan, args.criteria, args.id, parse_today(args.today))
+            result = create(root, args.goal, args.source, args.plan, args.criteria, args.id,
+                            parse_today(args.today), args.topic_id)
         elif args.command == 'update-status':
             result = update_status(root, args.id, args.day)
         else:

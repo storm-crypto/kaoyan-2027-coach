@@ -60,6 +60,7 @@ from figure_ops import figure_captions, parse_figure_specs, render_figure_block
 from frontmatter import serialize_frontmatter
 from study_ops import parse_today
 from wrong_card_path_map import resolve_wrong_card_chapter
+from paper_card_links import ERROR_TYPES, question_number, validate_question_number
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
@@ -127,6 +128,8 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
     parser.add_argument("--topic", required=True, help="考点关键词")
     parser.add_argument("--source", required=True, help="来源，如 900题 / 王道")
     parser.add_argument("--question-id", required=True, help="题卡主键 qid-xxxxxxxxxxxx")
+    parser.add_argument("--question-number", type=int, help="可选卷面题号，用于 /score 自动关联")
+    parser.add_argument("--error-type", choices=ERROR_TYPES, help="可选结构化错误类型，由调用方判断")
     parser.add_argument("--question", required=True, help="题面原文；如有选项，建议直接一起传入")
     parser.add_argument("--options", default="", help="多行选项文本，可选")
     parser.add_argument("--option", action="append", default=[], help="单个选项，可重复传入")
@@ -665,6 +668,14 @@ def build_card_body(
 def main() -> None:
     obsidian_root, args = parse_args()
     subject = normalize_subject(args.subject)
+    try:
+        number = question_number({"source": args.source, "question_number": args.question_number or ""}, args.question)
+        if args.question_number == 0:
+            raise ValueError("题号必须是正整数")
+        if number is not None:
+            validate_question_number(subject, number)
+    except ValueError as exc:
+        json_error(str(exc))
     validate_chapter_argument(args.chapter)
     if not QUESTION_ID_RE.match(args.question_id):
         json_error(f"question_id 格式非法: {args.question_id}")
@@ -727,6 +738,7 @@ def main() -> None:
         "first_wrong_at": today,
         "last_review_at": today,
         "wrong_count": "1",
+        "consecutive_failures": "0",
         "status": args.status,
         "next_review": next_review,
         "review_interval": str(review_interval),
@@ -748,6 +760,10 @@ def main() -> None:
         "review_interval",
         "ease_factor",
     ]
+    if number is not None:
+        frontmatter["question_number"] = str(number)
+    if args.error_type:
+        frontmatter["error_type"] = args.error_type
 
     detail_sections = build_detail_sections(subject, args, render_figure_block(figure_specs))
     body = build_card_body(
@@ -774,6 +790,8 @@ def main() -> None:
         "chapter_path": chapter_resolution.chapter_path,
         "topic": args.topic.strip(),
         "question_id": args.question_id,
+        "question_number": number,
+        "error_type": args.error_type,
         "question_line_count": len(question_lines),
         "option_count": len(explicit_options),
         "figure_count": len(figure_specs),

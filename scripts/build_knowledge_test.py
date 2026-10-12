@@ -8,6 +8,8 @@ from pathlib import Path
 
 from archive_ops import load_template_markdown
 from env_util import json_error, resolve_obsidian_root
+from breakthrough_ops import parse_breakthroughs
+from wrong_card_path_map import resolve_wrong_card_chapter
 
 SUBJECT_MAP = {
     "数学一": ("数学一", "数学一.md"),
@@ -141,6 +143,7 @@ def parse_args():
     parser.add_argument("subject", help="科目，如 数学一 / 408 / 政治 / 英语一")
     parser.add_argument("--chapter", default="", help="章节/模块/考点关键词，可选")
     parser.add_argument("--count", type=int, default=5, help="题量，建议 3-5")
+    parser.add_argument("--breakthrough-id", help="突破单验收：优先抽疗程 topic_ids，包含已标会的考点")
     args = parser.parse_args(raw_args)
     if args.count <= 0:
         json_error("题量必须大于 0")
@@ -216,6 +219,7 @@ def build_question(item, subject, index):
         "module": item["module"],
         "chapter": item["chapter"],
         "topic": item["topic"],
+        "topic_id": item.get("topic_id") or None,
         "source_mastery": item["mastery"],
         "note": item["note"],
         "prompt": blueprint["prompt"].format(topic=item["topic"]),
@@ -263,11 +267,35 @@ def main():
     if not canonical_subject:
         json_error(f"未知科目 '{args.subject}'")
 
-    knowledge_map_path = resolve_obsidian_root(obsidian_root_arg) / "知识地图" / filename
+    root = resolve_obsidian_root(obsidian_root_arg)
+    knowledge_map_path = root / "知识地图" / filename
     if not knowledge_map_path.exists():
         json_error(f"知识地图不存在: {knowledge_map_path}")
 
     rows = parse_knowledge_map(knowledge_map_path)
+    for row in rows:
+        # 优先用地图的完整目录信息，避免同名叶子在不同模块间串号。
+        module = re.split(r'[（(]', row['module'], maxsplit=1)[0].strip()
+        numbered = re.match(r'^\d+\.(\d+)\s+(.+)$', row['topic'])
+        leaf = f"{int(numbered.group(1)):02d} {numbered.group(2)}" if numbered else row['topic']
+        resolution = resolve_wrong_card_chapter(canonical_subject, f"{module}/{row['chapter']}/{leaf}", strict=False)
+        if not resolution.is_canonical:
+            resolution = resolve_wrong_card_chapter(canonical_subject, row['topic'], strict=False)
+        row['topic_id'] = resolution.chapter_id if resolution.is_canonical else ''
+    target_ids = []
+    if args.breakthrough_id:
+        try:
+            archive = (root / "我的学习者档案.md").read_text(encoding="utf-8")
+            item = next((item for item in parse_breakthroughs(archive) if item['id'] == args.breakthrough_id), None)
+            if item is None:
+                raise ValueError(f"未找到突破单：{args.breakthrough_id}")
+            target_ids = item['topic_ids']
+            if not target_ids:
+                raise ValueError("突破单未记录 topic_ids，无法按疗程验收")
+            if not any(row['topic_id'] in target_ids for row in rows):
+                raise ValueError("突破单考点id 在当前科目知识地图中没有匹配叶子")
+        except (OSError, ValueError) as exc:
+            json_error(str(exc))
 
     # 数学一：旧通用桶名 → 李林叶子；408：节名/别名（如「页面置换」）→ 老汤叶子行。
     # alias 命中为 0 时回退原始过滤词，让旧结构知识地图或用户自由输入仍能工作。
@@ -290,6 +318,10 @@ def main():
     if not candidates and aliased_chapter != chapter_filter:
         candidates = pick_candidates(chapter_filter)
         chapter_filter_used = chapter_filter
+    if target_ids:
+        targets = [row for row in rows if row['topic_id'] in target_ids]
+        targets.sort(key=lambda row: (target_ids.index(row['topic_id']), row['line_no']))
+        candidates = targets + [row for row in candidates if row['topic_id'] not in target_ids]
 
     if not candidates:
         scope = chapter_filter or canonical_subject
@@ -305,9 +337,13 @@ def main():
         "knowledge_map_path": str(knowledge_map_path),
         "candidate_total": len(candidates),
         "question_count": len(questions),
-        "selection_rule": "优先选择掌握度为空/不会的叶子考点，再选择半会考点",
+        "selection_rule": ("优先突破单疗程考点（含已标会），不足再补普通弱项" if target_ids else
+                           "优先选择掌握度为空/不会的叶子考点，再选择半会考点"),
+        "breakthrough_id": args.breakthrough_id,
+        "target_topic_ids": target_ids,
+        "unmatched_topic_ids": [topic_id for topic_id in target_ids if not any(row['topic_id'] == topic_id for row in rows)],
         "questions": questions,
-        "markdown": render_markdown(canonical_subject, args.chapter, questions),
+        "markdown": render_markdown(canonical_subject, f"突破单 {args.breakthrough_id}" if target_ids else args.chapter, questions),
     }, ensure_ascii=False, indent=2))
 
 

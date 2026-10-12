@@ -62,12 +62,14 @@ def test_cross_paper_and_date_window_do_not_trigger_two(sample_archive, vault_ro
     assert check(vault_root, days=1)["triggered"] == []
 
 
-def test_generic_errors_stay_unmapped_and_keyword_uses_known_topics(sample_archive, vault_root):
+def test_error_description_keywords_never_replace_structured_topic(sample_archive, vault_root):
     card(vault_root, "qid-000000000001", first="2026-01-01")
     record(vault_root, "2010卷", "3:没思路;8:算错;12:卡住")
     data = check(vault_root)
     assert data["triggered"] == [] and len(data["unmapped"]) == 3
     record(vault_root, "2010卷", "3:二重积分没思路;8:二重积分算错;12:二重积分卡住")
+    assert check(vault_root)["triggered"] == []
+    record(vault_root, "2010卷", "3:没思路;8:算错;12:卡住", "3:二重积分;8:二重积分;12:二重积分")
     assert check(vault_root)["triggered"][0]["count"] == 3
 
 
@@ -99,10 +101,10 @@ def test_paper_and_card_same_event_deduplicated(sample_archive, vault_root):
     assert check(vault_root)["triggered"][0]["count"] == 3
 
 
-def test_chapter_tags_and_subject_isolation(vault_root):
+def test_chapter_id_and_subject_isolation(vault_root):
     for i in range(3):
         path = card(vault_root, f"qid-{i:012x}", topic="")
-        path.write_text(path.read_text() + "\n#chapter/积分换序\n")
+        path.write_text(path.read_text().replace("topic: \n", "topic: \nchapter_id: math1:gaoshu:10:02\nchapter_display: 积分换序\n"))
     assert check(vault_root)["triggered"][0]["topic"] == "积分换序"
     (vault_root / "错题本" / "英语一").mkdir()
     source = card(vault_root, "qid-000000000009", topic="积分换序")
@@ -115,12 +117,13 @@ def test_checker_rejects_invalid_window(vault_root):
     assert rc == 1 and json.loads(out)["error"]
 
 
-def test_frontmatter_topic_tags_and_map_keyword_matching(sample_archive, vault_root):
+def test_tags_and_map_keywords_do_not_guess_structured_fields(sample_archive, vault_root):
     for i in range(3):
         path = card(vault_root, f"qid-{i:012x}", topic="")
         path.write_text(path.read_text().replace("topic: \n", "topic: \ntags: [topic/极坐标]\n"))
     (vault_root / "知识地图" / "数学一.md").write_text(
         "| 考点 | 掌握度 |\n|---|---|\n| 02.03 泰勒展开 | 半会 |\n")
     record(vault_root, "2010卷", "3:泰勒展开阶数不够;8:泰勒展开算错;12:泰勒展开没思路")
-    assert [(t["topic"], t["count"]) for t in check(vault_root)["triggered"]] == [
-        ("极坐标", 3), ("泰勒展开", 3)]
+    result = check(vault_root)
+    assert result['triggered'] == []
+    assert len(result['unmapped']) == 6

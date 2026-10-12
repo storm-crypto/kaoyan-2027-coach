@@ -312,6 +312,35 @@ def upsert_subject_score_row(text: str, subject: str, row: Mapping[str, str]) ->
     return text[:section_start] + updated_section + text[next_section:]
 
 
+def upsert_math_objective_score_row(text: str, row: Mapping[str, str]) -> str:
+    """独立维护数学选填专项表，不迁移或更新整卷成绩表。"""
+    heading = "数学一选填专项成绩追踪"
+    columns = ('date', 'paper_type', 'paper', 'total', 'max_score', 'issues', 'note')
+    marker = f'## {heading}'
+    if not re.search(rf'^{re.escape(marker)}[ \t]*$', text, re.M):
+        text = text.rstrip('\n') + '\n\n' + '\n'.join([
+            marker, '| 日期 | 卷型 | 卷子 | 选填得分 | 满分 | 主要问题 | 备注 |',
+            '|------|------|------|----------|------|----------|------|',
+        ]) + '\n'
+    # HTML 转义保持单元格和行边界稳定，避免自述里的 |/换行破坏七列结构。
+    cells = [str(row.get(column, '')).replace('|', '&#124;').replace('\n', '<br>') for column in columns]
+    row_line = '| ' + ' | '.join(cells) + ' |'
+    block = extract_heading_block(text, heading)
+    lines = []
+    replaced = False
+    for line in block.splitlines():
+        existing = [cell.strip() for cell in line.strip().split('|')[1:-1]]
+        if len(existing) == 7 and existing[:3] == cells[:3]:
+            if not replaced:
+                lines.append(row_line)
+                replaced = True
+            continue
+        lines.append(line)
+    if not replaced:
+        lines.append(row_line)
+    return replace_heading_block(text, heading, '\n'.join(lines))
+
+
 def infer_subject_mentions(items: Sequence[str]) -> Dict[str, int]:
     mapping = {
         "数学一": ("数学", "高数", "线代", "概率"),

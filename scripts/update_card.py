@@ -30,6 +30,7 @@ from figure_ops import parse_figure_specs, upsert_figure_section
 from frontmatter import parse_frontmatter, serialize_frontmatter
 from env_util import atomic_write, json_error, safe_int, safe_float
 from study_ops import parse_today
+from card_history import consecutive_failures
 
 
 QID_SUFFIX_RE = re.compile(r"-qid-[0-9a-f]{12}$")
@@ -144,6 +145,8 @@ def main() -> None:
     old_interval = normalize_existing_interval(fm.get("review_interval"))
     old_count = safe_int(fm.get("wrong_count", 0), 0)
     old_ease = safe_float(fm.get("ease_factor", str(SRS_DEFAULT_EASE_FACTOR)))
+    failure_streak = consecutive_failures(fm, body) + 1 if args.status == "不会" else 0
+    fm["consecutive_failures"] = str(failure_streak)
 
     # 更新基础字段
     fm["status"] = args.status
@@ -207,6 +210,8 @@ def main() -> None:
         "interval": new_interval,
         "ease_factor": f"{new_ease:.2f}",
         "next_review": fm["next_review"],
+        "consecutive_failures": failure_streak,
+        "repeated_failure_signal": failure_streak >= 3,
     }
     if figure_specs:
         result["figure_added"] = len(figure_specs)

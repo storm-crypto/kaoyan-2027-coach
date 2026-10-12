@@ -452,7 +452,82 @@ def _migrate_408_table(text: str) -> str:
     return text[:match.start(2)] + new_block + ("\n" if not new_block.endswith("\n") else "") + text[match.end(2):]
 
 
+def _migrate_math_table(text: str) -> str:
+    """把数学一模拟成绩追踪表从旧 5 列格式升级到当前 6 列 schema。
+
+    历史 schema:
+    - 5 列: date | paper | total | issues | note
+    - 6 列(当前): date | paper_type | paper | total | issues | note
+
+    旧格式没有独立的卷型列,根据卷子名称中是否包含「真题」推断。
+    幂等:已是 6 列的不动。
+    """
+    config = SUBJECT_SCORE_SECTION_CONFIG["数学一"]
+    pattern = _heading_block_pattern(config["heading"], 2)
+    match = pattern.search(text)
+    if not match:
+        return text
+
+    block = match.group(2)
+    expected_cols = len(config["columns"])
+    new_lines: List[str] = []
+    changed = False
+
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            new_lines.append(line)
+            continue
+        cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+
+        # 头行
+        if cells and cells[0] == "日期":
+            if len(cells) != expected_cols:
+                new_lines.append(f"| {' | '.join(config['headers'])} |")
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 分隔行
+        if _is_separator_row(cells):
+            if len(cells) != expected_cols:
+                new_lines.append(config["separator"])
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 空白占位行
+        if _is_blank_row(cells):
+            if len(cells) != expected_cols:
+                new_lines.append(config["blank"])
+                changed = True
+            else:
+                new_lines.append(line)
+            continue
+
+        # 旧格式数据行:根据卷子名称推断卷型并插入独立列。
+        if len(cells) == 5:
+            date_cell, paper, total, issues, note = cells
+            paper_type = "真题" if "真题" in paper else "模拟"
+            new_lines.append(
+                f"| {date_cell} | {paper_type} | {paper} | {total} | {issues} | {note} |"
+            )
+            changed = True
+            continue
+
+        new_lines.append(line)
+
+    if not changed:
+        return text
+
+    new_block = "\n".join(new_lines)
+    return text[:match.start(2)] + new_block + ("\n" if not new_block.endswith("\n") else "") + text[match.end(2):]
+
+
 def migrate_archive_schemas(text: str) -> str:
     """对档案应用所有已知的 schema 迁移。幂等:对已迁移文本是 no-op。"""
-    return _migrate_408_table(text)
+    text = _migrate_408_table(text)
+    return _migrate_math_table(text)
 

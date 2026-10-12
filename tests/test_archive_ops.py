@@ -197,6 +197,31 @@ def test_migrate_408_table_upgrades_nine_column_legacy_rows():
     assert rows[0]["total"] == "118"
 
 
+def test_migrate_math_table_upgrades_five_column_legacy_rows():
+    text = textwrap.dedent("""\
+        ## 数学一模拟成绩追踪
+        | 日期 | 卷子 | 总分 | 主要问题 | 备注 |
+        |------|------|------|----------|------|
+        | 2026-03-24 | 2020 真题 | 118 | 计算失分 | 二刷 |
+    """)
+    migrated = migrate_archive_schemas(text)
+
+    rows = parse_subject_score_rows(migrated, "数学一")
+    assert len(rows) == 1
+    assert rows[0] == {
+        "date": "2026-03-24",
+        "paper_type": "真题",
+        "paper": "2020 真题",
+        "total": "118",
+        "issues": "计算失分",
+        "note": "二刷",
+    }
+    assert "| 日期 | 卷型 | 卷子 | 总分 | 主要问题 | 备注 |" in migrated
+    assert "|------|------|------|------|----------|------|" in migrated
+
+    assert migrate_archive_schemas(migrated) == migrated
+
+
 def test_migrate_archive_schemas_is_idempotent():
     text = textwrap.dedent("""\
         ## 408模拟成绩追踪

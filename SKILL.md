@@ -210,6 +210,8 @@ Kaoyan_2027_Prep/
 | `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会] [--figure "vault相对路径\|图N：说明"] [--question-figure "..."]` |
 | `create_figure.py` | 生成并校验错题卡配图，三种图源一个入口。落盘到 `错题本/_附图/[qid]/`，返回可直接传给 `--figure` 的 `figure_arg`。`svg`：硬校验 viewBox、禁 `<script>`/`<foreignObject>`/外链、字号 ≥12px、字体带兜底、必须内嵌 `prefers-color-scheme`、`$...$` 自动转 Unicode。`tikz`：必须有 `\begin{document}`、宏包白名单、禁中文、花括号与环境配平。`mermaid`：首行图类型、标签里的 `|`/括号必须加引号、括号配平、禁 click/init。画之前先读对应骨架文件 | `python3 scripts/create_figure.py [$OBSIDIAN_ROOT] --question-id [qid] --slug [短名] --caption [图N：说明] [--kind svg\|tikz\|mermaid] [--index N] [--width 480] [--source-file PATH] [--allow-fixed-theme] [--dry-run]`（不传 `--source-file` 时从 stdin 读，推荐 heredoc） |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster]` |
+| `check_breakthrough_triggers.py` | 汇总近期卷面错题与错题卡历史，输出同考点 ≥3 次的证据；不自动开单 | `python3 scripts/check_breakthrough_triggers.py [$OBSIDIAN_ROOT] [--days 3] [--today YYYY-MM-DD]` |
+| `build_fragment_cards.py` | 按今日计划相关簇、SRS 短间隔及到期日期选卡，仅将 qid 与原始题面写入 `碎片刷题/YYYY-MM-DD.md`；同日保留已有文件，不改 SRS | `python3 scripts/build_fragment_cards.py [$OBSIDIAN_ROOT] [--date YYYY-MM-DD] [--count 5]` |
 | `open_in_obsidian.py` | 把 vault 内文件用 `obsidian://open` 唤到 Obsidian 前台，让用户读渲染好的 LaTeX 原文而不是 CLI 降级文本。vault 根从目标文件向上找 `.obsidian/` 判定，跨子目录也不会错。**macOS 沙箱会拦 `open`（报 `procNotFound`），这条命令必须绕过沙箱执行** | `python3 scripts/open_in_obsidian.py [$OBSIDIAN_ROOT] (--path 文件路径 \| --question-id qid-xxxx) [--background] [--print-only]` |
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `find_related_cards.py` | 查同元技能的相关题并回写 `### 相关题目` wikilink。数据源是 `错题本/_元技能索引.json`；qid 已在索引里走 `lookup`（同簇兄弟，不足 2 张时按 family 扩一跳），不在索引里走 `predict`（考点词元 + 同叶子章节 + 题面相似度加权，并给出 `suggest_cluster`）。刻意不使用 `error_tags`（该字段在本库 300 张卡上有 539 个标签、529 个只出现一次，无判别力）。写入幂等 | `python3 scripts/find_related_cards.py [$OBSIDIAN_ROOT] --question-id [qid] [--topic 考点] [--chapter 章节] [--question 题面] [--limit 4] [--write] [--backfill] [--dry-run]` |
@@ -227,7 +229,7 @@ Kaoyan_2027_Prep/
 | `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5]` |
 | `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩、自动汇总今日错题归档，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
-| `record_paper_score.py` | 记录完整卷子的详细成绩，并同步档案里的单科摘要表 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [总分] --issues [主要问题] [--date YYYY-MM-DD] [科目细分参数...]` |
+| `record_paper_score.py` | 记录完整卷子的详细成绩和可选卷面错题，并同步档案里的单科摘要表 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [总分] --issues [主要问题] [--date YYYY-MM-DD] [--wrong-questions "3:没思路;8:算错"] [--question-topics "3:二重积分;8:泰勒展开"] [科目细分参数...]` |
 | `record_subject_score.py` | 数学一/408 旧版兼容入口；内部转调新的卷子级成绩记录逻辑 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
 | `migrate_log_layout.py` | 一次性把老平铺的 `学习日志/YYYY-MM-DD.md` 迁移到新结构 `学习日志/{YYYY-Www-MMDD-MMDD}/{YYYY-MM-DD}.md`，并把老周复盘文件名补上日期范围 | `python3 scripts/migrate_log_layout.py [$OBSIDIAN_ROOT] [--dry-run]` |
@@ -418,10 +420,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 1. 运行 `get_plan_context.py`（可传 `--available-hours`），获得 `due_clusters / breakthroughs / yesterday_unfinished / yesterday_completion_rate / focus_items / textbook_progress / available_hours / archive_summary` 八项 JSON 数据。每日 6 点 worker 也只调用此入口取上下文。它先归档当前计划，避免昨天的勾选状态在生成新计划时丢失。
 2. AI 根据原始数据排计划，说明取舍依据。`due_clusters` 保留 `scan_due_reviews.py --by-cluster` 的全部簇与顺序，脚本不再挑题或强制时长配比。`textbook_progress` 保留教材名、起点、终点、当前与备注，不自动指定今日页数。索引缺失时簇为空，需要补索引时由 AI 决定，候选池不做 fallback。
-3. 突破单触发也由 AI 判断：同考点 3 天内错 ≥3 次、单科模块正确率 <60%，或用户主动要求。通过 `manage_breakthrough.py` 写入档案「突破单」区；进行中最多 3 个，其余由 AI 决定排队。优先考虑进行中的疗程；「长期关注」「已攻克」「已放弃」不参与每日置顶。
+3. 调用 `check_breakthrough_triggers.py --days 3` 获取 `triggered` 证据（含今天共 3 个自然日）；突破单是否开单由 AI 判断，另结合单科模块正确率 <60% 或用户主动要求。`unmapped` 表示缺少可验证考点的记录，不能当成无错误。脚本不从“没思路/算错”等泛化自述或整卷 `issues` 猜题号考点，不把累计 `wrong_count` 当近期次数；首次归档与完全相同的历史行去重，其后明确记录的重错计入次数，来源明确为同卷同题时合并卷面记录与错题卡。通过 `manage_breakthrough.py` 写入档案「突破单」区；进行中最多 3 个，其余由 AI 决定排队。优先考虑进行中的疗程；「长期关注」「已攻克」「已放弃」不参与每日置顶。
 4. AI 生成符合 `templates/今日计划模板.md` 的 Markdown，任务放在 `## 任务清单` 下并用 `- [ ]`。完成后把正文存到临时文件，通过 `plan_ops.py --content-file 文件` 落盘到 `周计划/_今日计划.md`。该入口调用 `archive_ops.archive_daily_plan(obsidian_root, today)` 后再写入；同日重排保留已完成任务和备注，新一天不继承勾选状态。
 5. 归档为 `周计划/_今日计划-YYYY-MM-DD.md`，日期优先取旧文件标题，取不到则用当天；同日期只有一份，同内容重复调用不再次复制，勾选内容变化刷新同名快照，自动清理 30 天前的归档。昨日完成率只统计昨日归档 `## 任务清单` 的 checkbox，无归档为 null，空清单为 0。
 6. 调用 `open_in_obsidian.py --path [返回的 plan_path]`（**须绕过沙箱**）打开计划；结尾提醒 `/progress` 归档。AI 的决策与任务正文必须落到 vault，不能只留在对话或定时任务的记忆中。
+7. 计划落盘后调用 `build_fragment_cards.py --date YYYY-MM-DD --count 5` 生成手机刷题页；每日 worker 同样追加此调用。题面不足时按实际可用数量生成，无到期卡时写空文件并返回 JSON 提示；缺少 qid 或题面的旧卡会列入 `skipped`，不能用解析补题面。
 
 突破单的 JSON 字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note`，`plan` 为原始 Day 行列表。`update-status --day N` 只推进进行中的单，不能倒退或超出疗程。`close --result 延期` 追加两天；`--note "Day4：补强;Day5：复测"` 指定两天的内容，未传则标「待 AI 补充」。同 Day、同 note 的延期重试不再次加天；推进 Day 后可开始下一轮延期。已攻克时用 `--note` 写验收结论。
 
@@ -498,6 +501,8 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 4. 调用 `record_paper_score.py` 写入 `成绩记录/[科目]/`，并同步写入 `我的学习者档案.md` 的单科摘要表
 5. 去重规则固定为 `日期 + 卷型 + 卷子`；同一天同一卷再次记录时覆盖旧记录
 6. `/score` 只负责完整卷子的成绩记录；零散专项训练仍优先走 `/progress`
+7. 数学一 / 408 可传 `--wrong-questions "3:完全没思路;8:算错了;12:做到一半卡住"`（卷面题号分别为 1–22 / 1–47）。每题在成绩记录的 `## 卷子错题` JSON 块中保存 `question_number / error_description / record_date`，日期沿用 `--date`（默认今天）。同卷重记时显式传入会替换错题列表，省略参数保留已有错题，传空字符串清空。
+8. AI 已确认每题考点时，补 `--question-topics "3:二重积分;8:二重积分;12:泰勒展开"`；否则仅能匹配自述中出现的知识地图/错题卡已知考点词。没有卷面题库映射时不得仅凭题号推断。`score_record_lib.collect_score_records` 返回结构化 `wrong_questions`，`paper_wrong_questions.query_wrong_questions(records, question_number, start_date, end_date)` 支持按题号和闭区间日期查询。需要判断近期反复失分时运行 `check_breakthrough_triggers.py`，再由 AI 决定是否开单。
 
 ### `/review [question_id|科目 题目]` — 间隔复习
 

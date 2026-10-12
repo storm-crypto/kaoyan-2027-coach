@@ -1,7 +1,11 @@
 """test record_paper_score.py"""
 import json
+from pathlib import Path
+
+import pytest
 
 from helpers import run_script
+from score_record_lib import parse_score_record
 
 
 def test_record_math_paper_score_with_breakdown(sample_archive, vault_root):
@@ -144,3 +148,50 @@ def test_record_paper_score_unknown_subject_lists_legal_values(sample_archive, v
     assert "不支持的科目" in data["message"]
     assert "数学一" in data["message"]
     assert "政治" in data["message"]
+
+
+def test_wrong_questions_round_trip_and_score_only_update_preserves_them(sample_archive, vault_root):
+    args = [str(vault_root), "数学一", "--paper", "2010卷", "--paper-type", "真题",
+            "--total", "100", "--issues", "计算问题", "--date", "2026-10-12"]
+    rc, out, err = run_script("record_paper_score.py", args + ["--wrong-questions", "3:没思路;8:算错:符号|含`引号\""])
+    assert rc == 0, err
+    path = Path(json.loads(out)["record_path"])
+    errors = parse_score_record(path)["wrong_questions"]
+    assert errors == [
+        {"question_number": 3, "error_description": "没思路", "record_date": "2026-10-12"},
+        {"question_number": 8, "error_description": "算错:符号|含`引号\"", "record_date": "2026-10-12"},
+    ]
+    rc, _, err = run_script("record_paper_score.py", args)
+    assert rc == 0, err
+    assert parse_score_record(path)["wrong_questions"] == errors
+    rc, _, err = run_script("record_paper_score.py", args + ["--wrong-questions", ""])
+    assert rc == 0, err
+    assert parse_score_record(path)["wrong_questions"] == []
+
+
+@pytest.mark.parametrize("subject,number", [("数学一", 22), ("408", 40), ("408", 41), ("408", 47)])
+def test_wrong_question_number_boundaries(sample_archive, vault_root, subject, number):
+    rc, out, err = run_script("record_paper_score.py", [str(vault_root), subject, "--paper", "测试卷",
+        "--paper-type", "模拟", "--total", "100", "--issues", "测试", "--wrong-questions", f"{number}:不会"])
+    assert rc == 0, (out, err)
+    record = parse_score_record(Path(json.loads(out)["record_path"]))
+    assert record["wrong_questions"][0]["question_number"] == number
+
+
+@pytest.mark.parametrize("subject,errors,topics", [
+    ("数学一", "23:不会", None), ("408", "48:不会", None),
+    ("数学一", "0:不会", None), ("数学一", "-1:不会", None),
+    ("数学一", "x:不会", None), ("数学一", "3:", None),
+    ("数学一", "3:不会;3:算错", None), ("数学一", "3没思路", None),
+    ("数学一", "3:不会", "8:积分"), ("英语一", "3:不会", None),
+])
+def test_invalid_wrong_questions_do_not_write(sample_archive, vault_root, subject, errors, topics):
+    old_archive = sample_archive.read_bytes()
+    args = [str(vault_root), subject, "--paper", "测试卷", "--paper-type", "模拟", "--total", "100",
+            "--issues", "测试", "--wrong-questions", errors]
+    if topics is not None:
+        args += ["--question-topics", topics]
+    rc, out, _ = run_script("record_paper_score.py", args)
+    assert rc == 1 and json.loads(out)["error"]
+    assert sample_archive.read_bytes() == old_archive
+    assert not (vault_root / "成绩记录").exists()

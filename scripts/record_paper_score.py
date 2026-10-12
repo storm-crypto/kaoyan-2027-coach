@@ -6,7 +6,8 @@ from datetime import date
 from typing import Dict, Optional
 
 from archive_ops import load_archive_text, update_archive_date, upsert_subject_score_row
-from env_util import atomic_write, resolve_obsidian_root
+from env_util import atomic_write, json_error, resolve_obsidian_root
+from paper_wrong_questions import build_wrong_questions
 from score_record_lib import (
     SUBJECT_SCORE_FIELDS,
     build_summary_row_from_record,
@@ -62,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--issues", required=True, help="本次暴露的主要问题")
     parser.add_argument("--note", default="", help="补充备注")
     parser.add_argument("--date", "--exam-date", dest="exam_date", help="考试日期 YYYY-MM-DD")
+    parser.add_argument("--wrong-questions", help='卷面错题，格式 "3:没思路;8:算错"；空字符串清空')
+    parser.add_argument("--question-topics", help='可选考点标注，格式 "3:二重积分;8:泰勒展开"')
 
     for field in _all_extra_fields():
         parser.add_argument(_field_to_cli(field))
@@ -84,6 +87,10 @@ def main() -> None:
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     subject = normalize_subject(args.subject)
     exam_day = date.fromisoformat(args.exam_date).isoformat() if args.exam_date else date.today().isoformat()
+    try:
+        wrong_questions = build_wrong_questions(args.wrong_questions, args.question_topics, subject, exam_day)
+    except ValueError as exc:
+        json_error(str(exc))
     total_score = parse_non_negative_number(args.total, "total")
     assert total_score is not None
 
@@ -100,6 +107,7 @@ def main() -> None:
         issues=args.issues,
         note=args.note,
         extra_fields=extra_fields,
+        wrong_questions=wrong_questions,
     )
 
     archive_path, archive_text = load_archive_text(obsidian_root)

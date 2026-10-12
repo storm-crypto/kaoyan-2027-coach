@@ -9,6 +9,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from archive_ops import format_number
 from env_util import atomic_write, json_error
 from frontmatter import Frontmatter, parse_frontmatter, serialize_frontmatter
+from paper_wrong_questions import parse_wrong_questions, render_wrong_questions
 
 SUBJECT_ALIASES = {
     "数学": "数学一",
@@ -219,8 +220,11 @@ def write_score_record(
     issues: str,
     note: str,
     extra_fields: Mapping[str, Optional[float]],
+    wrong_questions: Optional[Sequence[Mapping[str, object]]] = None,
 ) -> Path:
     record_path = build_record_path(obsidian_root, subject, exam_day, paper_type, paper)
+    if wrong_questions is None and record_path.exists():
+        wrong_questions = parse_wrong_questions(record_path.read_text(encoding="utf-8"))
     record_path.parent.mkdir(parents=True, exist_ok=True)
 
     fm: Frontmatter = {
@@ -238,6 +242,8 @@ def write_score_record(
         fm[field] = format_number(value)
 
     body = "\n" + build_record_body(subject, {key: str(value) for key, value in fm.items()}) + "\n"
+    if wrong_questions:
+        body += render_wrong_questions(list(wrong_questions))
     atomic_write(record_path, serialize_frontmatter(fm, RECORD_KEY_ORDER, body))
     return record_path
 
@@ -270,6 +276,7 @@ def parse_score_record(path: Path) -> Optional[Dict[str, object]]:
         "frontmatter": fm,
         "body": body,
         "key_order": key_order,
+        "wrong_questions": parse_wrong_questions(body),
     }
     for field in RECORD_KEY_ORDER:
         if field.startswith("score_") or field.startswith("loss_"):

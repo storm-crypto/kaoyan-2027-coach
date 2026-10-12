@@ -1,291 +1,76 @@
 #!/usr/bin/env python3
-"""基于档案聚焦问题和到期复习生成今日计划。"""
+"""聚合每日计划候选池；所有排序、预算和计划正文由 AI 调用方决定。"""
 import argparse
+from dataclasses import asdict
 import json
 import math
-from collections import Counter
-from typing import List, Mapping, Optional, Sequence, Tuple, TypedDict
+from pathlib import Path
+import subprocess
+import sys
+from datetime import date
+from typing import Optional
 
-from archive_ops import (
-    extract_list_items,
-    infer_subject_mentions,
-    load_archive_text,
-    load_template_markdown,
-    parse_daily_hours,
-)
-from constants import (
-    DAILY_PLAN_CARD_HOURS,
-    DAILY_PLAN_DUE_LIMIT,
-    DAILY_PLAN_MIN_REVIEW_HOURS,
-    DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS,
-    DAILY_PLAN_PRIMARY_SUBJECT_SHARE,
-    DAILY_PLAN_PROGRESS_WRAPUP_MINUTES,
-    DAILY_PLAN_RELATIVE_PATH,
-    DAILY_PLAN_REVIEW_HOURS_RATIO,
-)
+from archive_ops import extract_list_items, load_archive_text, parse_daily_hours
+from breakthrough_ops import parse_breakthroughs
 from env_util import atomic_write, json_error, resolve_obsidian_root, split_optional_root_and_value
-from metaskill_index import (
-    dominant_subject,
-    group_due_by_cluster,
-    load_index,
-    pick_clusters_for_session,
-)
-from study_ops import DueCard, PLAN_SUBJECTS, collect_due_cards, format_hours, parse_today
-from textbook_progress import (
-    build_plan_items,
-    load_week_textbook_rows,
-    render_today_textbook_section,
-)
-from daily_plan_state import preserve_completed_tasks
+from plan_ops import yesterday_completion_rate
+from study_ops import parse_today
+from textbook_progress import load_week_textbook_rows
 
 
-class PlanTask(TypedDict):
-    type: str
-    subject: str
-    hours: float
-    title: str
-    detail: str
+def scan_due_clusters(obsidian_root: Path, today: date) -> list:
+    """直接调用原扫描入口，保留题面 payload、SRS 行为和簇原始顺序。"""
+    result = subprocess.run([
+        sys.executable, str(Path(__file__).with_name('scan_due_reviews.py')),
+        str(obsidian_root), '--today', today.isoformat(), '--by-cluster',
+    ], capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)['clusters']
 
 
-def parse_args() -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
-    parser = argparse.ArgumentParser(description="生成今日计划")
-    parser.add_argument("arg1", nargs="?", default=None, help="Obsidian vault 根目录或今日可用时长")
-    parser.add_argument("arg2", nargs="?", default=None, help="今日可用时长（小时）")
-    parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
-    parser.add_argument("--write", action="store_true",
-                        help=f"把渲染好的计划落盘到 {DAILY_PLAN_RELATIVE_PATH} 并返回 plan_path")
-    args = parser.parse_args()
-    obsidian_root_arg, available_hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
-    return obsidian_root_arg, available_hours_arg, args.today, args.write
-
-
-def rank_subjects(focus_counts: Mapping[str, int], due_counts: Mapping[str, int]) -> List[str]:
-    return sorted(
-        PLAN_SUBJECTS,
-        key=lambda subject: (focus_counts.get(subject, 0) * 2 + due_counts.get(subject, 0), focus_counts.get(subject, 0), due_counts.get(subject, 0)),
-        reverse=True,
-    )
-
-
-def rank_due_only_subjects(due_counts: Mapping[str, int]) -> List[str]:
-    # 这里故意沿用 PLAN_SUBJECTS 的稳定顺序做并列打破，避免无聚焦问题时被偶然的字典/扫描顺序左右。
-    return sorted(PLAN_SUBJECTS, key=lambda subject: due_counts.get(subject, 0), reverse=True)
-
-
-def build_task_list(
-    available_hours: float,
-    focus_items: Sequence[str],
-    due_cards: Sequence[DueCard],
-    cluster_groups: Optional[Sequence[dict]] = None,
-) -> Tuple[List[PlanTask], List[DueCard], List[str]]:
-    # 优先选择时间预算内的完整专题；放不下时按预算抽样，不压缩每题预计用时。
-    review_budget = min(available_hours, max(
-        available_hours * DAILY_PLAN_REVIEW_HOURS_RATIO,
-        DAILY_PLAN_MIN_REVIEW_HOURS if available_hours >= DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS else 0,
-    ))
-    card_limit = min(DAILY_PLAN_DUE_LIMIT, int((review_budget + 1e-9) / DAILY_PLAN_CARD_HOURS))
-    picked_clusters: List[dict] = []
-    if cluster_groups:
-        picked_clusters = pick_clusters_for_session(cluster_groups, DAILY_PLAN_DUE_LIMIT, max_minutes=review_budget * 60)
-        selected_due = [card for group in picked_clusters for card in group["cards"]]
-        if not picked_clusters:
-            selected_due = [card for group in cluster_groups for card in group["cards"]][:card_limit]
-    else:
-        selected_due = list(due_cards[:card_limit])
-    selected_due_count = len(selected_due)
-    due_counts = Counter(card["subject"] for card in selected_due)
-    focus_counts = infer_subject_mentions(focus_items)
-    ranked_subjects = rank_subjects(focus_counts, due_counts)
-
-    if not any(focus_counts.values()) and selected_due:
-        ranked_subjects = rank_due_only_subjects(due_counts)
-
-    review_hours = 0.0
-    if selected_due:
-        # 有簇时用簇自带的耗时估算（它按「讲清动作 + 连做全簇」标定），否则退回按卡数估
-        if picked_clusters:
-            estimated = sum((group.get("min") or 30) for group in picked_clusters) / 60.0
-        else:
-            estimated = selected_due_count * DAILY_PLAN_CARD_HOURS
-        review_hours = min(available_hours * DAILY_PLAN_REVIEW_HOURS_RATIO, estimated)
-        if available_hours >= DAILY_PLAN_MIN_REVIEW_TRIGGER_HOURS:
-            review_hours = max(review_hours, DAILY_PLAN_MIN_REVIEW_HOURS)
-        review_hours = min(review_hours, available_hours)
-    deep_work_hours = max(available_hours - review_hours, 0.0)
-
-    tasks: List[PlanTask] = []
-    if picked_clusters:
-        # 一个簇一条任务，标题只定位专题，不预先泄露解题口令。
-        for group in picked_clusters:
-            group_hours = (group.get("min") or 30) / 60.0
-            topics = "、".join(card["topic"] for card in group["cards"][:4] if card.get("topic"))
-            if group["due_count"] > 4:
-                topics += f" 等 {group['due_count']} 张"
-            mark = " ⭐标杆弱项" if group.get("landmark") else ""
-            tasks.append({
-                "type": "review",
-                "subject": dominant_subject(group),
-                "hours": round(group_hours, 2),
-                "title": f"专题复习 {group['cluster_id']}：{group.get('ch') or dominant_subject(group)}{mark}",
-                "detail": f"本簇到期 {group['due_count']} 张｜{group['ch']}｜{topics}"
-                          "\n先独立作答，再按需提示；解题口令用于作答后的总结，不提前作为提示。",
-            })
-    else:
-        for subject in ranked_subjects:
-            count = due_counts.get(subject, 0)
-            if not count:
-                continue
-            subject_review_hours = review_hours * count / selected_due_count
-            tasks.append({
-                "type": "review",
-                "subject": subject,
-                "hours": round(subject_review_hours, 2),
-                "title": f"先复习 {count} 道到期旧题",
-                "detail": (
-                    "完整专题超出当前复习预算，本次只做无提示抽样诊断，其余题另排时段。"
-                    if cluster_groups else
-                    "元技能索引缺失，暂按 interval 最小排；题量已按时间预算减少。"
-                ),
-            })
-
-    major_subjects = ranked_subjects[:2] if available_hours >= 3 else ranked_subjects[:1]
-    if deep_work_hours > 0 and major_subjects:
-        split = (
-            [deep_work_hours]
-            if len(major_subjects) == 1
-            else [
-                deep_work_hours * DAILY_PLAN_PRIMARY_SUBJECT_SHARE,
-                deep_work_hours * (1 - DAILY_PLAN_PRIMARY_SUBJECT_SHARE),
-            ]
-        )
-        for subject, hours in zip(major_subjects, split):
-            focus_goal = next(
-                (
-                    item for item in focus_items
-                    if subject in item or (subject == "数学一" and "数学" in item) or (subject == "英语一" and "英语" in item)
-                ),
-                "推进本周主线内容",
-            )
-            tasks.append({
-                "type": "deep_work",
-                "subject": subject,
-                "hours": round(hours, 2),
-                "title": f"{subject} 主攻时段",
-                "detail": focus_goal,
-            })
-
-    if not tasks:
-        tasks.append({
-            "type": "deep_work",
-            "subject": ranked_subjects[0],
-            "hours": round(available_hours, 2),
-            "title": f"{ranked_subjects[0]} 主攻时段",
-            "detail": "今天没有到期复习，直接推进当前主线内容。",
-        })
-
-    return tasks, selected_due, ranked_subjects
-
-
-def render_tasks(tasks: Sequence[PlanTask]) -> str:
-    lines: List[str] = []
-    for task in tasks:
-        lines.append(
-            f"- [ ] [{task['subject']}] {task['title']}（{task['hours']:g} 小时）"
-        )
-        # detail 可以是多行（如元技能专题会附卡片清单 + 口令提示）；
-        # 每行都要缩进成同一个 bullet 的续行，否则会跳出列表破坏渲染。
-        for part in str(task["detail"]).split("\n"):
-            part = part.strip()
-            if part:
-                lines.append(f"   - {part}")
-        criterion = "独立作答并说明理由；记录是否用过提示，卡住时保留具体卡点。" if task["type"] == "review" else "完成上面的具体目标，并用一道自测或复述核对理解；记录未完成原因。"
-        lines.append(f"   - 完成标准：{criterion}")
-    return "\n".join(lines)
+def build_candidate_pool(obsidian_root: Path, today: date, available_hours: Optional[float] = None,
+                         archive_text: Optional[str] = None) -> dict:
+    if archive_text is None:
+        _, archive_text = load_archive_text(obsidian_root)
+    if available_hours is None:
+        available_hours = parse_daily_hours(archive_text)
+    if available_hours is None:
+        raise ValueError('缺少今日可用时长：请在档案中填写“每日可投入时长”，或显式传入时长')
+    if not math.isfinite(available_hours) or available_hours <= 0:
+        raise ValueError('今日可用时长必须是大于 0 的有限数值')
+    rate, unfinished = yesterday_completion_rate(obsidian_root, today)
+    _, textbooks = load_week_textbook_rows(obsidian_root, today)
+    return {
+        'due_clusters': scan_due_clusters(obsidian_root, today),
+        'breakthroughs': parse_breakthroughs(archive_text, active_only=True),
+        'yesterday_unfinished': unfinished,
+        'yesterday_completion_rate': rate,
+        'focus_items': extract_list_items(archive_text, '最近聚焦问题（只保留 3-5 条）'),
+        'textbook_progress': [asdict(row) for row in textbooks],
+        'available_hours': available_hours,
+    }
 
 
 def main() -> None:
-    obsidian_root_arg, available_hours_arg, today_arg, write_plan = parse_args()
-    obsidian_root = resolve_obsidian_root(obsidian_root_arg)
-    _, archive_text = load_archive_text(obsidian_root)
-    today = parse_today(today_arg)
-
-    if available_hours_arg:
-        available_hours = float(available_hours_arg)
-    else:
-        daily_hours = parse_daily_hours(archive_text)
-        if daily_hours is None:
-            json_error("缺少今日可用时长：请在档案中补充“每日可投入时长”，或执行 /plan_today 时显式传入今日可用时长")
-        available_hours = daily_hours
-    if not math.isfinite(available_hours) or available_hours <= 0:
-        json_error("今日可用时长必须是大于 0 的有限数值")
-
-    focus_items = extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）")
-    due_cards = collect_due_cards(obsidian_root, today)
-    index = load_index(obsidian_root)
-    cluster_groups = group_due_by_cluster(due_cards, index) if index.get("clusters") else []
-    tasks, selected_due, ranked_subjects = build_task_list(
-        available_hours, focus_items, due_cards, cluster_groups
-    )
-
-    if due_cards:
-        due_summary = f"共 {len(due_cards)} 道，今日先处理 {len(selected_due)} 道"
-    else:
-        due_summary = "今天没有到期旧题，可以把整块时间留给新内容"
-
-    _, textbook_rows = load_week_textbook_rows(obsidian_root, today)
-    textbook_items = build_plan_items(textbook_rows, today)
-    textbook_section_md = render_today_textbook_section(textbook_items)
-    textbook_section_block = (textbook_section_md + "\n\n") if textbook_section_md else ""
-
-    content = load_template_markdown("今日计划模板.md")
-    replacements = {
-        "today": today.isoformat(),
-        "available_hours": format_hours(available_hours),
-        "due_summary": due_summary,
-        "focus_subjects": " / ".join(ranked_subjects[:2]),
-        "textbook_section": textbook_section_block,
-        "tasks": render_tasks(tasks),
-        "closing_notes": "\n".join([
-            "- 每个科目时段都先清旧题，再进新内容。",
-            f"- 结束前留 {DAILY_PLAN_PROGRESS_WRAPUP_MINUTES} 分钟执行一次 `/progress`，把卡点和收获沉淀下来。",
-        ]),
-    }
-    for key, value in replacements.items():
-        content = content.replace(f"{{{key}}}", value)
-
-    markdown = content + "\n"
-    plan_path: Optional[str] = None
-    if write_plan:
-        target = obsidian_root / DAILY_PLAN_RELATIVE_PATH
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            markdown = preserve_completed_tasks(markdown, target.read_text(encoding="utf-8"))
-        atomic_write(target, markdown)
-        plan_path = str(target)
-
-    print(json.dumps({
-        "date": today.isoformat(),
-        "available_hours": round(available_hours, 2),
-        "due_total": len(due_cards),
-        "due_selected": len(selected_due),
-        "tasks": tasks,
-        "textbooks": [
-            {
-                "name": item.name,
-                "current": item.current_page,
-                "end": item.end_page,
-                "remaining_pages": item.remaining_pages,
-                "remaining_days": item.remaining_days,
-                "today_pages": item.today_pages,
-                "done": item.done,
-                "note": item.note,
-            }
-            for item in textbook_items
-        ],
-        "plan_path": plan_path,
-        "markdown": markdown,
-    }, ensure_ascii=False, indent=2))
+    parser = argparse.ArgumentParser(description='输出每日计划候选池 JSON')
+    parser.add_argument('arg1', nargs='?', help='Obsidian vault 根目录或今日可用小时数')
+    parser.add_argument('arg2', nargs='?', help='今日可用小时数')
+    parser.add_argument('--today')
+    parser.add_argument('--write', action='store_true', help='落盘到 周计划/_候选池-YYYY-MM-DD.json')
+    args = parser.parse_args()
+    root_arg, hours_arg = split_optional_root_and_value(args.arg1, args.arg2)
+    try:
+        root = resolve_obsidian_root(root_arg)
+        today = parse_today(args.today)
+        pool = build_candidate_pool(root, today, float(hours_arg) if hours_arg is not None else None)
+        content = json.dumps(pool, ensure_ascii=False, indent=2, allow_nan=False)
+        if args.write:
+            target = root / '周计划' / f'_候选池-{today.isoformat()}.json'
+            target.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(target, content + '\n')
+    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+        json_error(str(exc))
+    print(content)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, TypedDict
 
 from archive_ops import (
+    extract_heading_block,
     extract_list_items,
     load_archive_text,
     parse_daily_hours,
@@ -373,6 +374,35 @@ def build_markdown(
             *(f"- {item}" for item in warnings),
         ])
     return "\n".join(lines) + "\n"
+
+
+def build_archive_summary(obsidian_root: Path, today: date, archive_text: Optional[str] = None) -> dict:
+    """给计划调用方提供档案事实摘要；不复用 /load 的优先级和第一步决策。"""
+    if archive_text is None:
+        _, archive_text = load_archive_text(obsidian_root)
+    exam_day = parse_exam_date(archive_text)
+    recent_update = parse_recent_update(archive_text)
+    latest_log = latest_log_info(obsidian_root)
+    latest_report = latest_report_info(obsidian_root)
+    return {
+        "archive_path": str(Path(obsidian_root) / "我的学习者档案.md"),
+        "today": today.isoformat(),
+        "stage": parse_stage(archive_text),
+        "exam_date": exam_day.isoformat() if exam_day else None,
+        "days_until_exam": (exam_day - today).days if exam_day else None,
+        "daily_hours": parse_daily_hours(archive_text),
+        "target_total": parse_target_total(archive_text),
+        "subject_targets": parse_subject_targets(archive_text),
+        "recent_update": recent_update.isoformat() if recent_update else None,
+        "subject_state": extract_heading_block(archive_text, "各科当前状态"),
+        "focus_problems": extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）"),
+        "next_steps": extract_list_items(archive_text, "下一步建议（只保留 3 条）"),
+        "weaknesses": extract_heading_block(archive_text, "短板雷达"),
+        "error_patterns": extract_heading_block(archive_text, "高频错误模式统计"),
+        "subject_scores": {subject: parse_subject_score_rows(archive_text, subject) for subject in SCORE_SUBJECTS},
+        "latest_log": {**latest_log, "date": latest_log["date"].isoformat()} if latest_log else None,
+        "latest_report": {**latest_report, "date": latest_report["date"].isoformat()} if latest_report else None,
+    }
 
 
 def main() -> None:

@@ -1,5 +1,7 @@
 """学习者档案读写辅助函数。"""
 import re
+import shutil
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Pattern, Sequence, Tuple
 
@@ -531,3 +533,36 @@ def migrate_archive_schemas(text: str) -> str:
     text = _migrate_408_table(text)
     return _migrate_math_table(text)
 
+
+def archive_daily_plan(obsidian_root: Path, today: date) -> Optional[Path]:
+    """归档现有今日计划；日期唯一，同内容不重复复制，清理 30 天前的文件。
+
+    同日重排/勾选后的内容刷新同名快照，避免昨日完成率读到早期版本。
+    """
+    from constants import DAILY_PLAN_RELATIVE_PATH
+
+    current = Path(obsidian_root) / DAILY_PLAN_RELATIVE_PATH
+    archived = None
+    if current.exists():
+        text = current.read_text(encoding="utf-8")
+        match = re.search(r"^# 今日计划[：:]\s*(\d{4}-\d{2}-\d{2})\s*$", text, re.M)
+        try:
+            plan_day = date.fromisoformat(match.group(1)) if match else today
+        except ValueError:
+            plan_day = today
+        archived = current.with_name(f"_今日计划-{plan_day.isoformat()}.md")
+        if not archived.exists() or archived.read_bytes() != current.read_bytes():
+            shutil.copy2(current, archived)
+
+    cutoff = today - timedelta(days=30)
+    for path in current.parent.glob("_今日计划-*.md"):
+        match = re.fullmatch(r"_今日计划-(\d{4}-\d{2}-\d{2})\.md", path.name)
+        if not match:
+            continue
+        try:
+            archive_day = date.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        if archive_day < cutoff:
+            path.unlink()
+    return archived if archived is not None and archived.exists() else None

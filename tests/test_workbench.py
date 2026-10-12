@@ -5,7 +5,6 @@ from urllib.parse import parse_qs, urlparse
 
 from helpers import run_script
 from daily_plan_state import parse_daily_plan, preserve_completed_tasks
-from build_daily_plan import build_task_list
 from dashboard_payload import build_payload
 from workbench_view import render_workbench
 
@@ -74,15 +73,6 @@ def test_html_escapes_note_content_and_does_not_embed_solutions(sample_archive, 
     assert attack not in rendered
     assert '&lt;img' in rendered
     assert '先画积分区域，再确定角度范围' not in rendered
-
-
-def test_complete_clusters_must_fit_review_budget():
-    cards = [{'subject': '数学一', 'topic': f'题{i}', 'path': f'{i}.md'} for i in range(8)]
-    group = {'cluster_id':'m01', 'skill':'示例', 'ch':'极限', 'min':120, 'due_count':8, 'cards':cards}
-    tasks, selected, _ = build_task_list(1, [], cards, [group])
-    assert len(selected) == 1  # 24 分钟预算只够一题，不能把整组挤进去。
-    assert sum(t['hours'] for t in tasks) <= 1
-    assert '抽样诊断' in tasks[0]['detail']
 
 
 def test_unknown_status_is_not_rewritten_as_failure(knowledge_map, vault_root):

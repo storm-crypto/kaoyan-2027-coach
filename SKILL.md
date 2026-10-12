@@ -46,7 +46,7 @@ Kaoyan_2027_Prep/
 - 知识地图通过 `/wrong`、`/review`、`/test` 实时回写，不随 `/load` 加载，不在 `/progress` 重写
 - 同一天同一考点多次出现，以最后一次结果为准
 - 单次错题不更新档案；同类错误 ≥3 次才写入短板雷达
-- 档案只更新三个区域：短板雷达、高频错误模式、下一步建议
+- 档案的常规学习总结仍只更新：短板雷达、高频错误模式、下一步建议；每日计划的突破单单独通过 `manage_breakthrough.py` 管理
 
 **掌握度判定标准：**
 
@@ -216,7 +216,10 @@ Kaoyan_2027_Prep/
 | `update_card.py` | 更新错题卡；`--figure` 可在复习时补图（已有 `### 图示` 追加而不覆盖） | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid] [--figure "vault相对路径\|图N：说明"]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
-| `build_daily_plan.py` | 生成今日计划；复习时段默认按元技能簇成串排（索引缺失时按 interval 取预算内能完成的题，并注明原因）。`--write` 会把渲染好的计划落盘到 `周计划/_今日计划.md` 并返回 `plan_path`，供 `open_in_obsidian.py` 打开 | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--write]` |
+| `build_daily_plan.py` | 聚合七项每日计划候选数据，不排序、选题、分预算或生成正文；`--write` 只保存 `周计划/_候选池-YYYY-MM-DD.json` | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--today YYYY-MM-DD] [--write]` |
+| `get_plan_context.py` | 每日 6 点 worker 的唯一上下文入口：候选池 + `load_context.py` 的档案事实摘要；先归档当前计划再算昨日完成率 | `python3 scripts/get_plan_context.py [$OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--available-hours 时长]` |
+| `manage_breakthrough.py` | 幂等创建、推进与关闭突破单；进行中最多 3 个，不做触发判断 | `python3 scripts/manage_breakthrough.py create [$OBSIDIAN_ROOT] --goal 目标 --source 来源 --plan "Day1：内容;Day2：内容;Day3：内容" --criteria 标准 [--id 突破单-YYYYMMDD-NN]`；`update-status [$OBSIDIAN_ROOT] --id ID --day N`；`close [$OBSIDIAN_ROOT] --id ID --result 已攻克\|延期\|长期关注\|放弃 [--note 备注]` |
+| `plan_ops.py` | 归档后原子写入 AI 生成的计划正文；同日保留已完成项和备注。不传正文时仅归档 | `python3 scripts/plan_ops.py [$OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--content-file AI生成的Markdown文件]` |
 | `build_weekly_plan.py` | 生成周计划；可用 `--textbook` 注入「本周教材进度目标」行，并保留已存在的教材行 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
 | `update_textbook_progress.py` | 更新本周计划里某本教材的「当前」进度页码 | `python3 scripts/update_textbook_progress.py [$OBSIDIAN_ROOT] --textbook 教材 --current pXX` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
@@ -411,13 +414,16 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/plan_today [可用时长]` — 今日计划
 
-1. 运行 `build_daily_plan.py --write` 生成今日计划；读取聚焦问题与到期错题，写入 `周计划/_今日计划.md`。任务使用 Obsidian 原生复选框；同日重排保留已完成任务及备注，不跨日继承完成状态。
-2. **复习时段默认按元技能成串排**：脚本读 `错题本/_元技能索引.json`，在复习时间预算内选 1-3 个完整簇；没有整簇能放下时，减少题量做无提示抽样诊断，并注明未覆盖完整专题。不能保留原题量只缩短预计用时。
-3. 索引缺失时自动退化为「按 interval 取预算内能完成的题，最多 10 道」，并在任务说明里注明原因，不静默降级
-3. 复习任务排在每个科目时段开头；无到期错题时提醒专注新内容
-4. 脚本会读取本周计划文件里的「本周教材进度目标」表，按 `(终点 - 当前) ÷ 剩余天数(含今日)` 渲染今日教材任务；本周计划缺该区块或表为空时跳过
-5. 计划生成后调用 `open_in_obsidian.py --path [返回的 plan_path]`（**须绕过沙箱**），把今日计划弹到 Obsidian 里，方便对着勾任务
-6. 结尾提醒 `/progress` 归档
+每日计划采用「算 / 想 / 记」三层：脚本只计算、读写；AI 决定先后顺序、预算、科目与题量；vault 是唯一事实源。
+
+1. 运行 `get_plan_context.py`（可传 `--available-hours`），获得 `due_clusters / breakthroughs / yesterday_unfinished / yesterday_completion_rate / focus_items / textbook_progress / available_hours / archive_summary` 八项 JSON 数据。每日 6 点 worker 也只调用此入口取上下文。它先归档当前计划，避免昨天的勾选状态在生成新计划时丢失。
+2. AI 根据原始数据排计划，说明取舍依据。`due_clusters` 保留 `scan_due_reviews.py --by-cluster` 的全部簇与顺序，脚本不再挑题或强制时长配比。`textbook_progress` 保留教材名、起点、终点、当前与备注，不自动指定今日页数。索引缺失时簇为空，需要补索引时由 AI 决定，候选池不做 fallback。
+3. 突破单触发也由 AI 判断：同考点 3 天内错 ≥3 次、单科模块正确率 <60%，或用户主动要求。通过 `manage_breakthrough.py` 写入档案「突破单」区；进行中最多 3 个，其余由 AI 决定排队。优先考虑进行中的疗程；「长期关注」「已攻克」「已放弃」不参与每日置顶。
+4. AI 生成符合 `templates/今日计划模板.md` 的 Markdown，任务放在 `## 任务清单` 下并用 `- [ ]`。完成后把正文存到临时文件，通过 `plan_ops.py --content-file 文件` 落盘到 `周计划/_今日计划.md`。该入口调用 `archive_ops.archive_daily_plan(obsidian_root, today)` 后再写入；同日重排保留已完成任务和备注，新一天不继承勾选状态。
+5. 归档为 `周计划/_今日计划-YYYY-MM-DD.md`，日期优先取旧文件标题，取不到则用当天；同日期只有一份，同内容重复调用不再次复制，勾选内容变化刷新同名快照，自动清理 30 天前的归档。昨日完成率只统计昨日归档 `## 任务清单` 的 checkbox，无归档为 null，空清单为 0。
+6. 调用 `open_in_obsidian.py --path [返回的 plan_path]`（**须绕过沙箱**）打开计划；结尾提醒 `/progress` 归档。AI 的决策与任务正文必须落到 vault，不能只留在对话或定时任务的记忆中。
+
+突破单的 JSON 字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note`，`plan` 为原始 Day 行列表。`update-status --day N` 只推进进行中的单，不能倒退或超出疗程。`close --result 延期` 追加两天；`--note "Day4：补强;Day5：复测"` 指定两天的内容，未传则标「待 AI 补充」。同 Day、同 note 的延期重试不再次加天；推进 Day 后可开始下一轮延期。已攻克时用 `--note` 写验收结论。
 
 ### `/plan_week [本周总时长]` — 周计划
 

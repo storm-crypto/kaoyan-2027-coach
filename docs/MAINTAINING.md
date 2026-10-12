@@ -211,3 +211,21 @@ python3 -m pytest tests/ -v
 - `build_dashboard.py` 默认生成工作台与同名 `-statistics.html` 历史统计页；`--if-exists` 在未建工作台时不产生输出文件。
 - `daily_plan_state.py` 解析原生复选框及旧编号任务；完成状态只在同日按科目+任务名继承，保留执行备注。
 - 回归重点：只读构建、过期计划隔离、同日重排保留完成记录、空白掌握度、证据链接、时间预算与 HTML 转义。
+
+
+## 每日计划数据入口
+
+`get_plan_context.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--available-hours 小时]` 是每日 6 点 AI worker 唯一的取数入口。未传路径时读 `KAOYAN_OBSIDIAN_ROOT`；未传时长时读档案，不设预算 fallback。
+
+stdout 为合法 JSON，七项候选池来自 `build_candidate_pool`：
+
+- `due_clusters`：原扫描脚本 `--by-cluster` 的 `clusters` 原样保留（包括题面、预计分钟和顺序）；该扫描仍执行原有超期降级。索引缺失时为空，不生成替代计划。
+- `breakthroughs`：只含档案中进行中的突破单。字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note`。
+- `yesterday_unfinished` / `yesterday_completion_rate`：仅计算昨日归档「任务清单」区，未归档为 `[] / null`，空清单完成率为 0。
+- `focus_items`：保留档案聚焦条目及顺序。
+- `textbook_progress`：本周教材表的原始 `name / start / end / current / note` 字符串行，不指定今日页数。
+- `available_hours`：传入值原样保留，不取整、不分配。
+
+第八项 `archive_summary` 复用 `load_context.build_archive_summary`，包含阶段、日期、目标、各科状态、短板、错误模式、下一步建议、单科成绩以及最近日志和报告的事实字段。原 `/load` 的行为保留；计划入口不使用它的优先级、风险与第一步决策。
+
+AI 负责写计划正文；通过 `plan_ops.py --content-file 文件` 写入现有固定路径，归档与同日完成状态保留集中在该函数中。候选池 `--write` 只生成调试 JSON，不改变今日计划。所有测试使用临时 vault，不对真实学习数据写入。

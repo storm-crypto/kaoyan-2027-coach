@@ -188,7 +188,7 @@ def test_wrong_question_number_boundaries(sample_archive, vault_root, subject, n
 def test_invalid_wrong_questions_do_not_write(sample_archive, vault_root, subject, errors, topics):
     old_archive = sample_archive.read_bytes()
     args = [str(vault_root), subject, "--paper", "测试卷", "--paper-type", "模拟", "--total", "100",
-            "--issues", "测试", "--wrong-questions", errors]
+            "--issues", "测试", f"--wrong-questions={errors}"]
     if topics is not None:
         args += ["--question-topics", topics]
     rc, out, _ = run_script("record_paper_score.py", args)

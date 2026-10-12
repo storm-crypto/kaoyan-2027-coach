@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""基于学习者档案和到期错题生成周计划。"""
+"""DEPRECATED：周计划决策已上移至 worker，本脚本仅保留作历史参考。
+
+新工作流使用 get_weekly_context.py 聚合只读数据，worker 负责决策和计划正文。
+旧入口保留供历史引用，不应再作为周计划决策入口。
+"""
 import argparse
 import json
 from datetime import date

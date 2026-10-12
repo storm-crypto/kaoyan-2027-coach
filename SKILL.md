@@ -220,9 +220,10 @@ Kaoyan_2027_Prep/
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 聚合七项每日计划候选数据，不排序、选题、分预算或生成正文；`--write` 只保存 `周计划/_候选池-YYYY-MM-DD.json` | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--today YYYY-MM-DD] [--write]` |
 | `get_plan_context.py` | 每日 6 点 worker 的唯一上下文入口：候选池 + `load_context.py` 的档案事实摘要；先归档当前计划再算昨日完成率 | `python3 scripts/get_plan_context.py [$OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--available-hours 时长]` |
-| `manage_breakthrough.py` | 幂等创建、推进与关闭突破单；进行中最多 3 个，不做触发判断 | `python3 scripts/manage_breakthrough.py create [$OBSIDIAN_ROOT] --goal 目标 --source 来源 --plan "Day1：内容;Day2：内容;Day3：内容" --criteria 标准 [--id 突破单-YYYYMMDD-NN] [--topic-id 叶子chapter_id]`（--topic-id 可重复）；`update-status [$OBSIDIAN_ROOT] --id ID --day N`；`close [$OBSIDIAN_ROOT] --id ID --result 已攻克\|延期\|长期关注\|放弃 [--note 备注]` |
+| `manage_breakthrough.py` | 幂等创建、推进与关闭突破单，记录发生时间；进行中最多 3 个，不做触发判断 | `python3 scripts/manage_breakthrough.py create [$OBSIDIAN_ROOT] --goal 目标 --source 来源 --plan "Day1：内容;Day2：内容;Day3：内容" --criteria 标准 [--id 突破单-YYYYMMDD-NN] [--topic-id 叶子chapter_id]`（--topic-id 可重复）；`update-status [$OBSIDIAN_ROOT] --id ID --day N`；`close [$OBSIDIAN_ROOT] --id ID --result 已攻克\|未通过\|延期\|长期关注\|放弃\|取消 [--note 备注]`；三种操作均支持 `--today YYYY-MM-DD` 或 `--timestamp 带时区ISO时间戳` |
 | `plan_ops.py` | 归档后原子写入 AI 生成的计划正文；同日保留已完成项和备注。不传正文时仅归档 | `python3 scripts/plan_ops.py [$OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--content-file AI生成的Markdown文件]` |
-| `build_weekly_plan.py` | 生成周计划；可用 `--textbook` 注入「本周教材进度目标」行，并保留已存在的教材行 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
+| `get_weekly_context.py` | 周级只读数据：7天归档完成率、本周成绩（含选填）、分科时长、突破单变化与新增/复习卡数 | `python3 scripts/get_weekly_context.py [$OBSIDIAN_ROOT] --week-start YYYY-MM-DD`（周一日期） |
+| `build_weekly_plan.py` | **deprecated**：周计划决策已上移至 worker，本脚本仅保留作历史参考；新工作流不再调用 | `python3 scripts/build_weekly_plan.py [$OBSIDIAN_ROOT] [本周总时长] [--textbook "教材\|起点\|终点[\|当前][\|备注]"]` |
 | `update_textbook_progress.py` | 更新本周计划里某本教材的「当前」进度页码 | `python3 scripts/update_textbook_progress.py [$OBSIDIAN_ROOT] --textbook 教材 --current pXX` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
 | `build_dashboard.py` | 生成工作台与历史统计；只读学习数据。用法见 references/workbench.md | `python3 scripts/build_dashboard.py [$OBSIDIAN_ROOT] [--output path] [--today YYYY-MM-DD] [--open] [--if-exists]` |
@@ -427,15 +428,13 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 6. 调用 `open_in_obsidian.py --path [返回的 plan_path]`（**须绕过沙箱**）打开计划；结尾提醒 `/progress` 归档。AI 的决策与任务正文必须落到 vault，不能只留在对话或定时任务的记忆中。
 7. 计划落盘后调用 `build_fragment_cards.py --date YYYY-MM-DD --count 5` 生成手机刷题页；每日 worker 同样追加此调用。题面不足时按实际可用数量生成，无到期卡时写空文件并返回 JSON 提示；缺少 qid 或题面的旧卡会列入 `skipped`，不能用解析补题面。
 
-突破单的 JSON 字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note / topic_ids`，`plan` 为原始 Day 行列表。`update-status --day N` 只推进进行中的单，不能倒退或超出疗程。`close --result 延期` 追加两天；`--note "Day4：补强;Day5：复测"` 指定两天的内容，未传则标「待 AI 补充」。同 Day、同 note 的延期重试不再次加天；推进 Day 后可开始下一轮延期。已攻克时用 `--note` 写验收结论。
+突破单的 JSON 字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note / topic_ids / events`，`plan` 为原始 Day 行列表。`update-status --day N` 只推进进行中的单，不能倒退或超出疗程。`close --result 延期` 追加两天；`--note "Day4：补强;Day5：复测"` 指定两天的内容，未传则标「待 AI 补充」。同 Day、同 note 的延期重试不再次加天；推进 Day 后可开始下一轮延期。已攻克时用 `--note` 写验收结论。实际变化追加带 timestamp 的 `created / advanced / extended / closed / cancelled` 事件；重复请求不追加。关闭事件注明通过、未通过或转长期关注，取消兼容原有「放弃」。旧单不补造历史事件。
 
 ### `/plan_week [本周总时长]` — 周计划
 
-1. 运行 `build_weekly_plan.py`，读取档案中的聚焦问题 + 本周到期复习
-2. 输出科目分配、每日节奏和 3 个周内检查点
-3. 周计划写入 `周计划/YYYY-Www.md`，包含「本周教材进度目标」空表占位；同周再次执行时会保留用户已填的教材行，不会覆盖
-4. 需要直接注入教材进度时，传 `--textbook "教材|起点|终点|当前|备注"`，可重复；重名行按教材名替换
-5. 结尾提醒用户周末执行 `/recap week`
+1. worker 显式指定要汇总的周一日期，运行 `get_weekly_context.py --week-start YYYY-MM-DD`。脚本只读归档、成绩记录、日志与错题卡，返回 `daily_completion_rates / papers / subject_hours / breakthroughs / new_cards / reviewed_cards`；缺失归档完成率为 null，成绩保留 section 区分整卷和选填。`unallocated_hours` 是日志总时长减去明确分科时长；无日志或任一已有日志缺少总时长时，两个周级时长字段均为 null。旧突破单的 `events` 为 null，不反推变化。完整数据口径见 [周上下文契约](references/weekly-context.md)。
+2. worker 根据这些事实决定预算、科目优先级、每日节奏和教材目标，再生成并写入 `周计划/YYYY-Www.md`；保留用户已填的教材进度。缺少时长归属或带日期的突破单变化时明确说明数据缺口，不靠主题或当前状态补猜。
+3. 结尾提醒 `/recap week`。`build_weekly_plan.py` 已标 **deprecated**：周计划决策已上移至 worker，本脚本仅保留作历史参考；保留文件以兼容外部历史引用，新工作流不调用它。
 
 ### `/progress [今天学了什么]` — 今日收尾
 

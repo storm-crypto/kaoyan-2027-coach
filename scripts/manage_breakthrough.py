@@ -5,8 +5,9 @@ import hashlib
 import json
 import re
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from breakthrough_ops import (
     DAY_RE, ensure_section, entry_span, parse_breakthroughs, replace_entry,
@@ -53,10 +54,33 @@ def get_item(items: list, item_id: str) -> dict:
     raise ValueError(f"未找到突破单：{item_id}")
 
 
+def event_timestamp(today=None, timestamp=None):
+    if timestamp:
+        value = datetime.fromisoformat(timestamp)
+        if value.tzinfo is None:
+            raise ValueError('timestamp 必须含时区偏移，如 2026-10-12T09:00:00+08:00')
+        if today and value.astimezone(ZoneInfo('Asia/Shanghai')).date() != today:
+            raise ValueError('timestamp 的北京时间日期必须与 today 一致')
+        return value.isoformat()
+    # 补记只给日期时保留日期精度，不编造发生时分；实时操作记录带时区时间戳。
+    return today.isoformat() if today else datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
+
+
+def record_event(raw, previous_events, event_type, today, status, day, total_days, note='', timestamp=None, result=None):
+    event = {'timestamp': event_timestamp(today, timestamp), 'type': event_type,
+             'status': status, 'day': day, 'total_days': total_days}
+    if note:
+        event['note'] = note
+    if result:
+        event['result'] = result
+    return set_field(raw, '事件记录', json.dumps([*previous_events, event], ensure_ascii=False))
+
+
 def create(root: Path, goal: str, source: str, plan: str, criteria: str,
-           item_id: str = None, today: date = None, topic_ids=None) -> dict:
+           item_id: str = None, today: date = None, topic_ids=None, timestamp=None) -> dict:
     path, text, items = load(root)
-    today = today or date.today()
+    recorded_timestamp = event_timestamp(today, timestamp)
+    today = datetime.fromisoformat(recorded_timestamp).astimezone(ZoneInfo('Asia/Shanghai')).date() if 'T' in recorded_timestamp else date.fromisoformat(recorded_timestamp)
     topic_ids = list(dict.fromkeys(single_line(value, '考点id') for value in topic_ids or []))
     if item_id:
         if not re.fullmatch(r"突破单-\d{8}-\d{2,}", item_id):
@@ -97,6 +121,8 @@ def create(root: Path, goal: str, source: str, plan: str, criteria: str,
     ])
     if topic_ids:
         raw = set_field(raw, '考点IDs', json.dumps(topic_ids, ensure_ascii=False))
+    raw = set_field(raw, '事件记录', json.dumps([{'timestamp': recorded_timestamp, 'type': 'created',
+                    'status': '进行中', 'day': 1, 'total_days': len(days)}], ensure_ascii=False))
     text = ensure_section(text)
     _, end = section_span(text)
     text = text[:end].rstrip() + '\n\n' + raw + '\n\n' + text[end:]
@@ -104,7 +130,7 @@ def create(root: Path, goal: str, source: str, plan: str, criteria: str,
     return {"id": item_id, "created": True}
 
 
-def update_status(root: Path, item_id: str, day: int) -> dict:
+def update_status(root: Path, item_id: str, day: int, today: date = None, timestamp=None) -> dict:
     path, text, items = load(root)
     item = get_item(items, item_id)
     if item['status'] != '进行中':
@@ -114,19 +140,21 @@ def update_status(root: Path, item_id: str, day: int) -> dict:
     if day != item['day']:
         start, end = entry_span(text, item_id)
         raw = set_status(text[start:end].rstrip(), '进行中', day, item['total_days'])
+        raw = record_event(raw, item['events'], 'advanced', today, '进行中', day, item['total_days'], timestamp=timestamp)
         atomic_write(path, replace_entry(text, item_id, raw))
     return {"id": item_id, "day": day}
 
 
-def close(root: Path, item_id: str, result: str, note: str = '') -> dict:
+def close(root: Path, item_id: str, result: str, note: str = '', today: date = None, timestamp=None) -> dict:
     path, text, items = load(root)
     item = get_item(items, item_id)
-    if result not in ('已攻克', '延期', '长期关注', '放弃'):
+    if result not in ('已攻克', '未通过', '延期', '长期关注', '放弃', '取消'):
         raise ValueError("不支持的结果")
     note = single_line(note, '备注', required=False)
     start, end = entry_span(text, item_id)
     raw = text[start:end].rstrip()
-    status = {'已攻克': '已攻克', '长期关注': '长期关注', '放弃': '已放弃', '延期': '进行中'}[result]
+    status = {'已攻克': '已攻克', '未通过': '未通过', '长期关注': '长期关注',
+              '放弃': '已放弃', '取消': '已放弃', '延期': '进行中'}[result]
     total = item['total_days']
     if result == '延期':
         # 以当前 Day 和 note 标记请求；同一请求重试不再次延长。
@@ -154,6 +182,11 @@ def close(root: Path, item_id: str, result: str, note: str = '') -> dict:
         if note:
             raw = set_field(raw, '备注', note)
     raw = set_status(raw, status, item['day'], total)
+    event_type = 'extended' if result == '延期' else 'cancelled' if result in ('放弃', '取消') else 'closed'
+    event_result = {'已攻克': '通过', '未通过': '未通过', '长期关注': '转长期关注'}.get(result)
+    if result == '延期' or item['status'] != status:
+        raw = record_event(raw, item['events'], event_type, today, status, item['day'], total, note,
+                           timestamp=timestamp, result=event_result)
     atomic_write(path, replace_entry(text, item_id, raw))
     return {"id": item_id, "status": status, "total_days": total, "changed": True}
 
@@ -170,15 +203,20 @@ def main() -> None:
     p.add_argument('--id')
     p.add_argument('--today', help='编号与创建日期 YYYY-MM-DD')
     p.add_argument('--topic-id', action='append', default=[], help='疗程叶子考点 chapter_id，可重复')
+    p.add_argument('--timestamp', help='事件 ISO 时间戳（须含时区），默认实时北京时间')
     p = sub.add_parser('update-status')
     p.add_argument('obsidian_root', nargs='?')
     p.add_argument('--id', required=True)
     p.add_argument('--day', required=True, type=int)
+    p.add_argument('--today', help='推进事件日期 YYYY-MM-DD，默认今天')
+    p.add_argument('--timestamp', help='事件 ISO 时间戳（须含时区）')
     p = sub.add_parser('close')
     p.add_argument('obsidian_root', nargs='?')
     p.add_argument('--id', required=True)
-    p.add_argument('--result', choices=['已攻克', '延期', '长期关注', '放弃'], required=True)
+    p.add_argument('--result', choices=['已攻克', '未通过', '延期', '长期关注', '放弃', '取消'], required=True)
     p.add_argument('--note', default='')
+    p.add_argument('--today', help='关闭/延期事件日期 YYYY-MM-DD，默认今天')
+    p.add_argument('--timestamp', help='事件 ISO 时间戳（须含时区）')
     argv = sys.argv[1:]
     # 同时支持 ROOT create 和 create ROOT；无 ROOT 时读环境变量。
     if len(argv) > 1 and argv[0] not in ('create', 'update-status', 'close') and not argv[0].startswith('-'):
@@ -188,11 +226,11 @@ def main() -> None:
         root = resolve_obsidian_root(args.obsidian_root)
         if args.command == 'create':
             result = create(root, args.goal, args.source, args.plan, args.criteria, args.id,
-                            parse_today(args.today), args.topic_id)
+                            parse_today(args.today) if args.today else None, args.topic_id, args.timestamp)
         elif args.command == 'update-status':
-            result = update_status(root, args.id, args.day)
+            result = update_status(root, args.id, args.day, parse_today(args.today) if args.today else None, args.timestamp)
         else:
-            result = close(root, args.id, args.result, args.note)
+            result = close(root, args.id, args.result, args.note, parse_today(args.today) if args.today else None, args.timestamp)
     except (ValueError, OSError) as exc:
         json_error(str(exc))
     print(json.dumps(result, ensure_ascii=False))

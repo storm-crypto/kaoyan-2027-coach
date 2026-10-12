@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 SECTION_RE = re.compile(r"^## 突破单[ \t]*\r?$", re.M)
 ENTRY_RE = re.compile(r"^###\s+🔥\s*(突破单-\d{8}-\d+)\s*[（(]([^）)]+)[）)][ \t]*\r?$", re.M)
-FIELD_RE = re.compile(r"^- (目标|来源|验收标准|状态|创建日期|备注|考点IDs)[：:]\s*(.*)$", re.M)
+FIELD_RE = re.compile(r"^- (目标|来源|验收标准|状态|创建日期|备注|考点IDs|事件记录)[：:][ \t]*(.*)$", re.M)
 DAY_RE = re.compile(r"Day\s*(\d+)(?:[（(]([^）)]+)[）)])?[：:]\s*(.*)")
 
 
@@ -34,6 +34,9 @@ def parse_breakthroughs(text: str, active_only: bool = False) -> List[dict]:
         topic_ids = json.loads(fields.get("考点IDs", "[]"))
         if not isinstance(topic_ids, list) or any(not isinstance(value, str) for value in topic_ids):
             raise ValueError("突破单考点IDs 必须是字符串 JSON 列表")
+        events = json.loads(fields.get('事件记录') or '[]')
+        if not isinstance(events, list) or any(not isinstance(event, dict) for event in events):
+            raise ValueError('突破单事件记录必须是 JSON 对象列表')
         status_text = fields.get("状态", heading.group(2)).strip()
         status = re.split(r"[（(]", status_text, maxsplit=1)[0].strip()
         progress = re.search(r"Day\s*(\d+)\s*/\s*共\s*(\d+)天", status_text)
@@ -57,6 +60,7 @@ def parse_breakthroughs(text: str, active_only: bool = False) -> List[dict]:
             "total_days": int(progress.group(2)) if progress else len(plan),
             "created_date": fields.get("创建日期", ""), "note": fields.get("备注", ""),
             "topic_ids": topic_ids,
+            "events": events,
         }
         if not active_only or status == "进行中":
             items.append(item)

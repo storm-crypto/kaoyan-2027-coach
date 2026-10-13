@@ -50,8 +50,21 @@ def _heading_block_pattern(heading: str, level: int) -> Pattern[str]:
     )
 
 
+# 仅这两个档案标题有历史别名；新标题存在时（即使正文为空）优先使用。
+LEGACY_HEADINGS = {
+    "下一步建议": "下一步建议（只保留 3 条）",
+    "最近聚焦问题": "最近聚焦问题（只保留 3-5 条）",
+}
+
+
+def resolve_heading(text: str, heading: str, level: int = 2) -> str:
+    if _heading_block_pattern(heading, level).search(text):
+        return heading
+    return LEGACY_HEADINGS.get(heading, heading) if level == 2 else heading
+
+
 def extract_heading_block(text: str, heading: str, level: int = 2) -> str:
-    match = _heading_block_pattern(heading, level).search(text)
+    match = _heading_block_pattern(resolve_heading(text, heading, level), level).search(text)
     return match.group(2).strip("\r\n") if match else ""
 
 
@@ -62,7 +75,7 @@ def replace_heading_block(
     level: int = 2,
     required: bool = True,
 ) -> str:
-    match = _heading_block_pattern(heading, level).search(text)
+    match = _heading_block_pattern(resolve_heading(text, heading, level), level).search(text)
     if not match:
         if required:
             raise ValueError(f"档案中缺少区块：{heading}")
@@ -218,11 +231,12 @@ def ensure_subject_score_sections(text: str) -> str:
     if not missing:
         return text
 
-    marker = "## 最近聚焦问题（只保留 3-5 条）"
     insertion = "\n\n".join(missing).strip()
-    index = text.find(marker)
-    if index == -1:
+    heading = resolve_heading(text, "最近聚焦问题")
+    match = _heading_block_pattern(heading, 2).search(text)
+    if not match:
         return text.rstrip("\n") + "\n\n" + insertion + "\n"
+    index = match.start()
     return text[:index].rstrip("\n") + "\n\n" + insertion + "\n\n" + text[index:]
 
 

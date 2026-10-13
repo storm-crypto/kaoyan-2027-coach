@@ -95,7 +95,7 @@ def main() -> None:
     _, archive_text = load_archive_text(obsidian_root)
     today = parse_today(args.today)
     monday, sunday, week_label = iso_week(today)
-    focus_items = extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）")
+    focus_items = extract_list_items(archive_text, "最近聚焦问题")
     focus_counts = infer_subject_mentions(focus_items)
     _, due_counts = count_due_reviews(obsidian_root, today, PLAN_SUBJECTS)
 

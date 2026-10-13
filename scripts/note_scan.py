@@ -380,7 +380,7 @@ def render_recap_notes_block(entries: List[NoteEntry], period_name: str) -> str:
     top = sorted(chapter_counts.items(), key=lambda x: x[1], reverse=True)[:3]
     if top:
         top_text = "；".join(f"{key}（{count}）" for key, count in top)
-        lines.append(f"- 高产章节：{top_text}。")
+        lines.append(f"- 高产章节（仅展示前 3 条 / 共 {len(chapter_counts)} 个章节；全量见知识笔记）：{top_text}。")
 
     return "\n".join(lines)
 

@@ -24,6 +24,8 @@ def test_analyze_mock_exam(sample_archive, vault_root):
     report = output_path.read_text(encoding="utf-8")
     assert "总分" in report
     assert "355" in report
+    assert "仅展示前 3 条分析焦点" in report
+    assert "全量成绩见上方成绩表" in report
 
 
 def test_analyze_mock_exam_same_day_is_upsert(sample_archive, vault_root):

@@ -97,6 +97,7 @@ def pick_action_subjects(scores, target_gaps):
     for subject, _ in sorted(scores.items(), key=lambda item: (item[1], SCORE_SUBJECTS.index(item[0]))):
         if subject not in subjects:
             subjects.append(subject)
+    # 计划分析取舍：先按距目标差距升序，再按原始分数升序选两科；成绩表全量保留。
     return subjects[:2]
 
 
@@ -147,6 +148,7 @@ def main():
         overall_judgement = "已完成首次模考记录，后续重点看趋势。"
 
     issues = []
+    # 分析焦点取差距最大的两科，非成绩数据写入上限。
     for gap, subject in sorted(target_gaps)[:2]:
         if gap < 0:
             issues.append(f"{subject} 距目标还差 {format_score(abs(gap))} 分，需要优先补。")
@@ -183,7 +185,7 @@ def main():
         "total_score": format_score(total_score),
         "total_delta": format_delta(total_score, previous_total),
         "overall_judgement": overall_judgement,
-        "key_issues": "\n".join(f"- {item}" for item in issues[:3]),
+        "key_issues": "仅展示前 3 条分析焦点；优先看差距最大的 2 科，再看回落科目。全量成绩见上方成绩表。\n\n" + "\n".join(f"- {item}" for item in issues[:3]),
         "next_actions": "\n".join(f"- {item}" for item in next_actions),
     })
 

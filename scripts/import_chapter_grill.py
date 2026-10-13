@@ -252,6 +252,7 @@ def find_structured_summary(items: Sequence[Dict[str, str]]) -> Optional[Dict[st
 
 
 def collect_evidence_quotes(items: Sequence[Dict[str, str]], limit: int = 6) -> List[str]:
+    # 聊天证据摘录的启发式取样，不是结构化总结或日志的条数规则。
     evidence: List[str] = []
     wanted = ("判卷结论", "漏洞定位", "追问", "纠偏方向")
     for item in items:
@@ -306,6 +307,7 @@ def infer_overall_mastery(text: str) -> str:
 
 
 def build_fallback_summary(payload: Dict[str, object], items: Sequence[Dict[str, str]]) -> Dict[str, object]:
+    # 无结构化总评时才启发式取样；下方切片只用于推断，不限制结构化导入。
     title = str(payload.get("title", "") or "")
     transcript_text = "\n".join(
         part
@@ -536,16 +538,16 @@ def sync_log_progress(obsidian_root: Path, session_date: str, summary: Dict[str,
         "--coach-note", str(summary["one_liner"]),
     ]
 
-    learned_items = [str(item) for item in summary["mastered"][:5]]
+    learned_items = [str(item) for item in summary["mastered"]]
     if not learned_items:
         learned_items = [f"{summary['module']}《{summary['chapter']}》完成一次章节拷打导入。"]
     for item in learned_items:
         command.extend(["--learned", item])
 
     blockers = []
-    blockers.extend(str(item) for item in summary["unstable"][:3])
-    blockers.extend(str(item) for item in summary["illusions"][:3])
-    blockers.extend(str(item) for item in summary["critical_gaps"][:2])
+    blockers.extend(str(item) for item in summary["unstable"])
+    blockers.extend(str(item) for item in summary["illusions"])
+    blockers.extend(str(item) for item in summary["critical_gaps"])
     if not blockers:
         blockers.append("本次章节拷打未显式总结卡点，建议下次在 Gemini 里补固定总评。")
     seen = set()
@@ -554,10 +556,10 @@ def sync_log_progress(obsidian_root: Path, session_date: str, summary: Dict[str,
         if item not in seen:
             seen.add(item)
             deduped_blockers.append(item)
-    for item in deduped_blockers[:5]:
+    for item in deduped_blockers:
         command.extend(["--blocker", item])
 
-    mastered_rows = [f"{item}|中高" for item in summary["mastered"][:3]]
+    mastered_rows = [f"{item}|中高" for item in summary["mastered"]]
     for item in mastered_rows:
         command.extend(["--mastered", item])
 
@@ -568,7 +570,7 @@ def sync_log_progress(obsidian_root: Path, session_date: str, summary: Dict[str,
             review_items.append(f"{label}：{value}")
     if not review_items:
         review_items.append("回看这章里最容易被继续追问的那个点。")
-    for item in review_items[:5]:
+    for item in review_items:
         command.extend(["--review", item])
 
     result = subprocess.run(command, capture_output=True, text=True, cwd=str(script_path.parent))

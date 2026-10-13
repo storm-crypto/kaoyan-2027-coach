@@ -274,8 +274,8 @@ def update_archive(text, log_day, weaknesses, error_patterns, next_steps):
         updated_sections.append("高频错误模式统计")
 
     if next_steps:
-        numbered = "\n".join(f"{index}. {item}" for index, item in enumerate(next_steps[:3], start=1))
-        updated = replace_heading_block(updated, "下一步建议（只保留 3 条）", numbered, level=2)
+        numbered = "\n".join(f"{index}. {item}" for index, item in enumerate(next_steps, start=1))
+        updated = replace_heading_block(updated, "下一步建议", numbered, level=2)
         updated_sections.append("下一步建议")
 
     return updated, updated_sections

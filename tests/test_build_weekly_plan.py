@@ -56,7 +56,7 @@ def test_build_weekly_plan_requires_hours_when_missing(vault_root):
         ## 基本信息
         - **每日可投入时长**：
 
-        ## 最近聚焦问题（只保留 3-5 条）
+        ## 最近聚焦问题
         - 数学微分中值定理
     """), encoding="utf-8")
 
@@ -76,7 +76,7 @@ def test_build_weekly_plan_does_not_reuse_math_focus_for_other_subjects(vault_ro
         ## 基本信息
         - **每日可投入时长**：4
 
-        ## 最近聚焦问题（只保留 3-5 条）
+        ## 最近聚焦问题
         - 数学中值定理专题
     """), encoding="utf-8")
 

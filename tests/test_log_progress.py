@@ -2,7 +2,42 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from helpers import log_path as log_file, run_script
+from archive_ops import extract_list_items
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_log_progress_writes_all_five_archive_next_steps(sample_archive, vault_root, legacy):
+    if legacy:
+        text = sample_archive.read_text(encoding="utf-8")
+        sample_archive.write_text(text.replace("## 下一步建议", "## 下一步建议（只保留 3 条）"), encoding="utf-8")
+    steps = [f"下一步动作 {index}" for index in range(1, 6)]
+    args = [str(vault_root), "--date", "2026-03-23", "--topic", "完整归档"]
+    for item in steps:
+        args.extend(["--archive-next-step", item])
+    rc, out, err = run_script("log_progress.py", args)
+    assert rc == 0, (out, err)
+    text = sample_archive.read_text(encoding="utf-8")
+    assert extract_list_items(text, "下一步建议") == steps
+    assert "5. 下一步动作 5" in text
+
+
+def test_log_progress_repeated_list_arguments_keep_all_items(vault_root):
+    args = [str(vault_root), "--date", "2026-03-23", "--topic", "完整日志"]
+    sections = {"--learned": "学到了什么", "--blocker": "卡壳与挣扎", "--review": "下次需要复习"}
+    for flag in [*sections, "--mastered"]:
+        for index in range(8):
+            value = f"{flag} 条目 {index}"
+            args.extend([flag, value + "|中高" if flag == "--mastered" else value])
+    rc, out, err = run_script("log_progress.py", args)
+    assert rc == 0, (out, err)
+    text = log_file(vault_root, "2026-03-23").read_text(encoding="utf-8")
+    for flag, heading in sections.items():
+        assert extract_list_items(text, heading) == [f"{flag} 条目 {index}" for index in range(8)]
+    for index in range(8):
+        assert f"--mastered 条目 {index} - 信心：中高" in text
 
 
 def test_log_progress_writes_log(sample_archive, vault_root):

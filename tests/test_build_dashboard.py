@@ -2,9 +2,45 @@
 import json
 import sys
 import textwrap
+from datetime import date
 from pathlib import Path
 
 from helpers import run_script
+from build_dashboard import render_focus_list
+from dashboard_payload import build_subject_score_trend, parse_archive_basic_info
+from archive_ops import replace_heading_block
+
+
+def test_focus_list_labels_display_limit_and_keeps_payload_complete(sample_archive, vault_root):
+    focus = [f"聚焦 {index}" for index in range(8)]
+    steps = [f"建议 {index}" for index in range(8)]
+    text = sample_archive.read_text(encoding="utf-8")
+    text = replace_heading_block(text, "最近聚焦问题", "\n".join(f"- {item}" for item in focus))
+    text = replace_heading_block(text, "下一步建议", "\n".join(f"- {item}" for item in steps))
+    text = text.replace("## 最近聚焦问题", "## 最近聚焦问题（只保留 3-5 条）")
+    text = text.replace("## 下一步建议", "## 下一步建议（只保留 3 条）")
+    data = parse_archive_basic_info(text, date(2026, 3, 23))
+    assert data["focus_problems"] == focus
+    assert data["next_steps"] == steps
+    rendered = render_focus_list(data["focus_problems"], "暂无")
+    assert "仅展示前 5 条 / 共 8 条" in rendered
+    assert "我的学习者档案.md" in rendered
+    assert rendered.count("<li>") == 5
+    assert "聚焦 4" in rendered
+    assert "聚焦 5" not in rendered
+
+
+def test_score_trend_display_limit_does_not_trim_points():
+    points = [{
+        "exam_date": f"2026-03-{index:02d}", "paper_type": "模拟", "paper": f"试卷 {index}",
+        "paper_label": f"模拟 / 试卷 {index}", "total_score": 100 + index, "issues": "", "note": "",
+    } for index in range(1, 9)]
+    trend = build_subject_score_trend(points, "数学一")
+    assert trend["points"] == points
+    assert trend["filters"]["all"] == points
+    assert len(trend["recent_rows"]) == 5
+    assert trend["recent_rows"][0]["paper"] == "试卷 8"
+    assert "共 8 条" in trend["recent_rows_display_note"]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 

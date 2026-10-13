@@ -171,14 +171,14 @@ def latest_subject_score_info(archive_text: str) -> Optional[LatestSubjectScoreI
     return latest
 
 
-def unique_items(items: Sequence[str], limit: int) -> List[str]:
+def unique_items(items: Sequence[str], limit: Optional[int] = None) -> List[str]:
     result: List[str] = []
     for item in items:
         normalized = item.strip()
         if not normalized or normalized in result:
             continue
         result.append(normalized)
-        if len(result) >= limit:
+        if limit is not None and len(result) >= limit:
             break
     return result
 
@@ -199,20 +199,21 @@ def build_priorities(
     due_total: int,
     due_counts: Dict[str, int],
 ) -> List[str]:
+    # 全量、保序去重交给 Muse 选择今日焦点，脚本不按条数裁剪候选。
     candidates: List[str] = []
     if latest_subject_score and latest_subject_score["issues"]:
         candidates.append(
             f"最近一次{latest_subject_score['subject']}模拟（{latest_subject_score['date'].isoformat()} {latest_subject_score['paper']}）暴露：{latest_subject_score['issues']}"
         )
-    candidates.extend(focus_items[:3])
+    candidates.extend(focus_items)
     if latest_log:
-        candidates.extend(latest_log["blockers"][:2])
+        candidates.extend(latest_log["blockers"])
     if latest_report:
-        candidates.extend(latest_report["issues"][:2])
+        candidates.extend(latest_report["issues"])
     if due_total:
         top_subject = max(SCORE_SUBJECTS, key=lambda subject: (due_counts.get(subject, 0), subject))
         candidates.append(f"{top_subject} 到期复习共 {due_total} 道，先防止旧题继续积压")
-    return unique_items(candidates, 3)
+    return unique_items(candidates)
 
 
 def build_risks(
@@ -395,8 +396,8 @@ def build_archive_summary(obsidian_root: Path, today: date, archive_text: Option
         "subject_targets": parse_subject_targets(archive_text),
         "recent_update": recent_update.isoformat() if recent_update else None,
         "subject_state": extract_heading_block(archive_text, "各科当前状态"),
-        "focus_problems": extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）"),
-        "next_steps": extract_list_items(archive_text, "下一步建议（只保留 3 条）"),
+        "focus_problems": extract_list_items(archive_text, "最近聚焦问题"),
+        "next_steps": extract_list_items(archive_text, "下一步建议"),
         "weaknesses": extract_heading_block(archive_text, "短板雷达"),
         "error_patterns": extract_heading_block(archive_text, "高频错误模式统计"),
         "subject_scores": {subject: parse_subject_score_rows(archive_text, subject) for subject in SCORE_SUBJECTS},
@@ -420,8 +421,8 @@ def main() -> None:
     target_total = parse_target_total(archive_text)
     stage = parse_stage(archive_text)
     recent_update = parse_recent_update(archive_text)
-    focus_items = extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）")
-    archive_steps = extract_list_items(archive_text, "下一步建议（只保留 3 条）")
+    focus_items = extract_list_items(archive_text, "最近聚焦问题")
+    archive_steps = extract_list_items(archive_text, "下一步建议")
     subject_targets = parse_subject_targets(archive_text)
     latest_log = latest_log_info(obsidian_root)
     latest_report = latest_report_info(obsidian_root)
@@ -449,7 +450,7 @@ def main() -> None:
         "first_step": first_step,
         "warnings": warnings,
         "missing_fields": missing_fields,
-        "focus_problems": focus_items[:5],
+        "focus_problems": focus_items,
         "due_total": due_total,
         "latest_log_path": latest_log["path"] if latest_log else None,
         "latest_report_path": latest_report["path"] if latest_report else None,

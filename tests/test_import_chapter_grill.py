@@ -3,6 +3,64 @@ import json
 import textwrap
 
 from helpers import log_path as log_file, run_script
+from archive_ops import extract_list_items
+from import_chapter_grill import parse_structured_summary, sync_log_progress
+
+
+def _large_structured_summary():
+    text = _structured_assistant_text()
+    for label, next_label, prefix, count in [
+        ("已掌握", "半会但不稳", "完整收获", 8),
+        ("半会但不稳", "不会或有能力错觉", "不稳卡点", 6),
+        ("不会或有能力错觉", "关键漏洞", "错觉卡点", 6),
+        ("关键漏洞", "下一步复习动作", "漏洞卡点", 6),
+    ]:
+        start = text.index(f"【{label}】")
+        end = text.index(f"【{next_label}】")
+        body = "\n".join(f"- {prefix} {index}" for index in range(count))
+        if label == "关键漏洞":
+            body += "\n- 不稳卡点 0"  # 跨区块重复仍应去重。
+        text = text[:start] + f"【{label}】\n{body}\n\n" + text[end:]
+    return text
+
+
+def test_structured_grill_forwards_all_list_items(vault_root, monkeypatch):
+    import import_chapter_grill
+    from types import SimpleNamespace
+
+    commands = []
+    def capture(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout='{"ok": true}', stderr="")
+    monkeypatch.setattr(import_chapter_grill.subprocess, "run", capture)
+    summary = parse_structured_summary(_large_structured_summary())
+    sync_log_progress(vault_root, "2026-04-10", summary)
+    command = commands[0]
+    def values(flag):
+        return [command[index + 1] for index, item in enumerate(command) if item == flag]
+    assert values("--learned") == [f"完整收获 {index}" for index in range(8)]
+    assert values("--mastered") == [f"完整收获 {index}|中高" for index in range(8)]
+    assert values("--blocker") == [f"{prefix} {index}" for prefix in ("不稳卡点", "错觉卡点", "漏洞卡点") for index in range(6)]
+    assert len(values("--review")) == 3
+
+
+def test_structured_grill_writes_all_items_to_log(vault_root, tmp_path):
+    payload = {
+        "format": "gemini-voyager.chat.v1",
+        "exportedAt": "2026-04-10T02:41:32.818Z",
+        "count": 1,
+        "title": "完整总结",
+        "items": [{"user": "结束本章，按模板总评", "assistant": _large_structured_summary()}],
+    }
+    path = _write_voyager_json(tmp_path, payload)
+    rc, out, err = run_script("import_chapter_grill.py", [str(vault_root), str(path)])
+    assert rc == 0, (out, err)
+    text = log_file(vault_root, "2026-04-10").read_text(encoding="utf-8")
+    assert extract_list_items(text, "学到了什么") == [f"完整收获 {index}" for index in range(8)]
+    assert extract_list_items(text, "卡壳与挣扎") == [f"{prefix} {index}" for prefix in ("不稳卡点", "错觉卡点", "漏洞卡点") for index in range(6)]
+    for index in range(8):
+        assert f"完整收获 {index} - 信心：中高" in text
+    assert len(extract_list_items(text, "下次需要复习")) == 3
 
 
 def _write_408_knowledge_map(vault_root):

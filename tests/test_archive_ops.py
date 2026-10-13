@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from archive_ops import (
     extract_heading_block,
     extract_list_items,
+    ensure_subject_score_sections,
     load_archive_text,
     load_template_markdown,
     migrate_archive_schemas,
@@ -24,6 +25,40 @@ from archive_ops import (
 )
 
 
+@pytest.mark.parametrize("new,old", [
+    ("下一步建议", "下一步建议（只保留 3 条）"),
+    ("最近聚焦问题", "最近聚焦问题（只保留 3-5 条）"),
+])
+def test_legacy_archive_heading_can_be_read_and_replaced(new, old):
+    text = f"## {old}\n- 历史条目\n\n## 其他区块\n- 保留\n"
+    assert extract_list_items(text, new) == ["历史条目"]
+    updated = replace_heading_block(text, new, "- 更新条目")
+    assert extract_list_items(updated, new) == ["更新条目"]
+    assert "历史条目" not in updated
+    assert "## 其他区块\n- 保留" in updated
+
+
+@pytest.mark.parametrize("new,old", [
+    ("下一步建议", "下一步建议（只保留 3 条）"),
+    ("最近聚焦问题", "最近聚焦问题（只保留 3-5 条）"),
+])
+@pytest.mark.parametrize("body", ["", "- 新条目"])
+def test_new_heading_takes_precedence_even_when_empty(new, old, body):
+    text = f"## {old}\n- 旧条目\n\n## {new}\n{body}\n"
+    assert extract_list_items(text, new) == (["新条目"] if body else [])
+    updated = replace_heading_block(text, new, "- 更新条目")
+    assert extract_list_items(updated, new) == ["更新条目"]
+    assert f"## {old}\n- 旧条目" in updated
+
+
+@pytest.mark.parametrize("heading", ["最近聚焦问题", "最近聚焦问题（只保留 3-5 条）"])
+def test_score_section_insertion_precedes_new_or_legacy_focus_heading(heading):
+    text = f"# 档案\n\n## {heading}\n- 聚焦\n"
+    updated = ensure_subject_score_sections(text)
+    assert updated.index("## 数学一模拟成绩追踪") < updated.index(f"## {heading}")
+    assert extract_list_items(updated, "最近聚焦问题") == ["聚焦"]
+
+
 def test_extract_heading_block_supports_level_two_and_three():
     text = textwrap.dedent("""\
         ## 短板雷达
@@ -33,7 +68,7 @@ def test_extract_heading_block_supports_level_two_and_three():
         ### 子标题
         - 忽略
 
-        ## 下一步建议（只保留 3 条）
+        ## 下一步建议
         1. 下一步
     """)
     assert extract_heading_block(text, "短板雷达", level=2).startswith("- 条目 A")
@@ -62,13 +97,13 @@ def test_extract_heading_block_ignores_indented_code_block_heading():
 
 def test_replace_heading_block_rewrites_section_body():
     text = textwrap.dedent("""\
-        ## 下一步建议（只保留 3 条）
+        ## 下一步建议
         1. 旧建议
 
         ## 其他区块
         - 保留
     """)
-    updated = replace_heading_block(text, "下一步建议（只保留 3 条）", "1. 新建议", level=2)
+    updated = replace_heading_block(text, "下一步建议", "1. 新建议", level=2)
     assert "1. 新建议" in updated
     assert "旧建议" not in updated
     assert "## 其他区块" in updated
@@ -79,12 +114,12 @@ def test_extract_list_items_and_parse_daily_hours():
         ## 基本信息
         - **每日可投入时长**：6.5
 
-        ## 最近聚焦问题（只保留 3-5 条）
+        ## 最近聚焦问题
         - 数学提速
         2. 408 补漏
     """)
     assert parse_daily_hours(text) == 6.5
-    assert extract_list_items(text, "最近聚焦问题（只保留 3-5 条）") == ["数学提速", "408 补漏"]
+    assert extract_list_items(text, "最近聚焦问题") == ["数学提速", "408 补漏"]
 
 
 def test_parse_subject_targets_and_mock_rows():

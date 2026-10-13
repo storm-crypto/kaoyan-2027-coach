@@ -44,7 +44,7 @@ def build_candidate_pool(obsidian_root: Path, today: date, available_hours: Opti
         'breakthroughs': parse_breakthroughs(archive_text, active_only=True),
         'yesterday_unfinished': unfinished,
         'yesterday_completion_rate': rate,
-        'focus_items': extract_list_items(archive_text, '最近聚焦问题（只保留 3-5 条）'),
+        'focus_items': extract_list_items(archive_text, '最近聚焦问题'),
         'textbook_progress': [asdict(row) for row in textbooks],
         'available_hours': available_hours,
     }

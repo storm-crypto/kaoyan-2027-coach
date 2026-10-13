@@ -260,6 +260,18 @@ def test_render_recap_notes_block_with_distribution():
     assert "数学一·高数·第1章" in block
 
 
+def test_high_output_chapters_labels_display_limit():
+    entries = [
+        NoteEntry(f"知识笔记/数学一/高数/ch{index}/A.md", "数学一", "高数", f"ch{index}", index, "A", date(2026, 5, 20))
+        for index in range(1, 6)
+    ]
+    block = render_recap_notes_block(entries, "周")
+    assert "仅展示前 3 条 / 共 5 个章节" in block
+    assert "全量见知识笔记" in block
+    assert "第3章" in block
+    assert "第4章" not in block
+
+
 def test_render_recap_notes_block_empty():
     block = render_recap_notes_block([], "月")
     assert "本月没有新增笔记" in block

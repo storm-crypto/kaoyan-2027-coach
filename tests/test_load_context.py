@@ -2,6 +2,7 @@
 import json
 import sys
 import textwrap
+from datetime import date
 from pathlib import Path
 
 from helpers import run_script
@@ -9,7 +10,8 @@ from helpers import run_script
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from load_context import latest_log_info, parse_report_sort_date
+from load_context import build_archive_summary, build_priorities, latest_log_info, parse_report_sort_date
+from archive_ops import replace_heading_block
 
 
 def test_parse_report_sort_date_supports_old_and_ranged_weekly_names():
@@ -103,7 +105,7 @@ def test_load_context_happy_path(sample_archive, vault_root):
     assert data["show_countdown"] is True
     assert data["days_until_exam"] == 70
     assert data["due_total"] == 11
-    assert len(data["priorities"]) == 3
+    assert len(data["priorities"]) == 7
     assert "最近一次408模拟（2026-03-19 2025 真题）暴露" in data["priorities"][0]
     assert "最早到期的 3-5 道旧题" in data["first_step"]
     assert "到期复习积压 11 道" in "\n".join(data["warnings"])
@@ -111,6 +113,37 @@ def test_load_context_happy_path(sample_archive, vault_root):
     assert data["latest_report_path"].endswith("2026-10-10-模考分析.md")
     assert any("最近一次408模拟还没消化" in item for item in data["risks"])
     assert "考试倒计时" in data["markdown"]
+
+
+def test_priorities_preserve_all_sources_and_deduplicate():
+    focus = [f"档案焦点 {index}" for index in range(8)]
+    blockers = [focus[-1], "  日志卡点 0  ", *[f"日志卡点 {index}" for index in range(1, 6)]]
+    issues = ["日志卡点 5", *[f"报告问题 {index}" for index in range(6)]]
+    score = {"subject": "408", "date": date(2026, 3, 23), "paper": "模拟", "issues": "新成绩问题"}
+    priorities = build_priorities(focus, {"blockers": blockers}, {"issues": issues}, score, 10, {"408": 10})
+    assert "新成绩问题" in priorities[0]
+    assert priorities[1:-1] == focus + [f"日志卡点 {index}" for index in range(6)] + [f"报告问题 {index}" for index in range(6)]
+    assert "到期复习共 10 道" in priorities[-1]
+
+
+def test_load_context_and_archive_summary_keep_all_legacy_focus_items(sample_archive, vault_root):
+    focus = [f"历史焦点 {index}" for index in range(8)]
+    steps = [f"历史建议 {index}" for index in range(6)]
+    text = sample_archive.read_text(encoding="utf-8")
+    text = replace_heading_block(text, "最近聚焦问题", "\n".join(f"- {item}" for item in focus))
+    text = replace_heading_block(text, "下一步建议", "\n".join(f"- {item}" for item in steps))
+    text = text.replace("## 最近聚焦问题", "## 最近聚焦问题（只保留 3-5 条）")
+    text = text.replace("## 下一步建议", "## 下一步建议（只保留 3 条）")
+    sample_archive.write_text(text, encoding="utf-8")
+    summary = build_archive_summary(vault_root, date(2026, 3, 23))
+    assert summary["focus_problems"] == focus
+    assert summary["next_steps"] == steps
+    rc, out, err = run_script("load_context.py", [str(vault_root), "--today", "2026-03-23"])
+    assert rc == 0, (out, err)
+    data = json.loads(out)
+    assert data["focus_problems"] == focus
+    assert all(item in data["priorities"] for item in focus)
+    assert data["first_step"] == steps[0]
 
 
 def test_load_context_missing_fields(vault_root):
@@ -139,7 +172,7 @@ def test_load_context_missing_fields(vault_root):
         |------|------|--------|--------|-----|------|------|
         | 初始 | | | | | | 基准分 |
 
-        ## 最近聚焦问题（只保留 3-5 条）
+        ## 最近聚焦问题
         - 数学专题推进
 
         ## 短板雷达
@@ -152,7 +185,7 @@ def test_load_context_missing_fields(vault_root):
         |----------|------|----------|--------------|------|
         | | | | | |
 
-        ## 下一步建议（只保留 3 条）
+        ## 下一步建议
         1. 先把数学专题打穿
     """), encoding="utf-8")
 

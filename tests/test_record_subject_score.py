@@ -75,7 +75,7 @@ def test_record_subject_score_bootstraps_missing_sections(vault_root):
         |------|------|--------|--------|-----|------|------|
         | 初始 | | | | | | 基准分 |
 
-        ## 最近聚焦问题（只保留 3-5 条）
+        ## 最近聚焦问题
         - 数学推进
     """), encoding="utf-8")
 

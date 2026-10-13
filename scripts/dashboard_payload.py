@@ -116,8 +116,8 @@ def parse_archive_basic_info(archive_text: str, today: date) -> Dict[str, object
         "days_until_exam": (exam_day - today).days if exam_day else None,
         "latest_archive_update": format_date(latest_update),
         "stage": stage_match.group(1).strip() if stage_match else "",
-        "focus_problems": extract_list_items(archive_text, "最近聚焦问题（只保留 3-5 条）"),
-        "next_steps": extract_list_items(archive_text, "下一步建议（只保留 3 条）"),
+        "focus_problems": extract_list_items(archive_text, "最近聚焦问题"),
+        "next_steps": extract_list_items(archive_text, "下一步建议"),
     }
 
 
@@ -527,6 +527,7 @@ def build_review_payload(cards: Sequence[Mapping[str, object]]) -> Dict[str, obj
             for label in ("今天到期", "超期 1-3 天", "超期 4-7 天", "超期 8 天+")
         ],
         "top_chapters": top_chapters,
+        "top_chapters_display_note": f"仅展示前 6 条 / 共 {len(chapter_aggregate)} 个章节；全量见错题本。",
     }
 
 
@@ -860,6 +861,7 @@ def build_subject_score_trend(points: Sequence[Mapping[str, object]], subject: s
             "模拟": filter_points_by_type(points, "模拟"),
         },
         "recent_rows": recent_rows,
+        "recent_rows_display_note": f"仅展示最近 5 条 / 共 {len(points)} 条；全量见成绩趋势图及档案成绩表。",
     }
 
 
@@ -937,6 +939,7 @@ def build_score_trends_payload(obsidian_root: Path, archive_text: str) -> Dict[s
             "fallback_used": politics_fallback_used,
         },
         "recent_records": recent_records,
+        "recent_records_display_note": f"仅展示最近 5 条 / 共 {len(all_records)} 条；全量见各科成绩趋势及成绩记录。",
     }
 
 

@@ -314,7 +314,7 @@ def render_total_score_panel(score_trends: Mapping[str, object]) -> str:
     return (
         '<div class="panel-grid">'
         f'<div class="mini-panel"><h3>总分趋势</h3>{chart}</div>'
-        f'<div class="mini-panel"><h3>最近完整模考</h3>{render_recent_score_records(recent_rows)}</div>'
+        f'<div class="mini-panel"><h3>最近完整模考</h3>{render_display_note(5, len(score_trends["total"]["points"]), "总分趋势图及档案模考成绩追踪")}{render_recent_score_records(recent_rows)}</div>'
         '</div>'
     )
 
@@ -342,7 +342,7 @@ def render_politics_panel(score_trends: Mapping[str, object]) -> str:
         f'{fallback_note}'
         '<div class="panel-grid">'
         f'<div class="mini-panel"><h3>政治总分趋势</h3>{chart}</div>'
-        f'<div class="mini-panel"><h3>最近政治成绩</h3>{render_subject_score_table("politics", politics["recent_rows"])}</div>'
+        f'<div class="mini-panel"><h3>最近政治成绩</h3>{render_display_note(5, len(politics["points"]), "政治总分趋势图及成绩记录")}{render_subject_score_table("politics", politics["recent_rows"])}</div>'
         '</div>'
     )
 
@@ -528,7 +528,7 @@ def render_subject_filter_panels(subject_key: str, trend_data: Mapping[str, obje
             f'<div id="{target}" class="subject-filter-panel{" active" if index == 0 else ""}">'
             f'<div class="mini-panel"><h3>总分趋势</h3>{chart}</div>'
             f'<div class="mini-panel"><h3>板块分解</h3>{breakdown}</div>'
-            f'<div class="mini-panel"><h3>最近卷子成绩</h3>{render_subject_score_table(subject_key, sorted(rows, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:6])}</div>'
+            f'<div class="mini-panel"><h3>最近卷子成绩</h3>{render_display_note(6, len(rows), "总分趋势图及成绩记录")}{render_subject_score_table(subject_key, sorted(rows, key=lambda item: (item["exam_date"], item["paper_type"], item["paper"]), reverse=True)[:6])}</div>'
             '</div>'
         )
     button_parts.append("</div>")
@@ -666,10 +666,14 @@ def render_warning_list(items: Sequence[str]) -> str:
     return "<ul class=\"warning-list\">" + "".join(f"<li>{e(item)}</li>" for item in items) + "</ul>"
 
 
+def render_display_note(limit: int, total: int, full_location: str) -> str:
+    return f'<p class="lede">仅展示前 {limit} 条 / 共 {total} 条；全量见{e(full_location)}。</p>'
+
+
 def render_focus_list(items: Sequence[str], empty_message: str) -> str:
     if not items:
         return render_empty_state(empty_message)
-    return "<ol class=\"focus-list\">" + "".join(f"<li>{e(item)}</li>" for item in items[:5]) + "</ol>"
+    return render_display_note(5, len(items), "我的学习者档案.md 对应区块") + "<ol class=\"focus-list\">" + "".join(f"<li>{e(item)}</li>" for item in items[:5]) + "</ol>"
 
 
 def render_recent_outputs(recent_outputs: Mapping[str, Mapping[str, int]]) -> str:
@@ -1332,6 +1336,7 @@ def render_statistics_html(payload: Mapping[str, object], workbench_href: str = 
         </div>
         <div class="mini-panel">
           <h3>最该先清的章节 / 考点</h3>
+          <p class="lede">{e(reviews["top_chapters_display_note"])}</p>
           {render_top_chapters(reviews["top_chapters"], "尚无错题热点。")}
         </div>
       </div>

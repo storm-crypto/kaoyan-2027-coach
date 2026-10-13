@@ -30,6 +30,7 @@ CSS = r'''
 @media(min-width:1280px){body:has(#page-metaskills:not([hidden])) .shell{max-width:1360px}.ms-layout{grid-template-columns:210px minmax(280px,.85fr) minmax(0,1.15fr)}}
 @media(max-width:980px){.ms-layout{grid-template-columns:160px minmax(0,1fr)}.ms-detail{grid-column:1/-1;position:static;max-height:none}.ms-directory{position:static}#ms-groups{max-height:430px}}
 @media(max-width:600px){.ms-heading{align-items:start;flex-direction:column;gap:8px}.ms-overview{gap:12px}.ms-toolbar{grid-template-columns:1fr 1fr;gap:10px}.ms-search{grid-column:1/-1}.ms-layout{display:block}.ms-directory{margin-bottom:16px}#ms-groups{max-height:180px;border-bottom:1px solid var(--line);padding-bottom:8px}.ms-group{padding:8px 10px}.ms-group-label{margin-top:8px}.ms-detail{padding:18px;margin-top:20px}.ms-results{min-width:0}.ms-row{padding:12px}.ms-detail h3{font-size:20px}}
+.ms-decision-list{margin:8px 0 0;padding-left:22px;line-height:1.8}.ms-decision-list>li{padding-left:3px;margin:0 0 11px}.ms-decision-list>li::marker{color:var(--accent);font-weight:600}.ms-decision-list .ms-decision{margin:0 0 7px}.ms-equation{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:3px 0}.ms-equation .katex-display{margin:9px 0;text-align:left}.ms-equation .katex-display>.katex{text-align:left}.ms-examples{border-top:1px solid var(--line);padding-top:13px;margin-top:18px;font-size:13px}.ms-examples>summary{color:var(--accent)}.ms-examples .ms-decision{font-size:13px}
 '''
 
 
@@ -74,7 +75,10 @@ $('ms-more').hidden=visible.length<=state.limit;renderDetail();
 function renderDetail(){
 const c=rows.find(c=>c.id===state.selected),panel=$('ms-detail');
 if(!c){panel.innerHTML='<p class="ms-empty">选中一个簇后，在这里查看解题决策和成员题目。</p>';return;}
-const arrow=c.skill.indexOf('→'),decision=arrow<0?`<p class="ms-decision">${h(c.skill)}</p>`:`<h4>看到什么</h4><p class="ms-decision">${h(c.skill.slice(0,arrow).trim())}</p><h4>做什么 · 适用边界</h4><p class="ms-decision">${h(c.skill.slice(arrow+1).trim())}</p>`;
+const d=c.decision||{trigger:'',steps:[c.skill],boundaries:[],examples:[]};
+function block(text){return text.split(/(\$\$[\s\S]*?\$\$)/g).filter(x=>x.trim()).map(x=>x.startsWith('$$')?`<div class="ms-equation">${h(x)}</div>`:`<p class="ms-decision">${h(x.trim())}</p>`).join('');}
+const items=(list,ordered=false)=>`<${ordered?'ol':'ul'} class="ms-decision-list">${list.map(x=>`<li>${block(x)}</li>`).join('')}</${ordered?'ol':'ul'}>`;
+const decision=`${d.trigger?'<h4>看到什么</h4>'+block(d.trigger):''}<h4>怎么做</h4>${d.steps.length>1?items(d.steps,true):d.steps.map(block).join('')}${d.boundaries.length?'<h4>适用边界</h4>'+items(d.boundaries):''}${d.examples.length?'<details class="ms-examples"><summary>补充例子与自查</summary>'+items(d.examples)+'</details>':''}`;
 const main=c.members.filter(m=>m.role==='主归属'),secondary=c.members.filter(m=>m.role==='次归属');
 function members(items){return items.map(m=>`<div class="ms-card"><div class="ms-tags"><span class="state state-${h(m.status)}">${h(m.status)}</span>${m.due?'<span class="badge">到期</span>':''}${m.missing?'<span class="badge">未读到</span>':''}</div>${cardLink(m)}<div class="muted">最近记录 ${h(m.last_review)} · 复习日期 ${h(m.next_review)}</div>${m.role==='次归属'?`<div class="ms-secondary-info">主归属：${m.primary_clusters.map(cid=>`<button class="ms-peer" type="button" data-ms-jump="${h(cid)}">${h(rows.find(x=>x.id===cid)?.name||cid)}</button>`).join('')}</div>`:''}<div class="command"><button type="button" data-ms-copy="${h(m.command)}">复制单题复习指令</button><code>${h(m.command)}</code></div></div>`).join('');}
 const peers=rows.filter(s=>s.family===c.family&&s.id!==c.id);

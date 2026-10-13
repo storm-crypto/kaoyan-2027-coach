@@ -5,6 +5,7 @@ import json
 import re
 
 from metaskill_index import INDEX_RELPATH
+from metaskill_text import parse_decision, unmarked_math
 
 MARKDOWN_RELPATH = Path("错题本/元技能目录.md")
 STATUSES = ("不会", "半会", "会", "未标注")
@@ -38,6 +39,8 @@ def build_metaskills(root, cards, make_link):
             secondary[q].append(c["id"])
     rows = []
     for c in index["clusters"]:
+        if unmarked_math(c.get('skill', '')):
+            warnings.append(f"{c['id']} 的口诀含未标记公式，请用 LaTeX 数学定界符补齐。")
         members = []
         qids = list(dict.fromkeys(c.get("qids", [])))
         also = [q for q in dict.fromkeys(c.get("also", [])) if q not in qids]
@@ -72,7 +75,7 @@ def build_metaskills(root, cards, make_link):
         title = c.get("name") or (main[0]["topic"] if len(qids) == 1 and main else c.get("family") or c["id"])
         rows.append({"id": c["id"], "name": title, "subject": subject, "module": module,
                      "chapter": chapter, "chapter_group": group, "family": c.get("family") or "未标注方法",
-                     "skill": c.get("skill", ""), "note": c.get("note", ""),
+                     "skill": c.get("skill", ""), "decision": parse_decision(c.get("skill", "")), "note": c.get("note", ""),
                      "primary_count": len(qids), "secondary_count": len(also),
                      "counts": dict(Counter(m["status"] for m in main)),
                      "due_count": sum(m["due"] for m in main), "members": members})
@@ -115,10 +118,35 @@ def render_metaskill_markdown(data, today):
         counts = "、".join(f"{s} {c['counts'].get(s, 0)}" for s in STATUSES if c["counts"].get(s)) or "暂无可读题卡记录"
         out += [f"### {heading(c)}", "", f"- 章节：{c['chapter_group']}", f"- 方法族：{c['family']}",
                 f"- 主归属 {c['primary_count']} 题；次归属 {c['secondary_count']} 题；到期 {c['due_count']} 题。",
-                f"- 主归属卡记录：{counts}", "", "**触发条件、动作与适用边界**", "", c["skill"], ""]
+                f"- 主归属卡记录：{counts}", ""]
+        decision = c['decision']
+        if decision['trigger']:
+            out += ['**看到什么**', '', decision['trigger'], '']
+        out += ['**怎么做**', '']
+        for i, step in enumerate(decision['steps'], 1):
+            lines = step.splitlines()
+            prefix = f'{i}. '
+            out.append(prefix + lines[0])
+            out += [' ' * len(prefix) + line if line else '' for line in lines[1:]]
+            out.append('')
+        out.append('')
+        if decision['boundaries']:
+            out += ['**适用边界**', '', *[f'- {item}' for item in decision['boundaries']], '']
+        if decision['examples']:
+            out += ['> [!example]- 补充例子与自查', '>']
+            for item in decision['examples']:
+                lines = item.splitlines()
+                out.append('> - ' + lines[0])
+                out += ['>   '+line if line else '>' for line in lines[1:]]
+                out.append('>')
+            out.append('')
         if c["note"]:
             out += [c["note"], ""]
+        role = None
         for m in c["members"]:
+            if m['role'] != role:
+                role = m['role']
+                out += [f'**{role}题目**', '']
             if m["path"]:
                 # The unique filename works across directories and survives chapter moves.
                 card_ref = f"[[{Path(m['path']).stem}|{m['topic'].replace('|', '丨')}]]"

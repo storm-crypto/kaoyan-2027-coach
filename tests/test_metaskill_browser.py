@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from helpers import run_script
+from metaskill_text import parse_decision, format_decision, unmarked_math
 from dashboard_payload import build_payload
 from metaskill_browser import build_metaskills, render_metaskill_markdown
 from metaskill_view import render_metaskills
@@ -95,3 +96,37 @@ def test_untrusted_index_strings_cannot_break_out_of_json_script(vault_root):
     assert attack not in html
     assert '\\u003c/script' in html
     assert attack in render_metaskill_markdown(data, '2026-10-13')
+
+
+def test_structured_steps_keep_entire_display_equation_and_boundaries():
+    equation = '$$\nP(Z=k)=\\sum_i P(X=i)P(Y=k-i).\n$$'
+    steps = ['先拆事件。\n\n'+equation, '再确定求和范围。']
+    source = format_decision('$X,Y$ 独立离散', steps, ['卷积需独立性。'], ['泊松参数相加。'])
+    decision = parse_decision(source)
+    assert decision['steps'] == steps
+    assert decision['boundaries'] == ['卷积需独立性。']
+    assert decision['examples'] == ['泊松参数相加。']
+
+
+def test_legacy_arrow_does_not_split_formula_or_quoted_condition():
+    text = '看到「总数 → 条件试验」，且 $x→0$ → 先条件化，再用全概率。'
+    decision = parse_decision(text)
+    assert decision['trigger'] == '看到「总数 → 条件试验」，且 $x→0$'
+    assert decision['steps'] == ['先条件化，再用全概率。']
+
+
+def test_unmarked_formula_check_catches_the_reported_cases():
+    assert unmarked_math('看到 x_{n+1}=f(x_n) → 先定界')
+    assert unmarked_math('出现 √(x²)、e^(1/x)')
+    assert not unmarked_math(r'出现 $\sqrt{x^2}$、$\mathrm e^{1/x}$')
+
+
+def test_markdown_uses_same_steps_and_keeps_block_math_inside_list(vault_root):
+    source = format_decision('$Z=X+Y$', ['写卷积。\n\n$$\nP(Z=k)=\\sum_i p_iq_{k-i}.\n$$', '按支持集定范围。'], ['需要独立。'])
+    put_index(vault_root, [{**cluster('m01-01', []), 'skill': source}])
+    data = build_metaskills(vault_root, [], lambda *_: None)
+    md = render_metaskill_markdown(data, '2026-10-13')
+    assert '1. 写卷积。\n\n   $$\n   P(Z=k)' in md
+    assert '2. 按支持集定范围。' in md
+    assert '**适用边界**' in md
+    assert not data['warnings']

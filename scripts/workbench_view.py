@@ -1,5 +1,7 @@
 """自包含工作台 HTML。只渲染 payload，不修改学习记录。"""
 import html
+from metaskill_view import render_metaskills, CSS as METASKILL_CSS, JS as METASKILL_JS
+from math_assets import math_assets
 
 
 def esc(value):
@@ -156,7 +158,7 @@ CSS = r'''
 
 
 JS = r'''
-const pages=['today','review','knowledge','progress'];
+const pages=['today','review','knowledge','metaskills','progress'];
 function navigate(name){if(!pages.includes(name))name='today';for(const page of pages){document.getElementById('page-'+page).hidden=page!==name;document.querySelector('[data-page="'+page+'"]').setAttribute('aria-pressed',String(page===name));}history.replaceState(null,'','#'+name);window.scrollTo(0,0);}
 document.querySelectorAll('[data-page],[data-go]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page||button.dataset.go)));
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));
@@ -174,16 +176,17 @@ if(document.body.dataset.date!==current){const warning=document.getElementById('
 
 def render_workbench(payload, statistics_href):
     data = payload['workbench']
-    sections = [('today','今天',render_today(data)),('review','复习',render_reviews(data)),('knowledge','知识地图',render_knowledge(data)),('progress','进展与复盘',render_progress(payload, statistics_href))]
+    sections = [('today','今天',render_today(data)),('review','复习',render_reviews(data)),('knowledge','知识地图',render_knowledge(data)),('metaskills','元技能',render_metaskills(data.get('metaskills'))),('progress','进展与复盘',render_progress(payload, statistics_href))]
+    math_css, math_js = math_assets()
     nav = ''.join(f'<button type="button" data-page="{name}" aria-controls="page-{name}" aria-pressed="{str(name == "today").lower()}">{label}</button>' for name,label,_ in sections)
     panels = ''.join(f'<section id="page-{name}" aria-label="{label}" {"hidden" if name != "today" else ""}>{content}</section>' for name,label,content in sections)
     missing = '<p class="notice">还没有学习者档案。先执行 /load 建档，再安排今天。</p>' if not payload['archive']['exists'] else ''
     return f'''<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>考研 · 学习工作台</title><style>{CSS}</style></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>考研 · 学习工作台</title><style>{math_css}\n{CSS}\n{METASKILL_CSS}</style></head>
 <body data-date="{esc(payload['today'])}"><div class="shell">
 <header class="top"><div><div class="brand">考研 · 学习工作台</div><div class="meta">{esc(payload['today'])} · {esc(payload['overview']['stage'] or '当前阶段未记录')}</div></div>
 <details class="refresh"><summary>数据更新于 {esc(payload['generated_at'].replace('T',' '))}</summary><p>这是本地快照。学习记录更新后，由教练重新生成；浏览器刷新不会重新扫描学习库。</p>{command('/desk','复制刷新指令')}</details></header>
 <nav class="nav" aria-label="工作台页面">{nav}</nav>
 <div id="stale" class="notice" hidden></div><div id="copy-status" role="status" aria-live="polite"></div>{missing}<main>{panels}</main>
 <footer>学习记录保存在 Obsidian。指令需粘贴到教练对话中执行；勾选任务请打开原计划。<br><a href="{esc(statistics_href)}">历史统计与成绩趋势</a> · {link(data['archive_link'],'学习者档案')}</footer>
-</div><script>{JS}</script></body></html>'''
+</div><script>{math_js}</script><script>{JS}\n{METASKILL_JS}</script></body></html>'''

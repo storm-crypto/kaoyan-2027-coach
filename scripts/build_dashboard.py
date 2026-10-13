@@ -23,6 +23,9 @@ from env_util import atomic_write, resolve_obsidian_root
 from score_record_lib import format_optional_number, top_weakness_from_408_record
 from study_ops import parse_today
 from workbench_view import render_workbench
+from metaskill_browser import MARKDOWN_RELPATH, render_metaskill_markdown
+from metaskill_index import INDEX_RELPATH
+from workbench_payload import make_link
 
 SUBJECT_BY_TAB_ID = {meta["tab_id"]: subject for subject, meta in SUBJECT_META.items()}
 
@@ -1452,6 +1455,16 @@ def main() -> None:
         print(json.dumps({"skipped": True, "reason": "工作台尚未创建", "path": str(output_path)}, ensure_ascii=False))
         return
     payload = build_payload(obsidian_root, today)
+    if (obsidian_root / INDEX_RELPATH).is_file():
+        metaskills = payload['workbench']['metaskills']
+        # A malformed index must not overwrite the last useful Markdown view.
+        if not any('无法读取' in warning for warning in metaskills['warnings']):
+            markdown_path = obsidian_root / MARKDOWN_RELPATH
+            markdown_path.parent.mkdir(parents=True, exist_ok=True)
+            markdown_content = render_metaskill_markdown(metaskills, today.isoformat())
+            if not markdown_path.exists() or markdown_path.read_text(encoding='utf-8') != markdown_content:
+                atomic_write(markdown_path, markdown_content)
+            metaskills['markdown_uri'] = make_link(markdown_path, obsidian_root)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     statistics_path = output_path.with_name(output_path.stem + "-statistics.html")
     html_content = render_workbench(payload, statistics_path.name)

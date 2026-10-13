@@ -11,6 +11,7 @@ from daily_plan_state import parse_daily_plan
 from knowledge_findings import parse_findings
 from log_layout import log_path_for
 from metaskill_index import group_due_by_cluster, load_index
+from metaskill_browser import build_metaskills
 from open_in_obsidian import build_uris, find_vault_root
 from textbook_progress import build_plan_items, load_week_textbook_rows, week_plan_path
 
@@ -142,6 +143,7 @@ def build_workbench(root, today, cards, archive, logs):
     return {
         "plan": plan, "week": week, "reviews": reviews,
         "knowledge": collect_knowledge(root, cards), "warnings": warnings,
+        "metaskills": build_metaskills(root, cards, make_link),
         "archive_link": make_link(root / "我的学习者档案.md", root),
         "closing": {
             "log_link": make_link(log["path"] if log else log_path_for(root, today), root),

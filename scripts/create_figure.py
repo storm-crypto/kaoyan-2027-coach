@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""为错题卡生成配图（SVG / TikZ / Mermaid），并在落盘前做「能不能在 Obsidian 里渲染出来」的硬校验。
+"""为错题卡生成配图（Python / SVG / TikZ / Mermaid）。
 
 用法:
   python3 create_figure.py [OBSIDIAN_ROOT]
       --question-id qid-xxxxxxxxxxxx
       --slug [图的短名，用于文件名]
       --caption [图N：一句话说明]
-      [--kind svg|tikz|mermaid]  # 默认 svg
+      [--kind python|svg|tikz|mermaid]  # 兼容旧调用，默认 svg；数学新图显式选 python
       [--index 1]            # 不传则自动续号；同 slug 已存在时自动复用原序号（覆盖）
-      [--width 480]          # 卡片中嵌入的显示宽度（仅 svg 有效）
+      [--width 480]          # 卡片中嵌入的显示宽度（python / svg 有效）
       [--source-file PATH]   # 不传则从 stdin 读源码（--svg-file 是旧别名）
       [--allow-fixed-theme]  # svg：豁免「必须内嵌 prefers-color-scheme」检查
       [--dry-run]            # 只校验不落盘
@@ -16,6 +16,8 @@
 说明:
 - 图落盘到 `错题本/_附图/[qid]/[qid]-[序号]-[slug].{svg|tikz|mmd}`，文件名带 qid 保证全库唯一。
 - 返回的 `figure_arg` 可直接原样传给 `create_wrong_card.py --figure` / `update_card.py --figure`。
+- python：执行可信的本轮绘图源码（须定义 fig），预渲染 SVG，另存 .py 与 .preview.png。
+  --dry-run 仅检查 Python 语法，不执行源码，也不保证实际渲染成功。
 - svg：Obsidian 以 `<img>` 方式渲染，所以外链资源、<foreignObject>、脚本一律无效或危险，全部拒绝；
   `<text>` 里的 `$...$` 会自动转成 Unicode；上色必须「字面色属性 + CSS 类覆盖」双层写。
 - tikz：由 Obsidian 的 TikZJax 插件在打开卡片时编译。本机没有 TeX，编译错误只有打开卡片才看得到，
@@ -34,6 +36,7 @@ from typing import List, Optional, Tuple
 from env_util import atomic_write, json_error, resolve_obsidian_root, sanitize_path_segment
 from figure_ops import render_figure_embed
 from latex_to_unicode import latex_to_unicode
+from python_figure import render_source, validate_source
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 SVG_NS = "http://www.w3.org/2000/svg"
@@ -50,7 +53,7 @@ WARN_MERMAID_BYTES = 3 * 1024
 MAX_MERMAID_NODES = 15
 MAX_MERMAID_LINES = 40
 
-FIGURE_KINDS = {"svg": ".svg", "tikz": ".tikz", "mermaid": ".mmd"}
+FIGURE_KINDS = {"python": ".svg", "svg": ".svg", "tikz": ".tikz", "mermaid": ".mmd"}
 DEFAULT_KIND = "svg"
 FENCE_RE = re.compile(r"^\s*```", re.M)
 # TikZJax 没有 CJK 字体：中文一律不上图，写进 caption。
@@ -173,13 +176,13 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
         obsidian_root_arg = raw_args[0]
         raw_args = raw_args[1:]
 
-    parser = argparse.ArgumentParser(description="生成并校验错题卡配图（SVG / TikZ / Mermaid）")
+    parser = argparse.ArgumentParser(description="生成并校验错题卡配图（Python / SVG / TikZ / Mermaid）")
     parser.add_argument("--question-id", required=True, help="所属错题卡主键 qid-xxxxxxxxxxxx")
     parser.add_argument("--slug", required=True, help="图的短名，用于文件名，如 积分区域")
     parser.add_argument("--caption", required=True, help="图的说明，如 图1：原积分区域 D 与条带方向")
     parser.add_argument("--kind", choices=sorted(FIGURE_KINDS), default=DEFAULT_KIND, help="图源类型，默认 svg")
     parser.add_argument("--index", type=int, help="图序号；不传则自动续号")
-    parser.add_argument("--width", type=int, default=DEFAULT_EMBED_WIDTH, help="卡片中的嵌入显示宽度（仅 svg）")
+    parser.add_argument("--width", type=int, default=DEFAULT_EMBED_WIDTH, help="卡片中的嵌入显示宽度（python / svg）")
     parser.add_argument("--source-file", help="图源码文件路径；不传则从 stdin 读")
     parser.add_argument("--svg-file", dest="source_file", help=argparse.SUPPRESS)
     parser.add_argument(
@@ -610,30 +613,59 @@ def main() -> None:
     if not source:
         json_error(f"{kind} 源码为空")
 
-    if kind == "svg":
+    preview_bytes = None
+    rendered_svg = None
+    if kind == "python":
+        try:
+            validate_source(source)
+            kind_warnings = []
+            if args.dry_run:
+                kind_warnings.append("dry-run 只检查 Python 语法；尚未执行、渲染或检查字体")
+            else:
+                rendered_svg, preview_bytes, render_warning = render_source(source)
+                root = validate_structure(rendered_svg)
+                # Matplotlib 元数据含工具网址；删除元数据，图中仍不允许外链或脚本。
+                for element in list(root):
+                    if strip_namespace(element.tag) == "metadata":
+                        root.remove(element)
+                validate_forbidden_elements(root)
+                rendered_svg = ET.tostring(root, encoding="unicode")
+                validate_no_external_refs(rendered_svg)
+                if render_warning:
+                    kind_warnings.append(render_warning)
+        except ValueError as exc:
+            json_error(str(exc))
+    elif kind == "svg":
         source, kind_warnings = validate_svg(source, args.allow_fixed_theme)
     elif kind == "tikz":
         kind_warnings = validate_tikz(source)
     else:
         kind_warnings = validate_mermaid(source)
     warnings = kind_warnings + caption_warnings
-    if kind != "svg" and args.width != DEFAULT_EMBED_WIDTH:
-        warnings.append(f"--width 只对 svg 有效，{kind} 代码块由 Obsidian 自适应宽度，已忽略")
+    if kind not in {"svg", "python"} and args.width != DEFAULT_EMBED_WIDTH:
+        warnings.append(f"--width 只对 svg 有效（也包括 python 生成的 SVG），{kind} 代码块由 Obsidian 自适应宽度，已忽略")
 
     figure_dir = figure_dir_for(obsidian_root, args.question_id)
     index = resolve_index(figure_dir, args.question_id, slug, args.index)
     filename = f"{args.question_id}-{index:02d}-{slug}{FIGURE_KINDS[kind]}"
     relative_path = f"{WRONG_BOOK_DIR_NAME}/{FIGURE_DIR_NAME}/{args.question_id}/{filename}"
     output_path = figure_dir / filename
+    source_path = output_path.with_suffix(".py") if kind == "python" else None
+    preview_path = output_path.with_suffix(".preview.png") if kind == "python" else None
 
     if not args.dry_run:
         figure_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write(output_path, source + "\n")
+        if kind == "python":
+            atomic_write(source_path, source + "\n")
+            preview_tmp = preview_path.with_suffix(".png.tmp")
+            preview_tmp.write_bytes(preview_bytes)
+            preview_tmp.replace(preview_path)
+        atomic_write(output_path, (rendered_svg if kind == "python" else source) + "\n")
 
     caption = args.caption.strip()
     # 非默认宽度必须带进 figure_arg，否则模型把它粘给 --figure 时宽度会被静默丢回 480。
     figure_arg = f"{relative_path}|{caption}"
-    if kind == "svg" and args.width != DEFAULT_EMBED_WIDTH:
+    if kind in {"svg", "python"} and args.width != DEFAULT_EMBED_WIDTH:
         figure_arg = f"{figure_arg}|{args.width}"
 
     print(json.dumps({
@@ -646,7 +678,9 @@ def main() -> None:
         "index": index,
         "slug": slug,
         "caption": caption,
-        "bytes": len(source.encode("utf-8")),
+        "bytes": len((rendered_svg or source).encode("utf-8")),
+        **({"source_path": str(source_path), "preview_path": str(preview_path),
+            "rendered": not args.dry_run} if kind == "python" else {}),
         "dry_run": args.dry_run,
         "warnings": warnings,
     }, ensure_ascii=False, indent=2))

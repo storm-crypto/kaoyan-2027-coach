@@ -110,19 +110,22 @@
 - `scripts/log_progress.py`：`main` 开头会跑 `auto_fill_created_frontmatter`（幂等），日志段「今日新增笔记」每次重跑都重生成，**不走 `merge_with_existing`**——这是因为该段由文件系统派生，不存在"用户手写后被脚本覆盖"的风险
 - `scripts/build_recap.py`：`collect_note_stats / collect_wrong_exposure / collect_cross_signals` 周/月通用；`collect_coverage` 仅月复盘调用，依赖 `knowledge_map_parser`
 
-### 错题卡配图（SVG / TikZ / Mermaid）相关改动
+### 错题卡配图（Python / SVG / TikZ / Mermaid）相关改动
 
 涉及「图示区块 / 图源校验 / 配图决策门」的改动，重点关注：
 
 - `scripts/figure_ops.py`：**单一事实源**。`figure_arg`（`"vault相对路径|说明[|宽度]"`）的解析、三种图源的渲染（svg 走 `![[...]]`，`.tikz` / `.mmd` 读文件内联成代码块并加 `%%图源：路径%%` 注释）、`### 图示` 的插入位置、CLI 预览剔除嵌入与代码块，全部收口在这里。`create_wrong_card.py` 和 `update_card.py` 必须复用它，不要各写一份
-- 新增图源类型时改三处：`figure_ops.CODE_FIGURE_LANGS`（后缀 → 代码块语言）、`create_figure.FIGURE_KINDS`（kind → 后缀）加对应的 `validate_xxx`、`figure_ops.FIGURE_CODE_BLOCK_RE`（CLI 降级要认得新语言）
+- 区分生成方式和成品格式：`python` 生成现有 `.svg`，沿用 `figure_ops` 的嵌入与 CLI 降级，不新增代码块语言。只有新增内联图语言时，才同步 `CODE_FIGURE_LANGS`、`FIGURE_KINDS`、校验函数及 `FIGURE_CODE_BLOCK_RE`。
+- Python 入口：`python_figure.py` 选择有绘图库的当前解释器或 skill `.venv`，在临时目录和子进程内执行本轮可信源码（非安全沙箱），要求一个 `fig`，超时 60 秒；成功后由 `create_figure.py` 写 SVG、同名 `.py` 与 `.preview.png`。语法/渲染失败不能覆盖已有成品。
+- `math_figure_style.py` 共用中文字体、公式和配色；SVG 字形转路径并保留固定浅色底色。`cs_figure_style.py` 提供比例字段条、单资源时间区间和二叉树骨架；几何布局检查不能代替题意和算法验证。
+- 绘图依赖 `matplotlib numpy` 安装到当前解释器或 skill `.venv`；缺失要报告，不静默退回手写曲线。
 - TikZ 与 Mermaid 本机没有编译器，`create_figure.py` 只能做白名单静态检查（宏包、库、中文、括号配平、图类型、标签引号）。**不要**为了严谨去引入 TeX 或 mermaid-cli 依赖，用户机器上也没有；发现新的编译失败模式就往白名单或正则里加一条
 - `TIKZ_ALLOWED_PACKAGES` 对应 obsidian-tikzjax 插件内置的宏包列表，插件升级后核对一次
 - `FIGURE_ANCHOR_HEADINGS`：图示区块的位置规则是「插在锚点小节之前」。数学一 `第一步怎么想到 → 图示 → 规范解法`，408 `题干突破口 → 图示 → 选项逐个辨析`。改小节名时必须同步这个元组，否则图会掉到卡片末尾
 - `upsert_figure_section` 刻意**不用** `archive_ops.replace_heading_block`：后者会把区块末尾空行规整掉，导致下一个 `### ` 标题贴在图说明后面。这里自己用 `FIGURE_SECTION_RE` 定位并保留空行
-- `scripts/create_figure.py`：SVG 校验都是 fail-fast，理由统一是「Obsidian 用 `<img>` 渲染 svg」。新增校验前先确认它属于这条因果链，否则应该写进骨架文件当建议而不是硬拦
-- `references/svg-figure-guide.md` / `tikz-figure-guide.md` / `mermaid-figure-guide.md`：骨架库。**改了骨架就要确认它仍能通过 `create_figure.py --kind ... --dry-run`**，否则等于教模型踩坑
-- 配图白名单与图源选型有三处必须同步：`SKILL.md` 的「配图规则」、`references/math-coaching.md` 的 `3.5 配图`、`references/408-coaching.md` 的 `2.5 配图与可视化呈现`
+- `scripts/create_figure.py`：手写 SVG 仍走原校验；Python 成品移除工具元数据后检查结构、禁用元素与外链，不套用手写 SVG 的 32KB、CSS 主题模板或 Unicode 转写规则。新增硬校验要有实际失败依据。
+- `references/python-figure-guide.md` / `408-python-figure-guide.md` 与原 SVG / TikZ / Mermaid 参考共同维护选型。Python 骨架改后要真实渲染、查看预览并验证建卡/补图；`--dry-run` 对 Python 只检查语法，不执行、不确认渲染成功。数学与 408 骨架分别在 `templates/math_figure_steps.py` / `408_figure_examples.py`。
+- 配图决策与图源选型有三处必须同步：`SKILL.md` 的「配图规则」、`references/math-coaching.md` 的 `3.5 配图`、`references/408-coaching.md` 的 `2.5 配图与可视化呈现`
 - `references/408-answer-templates.md` 只在综合题时加载。往里加模板时保持「必须输出的结构 + 最小要素 + 图表格式」三件套，不要写成讲义；选择题相关的内容放回 `408-coaching.md`
 
 ### 周/月复盘渲染相关改动

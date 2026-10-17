@@ -32,7 +32,7 @@ Kaoyan_2027_Prep/
 ├── 章节掌握报告/408/[模块]/YYYY-MM-DD-[章节].md  ← /grill 写入
 ├── 资料库/408/gemini_kaoda/**/*.json  ← Voyager 导出收件箱
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
-├── 错题本/_附图/[qid]/*.{svg,tikz,mmd}  ← /wrong /review 的配图源（create_figure.py 写入）
+├── 错题本/_附图/[qid]/       ← 图与源码；Python 生成 .svg / .py / .preview.png
 ├── 知识笔记/                 ← 可选
 └── 复盘报告/                 ← /recalibrate /recap 写入
 ```
@@ -75,7 +75,7 @@ Kaoyan_2027_Prep/
      - **拒绝落盘的恢复闭环**：读取返回 JSON 的 `message`，其中 `候选: A；B；C` 列出最接近的叶子章节；从中挑与本题考点匹配的一项作为新的 `--chapter` 原样重试（别名容错，带不带序号/空格都能命中）。**禁止**为绕过报错而手动新建浅层目录或改用泛化章节名
    - `found` → 调用 `update_card.py` 更新已有卡片
    - `ambiguous` → 向用户确认是哪张卡
-   - **调用建卡/更新卡之前，先过配图决策门**（详见下方「配图规则」）：命中白名单的题，先按图源选型读对应骨架文件（SVG / TikZ / Mermaid 与表格），用 `create_figure.py --kind ...` 落盘，再把它返回的 `figure_arg` 原样传进 `create_wrong_card.py --figure`（旧卡补图则传 `update_card.py --figure`）。表格直接写进解析文本。不命中白名单就不画，别为了好看硬画
+   - **调用建卡/更新卡之前，先过配图决策门**（详见下方「配图规则」）：数学新图优先读 [Python 配图参考](references/python-figure-guide.md)；408 需要位置/比例/分步高亮时读 [408 Python 配图参考](references/408-python-figure-guide.md)，简单关系用 Mermaid，精确记录用表格。将关键对象和推理动作标在图上，需要时分步展示。按图源选型读对应参考，用 `create_figure.py --kind ...` 生成；Python 图先查看返回的 `preview_path`，再把 `figure_arg` 原样传进 `create_wrong_card.py --figure`（旧卡补图则传 `update_card.py --figure`）。表格直接写进解析文本。图没有增加理解就不画
 3. **推送相关题目**（调用 `find_related_cards.py --question-id [qid] --write`）：
    - 建卡/更新卡完成后立即执行，把同元技能的兄弟卡以 wikilink 写进卡片的 `### 相关题目` 区块
    - 新卡走 `predict` 模式（按考点词元 + 同叶子章节 + 题面结构相似度打分），返回的 `suggest_cluster` 是它最该加入的元技能簇
@@ -84,7 +84,7 @@ Kaoyan_2027_Prep/
    - 只写单向链接即可，Obsidian 的反向链接面板会自动在被指向的卡上显示来源
 4. 调用 `update_knowledge_map.py` 回写掌握度；**必须同时传 `--finding-add "qid|今日|一句话卡点"`** 把本次暴露的具体卡点结构化写入备注（≤ 40 字符），不要再传 free-form NOTE 位置参数
 5. **打开新卡当场自检**：调用 `open_in_obsidian.py --path [create/update_card 返回的 path]`（**须绕过沙箱**），把卡片弹到 Obsidian 里，和用户一起确认 LaTeX 有没有渲染错、`规范解法` 有没有挤成一坨、有没有残留「待补充」占位符。发现问题立刻改，不要等下次 `/review` 才发现
-   - **有配图时额外确认三件事**：图有没有真的渲染出来（SVG 不是空白框或死链接；TikZ 不是红色报错框，首次编译要等几秒；Mermaid 没有解析错误）、有没有超出画布被裁掉或树的左右画反、切到深色主题还读不读得清
+   - **有配图时额外确认**：图有没有真的渲染出来（Python/SVG 不是空白框或死链接；TikZ 没有编译报错；Mermaid 没有解析错误）、标注是否清楚且不重叠裁切、分步是否保持坐标/比例/颜色含义一致、树的左右是否正确、深色主题是否可读。Python 图已预渲染，但仍要确认题卡中的实际显示宽度
 6. 不直接触发日志和档案更新；下次执行 `/progress` 时，今日新建/复习降级的卡会被自动汇总到日志的「今日错题归档」区块
 
 **错题信息确认：** 来源+错误思路完整时直接解析归档，不追问。只在必填项缺失时追问缺失项。"卡在哪一步"为可选项，永远不追问。
@@ -124,34 +124,36 @@ Kaoyan_2027_Prep/
 
 **配图规则：**
 
-错题卡是在 Obsidian 里读的。有些题的关键信息本质是**空间的 / 结构的 / 时序的**，文字加 LaTeX 说清楚要绕一大圈，画出来一眼就懂。这类题必须配图；其余题一律不配。
+错题卡是在 Obsidian 里读的。关键信息是**空间的 / 结构的 / 时序的**，或需要看清构造与变化过程时，图应直接承载推理动作。默认静态讲解图：对象、边界、方向、关键点和限制条件就近标注；需要时分步展示，长推导留在正文。图没有增加理解就不画，不自动生成动画。
 
 **决策门（判据一句话：如果这张图删掉，解释力没有损失，就不该画）：**
 
 - **该画（数学一）**：二重/三重积分的积分区域与换序、极坐标扇形区域、三重积分的积分体（仅当 2D 投影讲不清时）、曲线曲面积分的路径方向与法向量、格林补线、函数作图（极值/拐点/渐近线/凹凸）、方程根的个数讨论、定积分几何应用的微元、旋转体、空间平面与直线的位置关系、级数收敛域数轴、二维随机变量的分布区域与几何概型
-- **该画（408）**：CPU 数据通路的局部流向链、树/图/B+ 树分裂/哈希冲突处理、KMP next 表、排序过程快照、Cache 地址位段划分与映射方式、流水线时空图、浮点数位域、存储器扩展连线、进程状态转移、页表与多级页表地址翻译、磁盘调度、文件多级索引、分层封装、子网划分、TCP 握手与滑动窗口时序、跨网段通信拓扑、CSMA/CD 时间轴
-- **禁止画**：纯代数变形与计算题、纯概念辨析题、题面已给图且图上没有新增信息的题、纯装饰性的图、CPU 全景电路图
+- **408 常见配图候选（按本题理解需要选择）**：CPU 数据通路的局部流向链、树/图/B+ 树分裂/哈希冲突处理、KMP next 表、排序过程快照、Cache 地址位段划分与映射方式、流水线时空图、浮点数位域、存储器扩展连线、进程状态转移、页表与多级页表地址翻译、磁盘调度、文件多级索引、分层封装、子网划分、TCP 握手与滑动窗口时序、跨网段通信拓扑、CSMA/CD 时间轴
+- **禁止画**：纯代数变形与计算题、纯概念辨析题、题面已给图且图上没有新增信息的题、纯装饰性的图、与本题无关的 CPU 全景电路图
 
-**图源选型（三种图源，一个入口）：**
+**图源选型（数学与 408 讲解图，一个落盘入口）：**
 
 | 图源 | 用在 | 骨架文件 | `--kind` |
 |------|------|----------|:---:|
-| SVG | 位置定性就行的平面示意：数轴、平面区域、极坐标扇形、微元、样本空间、链表格、存储器连线、CSMA/CD 时间轴 | `references/svg-figure-guide.md` | `svg`（默认） |
-| TikZ | 图里有 z 轴，或曲线形状必须精确：三重积分体、曲面与法向量、空间曲线、pgfplots 函数图像 | `references/tikz-figure-guide.md` | `tikz` |
-| Mermaid | 有节点和箭头的结构：数据通路流向链、树、图、状态机、协议时序、地址翻译路径、方法选择树 | `references/mermaid-figure-guide.md` | `mermaid` |
-| Markdown 表格 | 二维矩阵：位段划分、流水线时空、节拍对照、排序快照、调度甘特、逐跳封装 | `references/mermaid-figure-guide.md` 第 3 节 | 不走脚本，直接写进解析文本 |
+| Python（Matplotlib + NumPy） | 数学一新图：函数、积分区域/体、微元、曲面法向量、概率、线性变换；单图或带标注的分步图 | [Python 配图参考](references/python-figure-guide.md) | `python`（数学优先，输出 SVG） |
+| Python（408） | 树/链表操作、数组对齐、Cache 字段与映射、流水线、甘特图、内存空间、网络时空与窗口分步 | [408 Python 配图参考](references/408-python-figure-guide.md) | `python` |
+| SVG | 维护已有手写图，或有明确理由需要直接编辑矢量源码 | `references/svg-figure-guide.md` | `svg`（CLI 为兼容旧调用仍默认此值） |
+| TikZ | 维护已有图，或明确需要 TikZ 表达时 | `references/tikz-figure-guide.md` | `tikz` |
+| Mermaid | 简单关系、状态转移、数据流向链、地址翻译、普通协议报文先后；不表达定量时延 | `references/mermaid-figure-guide.md` | `mermaid` |
+| Markdown 表格 | 精确计算与记录：位宽/周期核对、节拍、状态数组、资源矩阵、周转时间、逐跳封装、子网范围 | `references/mermaid-figure-guide.md` 第 3 节 | 不走脚本，直接写进解析文本 |
 
-判据一句话：**有 z 轴或曲线要精确用 TikZ，有节点和箭头用 Mermaid，是二维矩阵用表格，其余平面示意用 SVG。** 数学一的立体题先问「2D 投影够不够」，够就用 SVG 画投影，不画立体。
+判据：**数学新图优先 Python；408 的位置/比例/对齐/分步高亮用 Python，简单关系与事件先后用 Mermaid，精确记录和对照用表格。** 数学立体题先问「2D 投影够不够」，够就画投影，不画立体。Python 是生成方式，SVG 是成品格式，两者不冲突。
 
 **画之前先读对应骨架文件**，取对应类别的骨架改，不要从零手搓。
 
-**落盘链路：** `create_figure.py --kind svg|tikz|mermaid`（校验 + 落盘）→ 拿 `figure_arg` → `create_wrong_card.py --figure` / `update_card.py --figure`。**禁止**自己写文件再手动编辑卡片插 `![[...]]` 或代码块，脚本的校验是唯一能拦住「画出来渲染不了」的关卡。TikZ 和 Mermaid 本机无法预编译，脚本只做白名单静态检查，所以建卡后必须在 Obsidian 里打开确认。
+**落盘链路：** `create_figure.py --kind python|svg|tikz|mermaid` → Python 图查看 `preview_path`，确认数学与排版 → 拿 `figure_arg` → `create_wrong_card.py --figure` / `update_card.py --figure`。通过脚本接入题卡，不手动拼嵌入。Python 输出 SVG，并同目录保存 `.py` 源码与 `.preview.png` 质检副本；`--dry-run` 仅检查 Python 语法，不执行或确认渲染。TikZ / Mermaid 仅做静态检查。脚本不能证明题意与数学正确，建卡后仍须打开 Obsidian 确认。
 
-- `--figure` 落在 `### 图示`（详解区，紧跟突破口小节之后）。SVG 是 `![[...]]` 嵌入，TikZ / Mermaid 是内联代码块，前面一行 `%%图源：路径%%` 注释用于追溯
+- `--figure` 落在 `### 图示`（详解区，紧跟突破口小节之后）。Python 成品和手写 SVG 都用 `![[...]]` 嵌入；Python 源码与成品同名，TikZ / Mermaid 是带图源注释的内联代码块
 - `--question-figure` 只用于**题面本来就带的图**；解题辅助图放这里会让 `/review` 一打开卡片就泄题
 - caption 统一写成 `图N：一句话`，并在 `规范解法` 里用「见图1」引用，图文才对得上。TikZ 图内禁止中文，中文说明只能写在 caption；caption 里的公式同样要用 `$...$` 包裹（`$z=x^2+y^2$` 而不是 `z=x²+y²`），否则建卡脚本会按「裸公式」拒绝
-- 一张图只承载一个认知动作；要画两个阶段（如换序前/换序后、旋转前/旋转后）就出两张图
-- 每张卡最多两张图；一张 Mermaid 不超过 15 个节点
+- 单图足够就用单图；需要构造、移动、换序、分情况或前后比较时分步，每步突出一个新动作。可以用子图或多张图，阶段间保持坐标范围、比例、符号和颜色含义一致，局部放大要标明
+- 按推理需要决定图与步骤数量，不设每卡两张上限、不凑步数。字小就上下排或拆图，不缩成一排小图；一张 Mermaid 不超过 15 个节点，复杂结构按动作拆分
 
 **配图防幻觉硬约束：**
 
@@ -211,7 +213,7 @@ Kaoyan_2027_Prep/
 | `reset_vault.py` | 重置测试数据；默认保留基础建档信息，`--hard` 彻底清空 | `python3 scripts/reset_vault.py [$OBSIDIAN_ROOT] --yes [--hard] [--include-notes]` |
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--question-number 卷面题号] [--error-type 没思路\|遗忘\|计算失误\|思路偏差\|时间不够] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会] [--figure "vault相对路径\|图N：说明"] [--question-figure "..."]` |
-| `create_figure.py` | 生成并校验错题卡配图，三种图源一个入口。落盘到 `错题本/_附图/[qid]/`，返回可直接传给 `--figure` 的 `figure_arg`。`svg`：硬校验 viewBox、禁 `<script>`/`<foreignObject>`/外链、字号 ≥12px、字体带兜底、必须内嵌 `prefers-color-scheme`、`$...$` 自动转 Unicode。`tikz`：必须有 `\begin{document}`、宏包白名单、禁中文、花括号与环境配平。`mermaid`：首行图类型、标签里的 `|`/括号必须加引号、括号配平、禁 click/init。画之前先读对应骨架文件 | `python3 scripts/create_figure.py [$OBSIDIAN_ROOT] --question-id [qid] --slug [短名] --caption [图N：说明] [--kind svg\|tikz\|mermaid] [--index N] [--width 480] [--source-file PATH] [--allow-fixed-theme] [--dry-run]`（不传 `--source-file` 时从 stdin 读，推荐 heredoc） |
+| `create_figure.py` | 生成并校验配图，返回 `figure_arg`。数学及 408 位置/比例/过程图用 `python`：执行可信绘图源码（定义 `fig`），预渲染 SVG，保留 `.py` 与 `.preview.png`；查看预览再归档。手写 SVG / TikZ / Mermaid 保留原静态校验。详见 [Python 配图参考](references/python-figure-guide.md) | `python3 scripts/create_figure.py [$OBSIDIAN_ROOT] --question-id [qid] --slug [短名] --caption [图N：说明] [--kind python\|svg\|tikz\|mermaid] [--index N] [--width 480] [--source-file PATH] [--allow-fixed-theme] [--dry-run]`（不传源码路径时从 stdin 读；Python dry-run 只查语法） |
 | `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster]` |
 | `check_breakthrough_triggers.py` | 按 chapter_id/topic 汇总近期同考点 ≥3 错、模块得分率 <60% 和连续翻车强信号；不自动开单 | `python3 scripts/check_breakthrough_triggers.py [$OBSIDIAN_ROOT] [--days 3] [--today YYYY-MM-DD]` |
 | `build_fragment_cards.py` | 按今日计划相关簇、SRS 短间隔及到期日期选卡，仅将 qid 与原始题面写入 `碎片刷题/YYYY-MM-DD.md`；同日保留已有文件，不改 SRS | `python3 scripts/build_fragment_cards.py [$OBSIDIAN_ROOT] [--date YYYY-MM-DD] [--count 5]` |
@@ -373,7 +375,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. **考点定位**：题型、考点、考频（定性）、难度
 2. **科目专项分析**（见下方）—— 在内部先完成全部解析文本
 3. **易错点** + **追问检查**（每次必追问 1-2 题检验理解）
-4. **过配图决策门**：对照「配图规则」的白名单判断这题该不该配图，再按图源选型表定 SVG / TikZ / Mermaid / 表格。该配就读对应骨架文件，调 `create_figure.py --kind ...` 落盘，拿到 `figure_arg`；表格直接写进解析文本；不该配就跳过，不要为了好看硬画
+4. **过配图决策门**：对照「配图规则」判断本题是否需要展示关系、状态变化或位置/时间比例，再按图源选型表选择（数学优先 Python，408 按关系/变化/比例选择 Python / Mermaid / 表格）。该配就读对应参考，调 `create_figure.py --kind ...` 落盘，拿到 `figure_arg`；表格直接写进解析文本；不该配就跳过，不要为了好看硬画
 5. **归档（解析+建卡一步到位）**：按「错题归档流程」执行。调用 `create_wrong_card.py` 时，**必须同时传入所有详解参数**（如 `--point-judgment`、`--first-step`、`--formal-solution`、`--mistake-analysis`、`--next-time`、`--check-question` 等；有配图时把上一步的 `figure_arg` 一并传 `--figure`），确保卡片创建时解析已完整落盘。禁止先建空壳卡片再手动补写
 6. **保留题面**：归档时把完整题面写入 `### 题目`；有选项时直接并入同一区块
    数学一与 408 的详解区分别按对应参考模板写入固定小节
@@ -383,7 +385,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 处理数学题时，先读取 `references/math-coaching.md`，按其中的答疑结构执行；只加载与当前题型相关的部分。
 1. 先讲突破口：`看到 [条件] → 联想 [定理/性质] → 为什么优先走这条路`
 2. 规范解题：完整步骤，关键转折标注定理/性质，优先给考场上最稳的写法；**排版必须分层，不得把“规范解法”挤成一整段长文**
-   - 命中配图白名单（积分区域/换序、积分体、曲面与法向量、函数作图、根的个数、二维分布区域等）时，按 `math-coaching.md` 3.5 的图源列选 SVG 或 TikZ，读对应骨架画图，并在解法里用「见图1」引用。立体题先问「2D 投影够不够」
+   - 命中配图白名单（积分区域/换序、积分体、曲面与法向量、函数作图、根的个数、二维分布区域等）时，按 `math-coaching.md` 3.5 优先用 Python 生成带标注的静态图或分步图，读 `references/python-figure-guide.md`，查看预览，并在解法里用「见图1（第2步）」引用。立体题先问「2D 投影够不够」
 3. 错因定位：如果用户给了错解，要指出错在第几步、为什么会这样错、以后怎么自查
 4. 迁移总结：压缩成一句“下次遇到这类题先看什么、再想什么、最后防什么坑”
 5. 追问重点："第一步怎么想到的"、"哪个条件触发了对应定理"、"条件改掉后方法还成不成立"
@@ -404,7 +406,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 2. 逐项辨析：每个选项都要说明为什么对/错、混淆了什么，不允许只给结论
 3. 双轨解释：用考试术语讲清定义、条件和结论，用直观解释补足理解；按用户卡点决定深度，可融入同一条解释链。具体写法见 `references/408-coaching.md`「双轨解释」
 4. 知识串联：把题目挂回数据结构/组成原理/操作系统/计算机网络的知识网络，并补一个短记忆钩子
-   - 命中配图白名单（数据通路流向链、Cache 位段、流水线时空图、页表翻译、树/图结构、TCP 时序、子网划分等）时，按 `408-coaching.md` 2.5 的格式列选 Mermaid / 表格 / SVG，读 `references/mermaid-figure-guide.md` 取骨架，图放在选项辨析之前。数据通路题必须同时给流向链图和节拍对照表，严禁画 CPU 全景图
+   - 需要看清数据流向、Cache 位段、流水线、页表查询、树/图操作或网络过程等时，按 `408-coaching.md` 2.5 选 Python / Mermaid / 表格；位置、比例、对齐或分步高亮读 `references/408-python-figure-guide.md`，简单关系读 `references/mermaid-figure-guide.md`。Python 图先查预览，图放详解区。数据通路按需用局部路径图配节拍表，保留题给必要结构，淡化无关部分
 6. **综合应用题**先读 `references/408-answer-templates.md`，按题型模板输出（算法设计三段式、PV 四步法、逐跳封装表、拥塞控制演进表、位段表加求和校验等），采分点是过程不是结论
 5. 追问重点："这个干扰项偷换了什么概念"、"删掉某个条件答案会不会变"；加"引导"时切换苏格拉底模式
 

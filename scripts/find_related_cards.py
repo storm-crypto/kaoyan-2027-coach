@@ -130,7 +130,7 @@ def lookup_related(qid: str, index: dict, cards: dict, limit: int) -> list:
                 "qid": q,
                 "stem": cards[q]["stem"],
                 "topic": cards[q]["topic"],
-                "reason": f"同元技能「{cluster['skill'][:24]}…」",
+                "reason": f"同元技能「{cluster.get('name') or cluster['id']}」",
                 "relation": "same_cluster",
                 "cluster_id": cluster["id"],
                 "score": 1.0,
@@ -216,8 +216,8 @@ def predict_related(topic: str, chapter: str, question: str, cards: dict,
 def render_section(related: list) -> str:
     lines = [SECTION_TITLE]
     for r in related:
-        lines.append(f"- [[{r['stem']}]]")
-        lines.append(f"\t— {r['reason']}")
+        reason = " ".join(r["reason"].split())
+        lines.append(f"- [[{r['stem']}]] — {reason}")
     return "\n".join(lines) + "\n"
 
 

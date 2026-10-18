@@ -2,6 +2,7 @@
 from datetime import date
 import json
 from pathlib import Path
+from urllib.parse import unquote
 
 from helpers import run_script
 from metaskill_text import parse_decision, format_decision, unmarked_math
@@ -61,7 +62,7 @@ def test_derived_markdown_updates_without_changing_sources(sample_archive, sampl
     assert rc == 0, err
     md = vault_root / '错题本/元技能目录.md'
     assert '主归属' in md.read_text()
-    assert sample_card.stem in md.read_text()
+    assert sample_card.stem in unquote(md.read_text())
     original = md.read_bytes()
     rc, _, err = run_script('build_dashboard.py', args)
     assert rc == 0, err

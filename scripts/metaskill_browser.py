@@ -3,12 +3,27 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import json
 import re
+import os
+from urllib.parse import quote
 
 from metaskill_index import INDEX_RELPATH
 from metaskill_text import parse_decision, unmarked_math
 
 MARKDOWN_RELPATH = Path("错题本/元技能目录.md")
 STATUSES = ("不会", "半会", "会", "未标注")
+
+
+def cluster_heading(cluster):
+    return f"{cluster['id']} · {cluster['name'].replace('|', '丨')}"
+
+
+def markdown_link(source, target, label, heading=None):
+    """Obsidian 可解析的相对 Markdown 链接；路径与标题分别编码。"""
+    href = quote(Path(os.path.relpath(target, Path(source).parent)).as_posix(), safe='/')
+    if heading:
+        href += '#' + quote(heading, safe='')
+    label = str(label).replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]').replace('|', '\\|')
+    return f'[{label}]({href})'
 
 
 def natural_key(value):
@@ -90,15 +105,15 @@ def build_metaskills(root, cards, make_link):
     return {"clusters": rows, "warnings": list(dict.fromkeys(warnings)), "unclustered": unclustered,
             "total_cards": len(set(primary) & set(by_qid)), "families": len({c["family"] for c in rows}),
             "singleton_count": sum(c["primary_count"] == 1 for c in rows),
+            "markdown_path": str(root / MARKDOWN_RELPATH),
             "markdown_uri": make_link(root / MARKDOWN_RELPATH, root)}
 
 
 def render_metaskill_markdown(data, today):
     rows = data["clusters"]
-    def heading(c):
-        return f"{c['id']} · {c['name'].replace('|', '丨')}"
+    source = Path(data['markdown_path'])
     def ref(c):
-        return f"[[元技能目录#{heading(c)}|{c['name'].replace('|', '丨')}]]"
+        return markdown_link(source, source, c['name'], cluster_heading(c))
     out = ["# 元技能目录", "", f"> 更新于 {today} · {len(rows)} 簇 · {data['total_cards']} 张主归属题卡 · {data['families']} 个方法族。",
            "> 此页自动生成。名称、口诀与归属维护在 `_元技能索引.json`，复习记录维护在题卡；重新生成会覆盖此页。",
            "> 状态统计只汇总主归属卡的现有记录，不代表整个簇已通过迁移验收。", "",
@@ -116,7 +131,7 @@ def render_metaskill_markdown(data, today):
     out += ["## 簇详情", ""]
     for c in rows:
         counts = "、".join(f"{s} {c['counts'].get(s, 0)}" for s in STATUSES if c["counts"].get(s)) or "暂无可读题卡记录"
-        out += [f"### {heading(c)}", "", f"- 章节：{c['chapter_group']}", f"- 方法族：{c['family']}",
+        out += [f"### {cluster_heading(c)}", "", f"- 章节：{c['chapter_group']}", f"- 方法族：{c['family']}",
                 f"- 主归属 {c['primary_count']} 题；次归属 {c['secondary_count']} 题；到期 {c['due_count']} 题。",
                 f"- 主归属卡记录：{counts}", ""]
         decision = c['decision']
@@ -148,8 +163,7 @@ def render_metaskill_markdown(data, today):
                 role = m['role']
                 out += [f'**{role}题目**', '']
             if m["path"]:
-                # The unique filename works across directories and survives chapter moves.
-                card_ref = f"[[{Path(m['path']).stem}|{m['topic'].replace('|', '丨')}]]"
+                card_ref = markdown_link(source, m['path'], m['topic'])
             else:
                 card_ref = m["topic"]
             out += [f"- {m['role']}：{card_ref} · {m['status']} · 最近记录 {m['last_review']} · 到期 {m['next_review']}"]

@@ -84,7 +84,7 @@ def test_408_templates_render_as_svg_and_can_enter_card(vault_root, example):
     assert rc == 0, out + err
     text = Path(json.loads(out)["path"]).read_text()
     assert payload["embed"] in text
-    assert text.index("### 题干突破口") < text.index("### 图示") < text.index("### 选项逐个辨析")
+    assert text.index("### 破题密码") < text.index("### 图示") < text.index("### 暴力扫雷")
     # 图放详解区，CLI 纯文本预览不应泄漏嵌入语法。
     from figure_ops import replace_figure_embeds_for_cli
     assert "![[" not in replace_figure_embeds_for_cli(payload["embed"])

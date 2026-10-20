@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from archive_ops import extract_heading_block
 from create_wrong_card import sanitize_tag_value
+from cs_card_layout import unfold_callout
 from frontmatter import parse_frontmatter
 from helpers import run_script
 
@@ -409,25 +410,25 @@ def test_create_wrong_card_renders_408_detailed_sections(vault_root):
 
     assert rc == 0
     content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
-    assert "### 考点定位" in content
-    assert "### 题干突破口" in content
-    assert "### 选项逐个辨析" in content
-    assert "### 双轨解释" in content
-    assert "### 干扰项陷阱" in content
-    assert "### 知识网络串联" in content
-    assert "### 记忆钩子" in content
-    assert "### 检查你是否真的懂了" in content
+    assert "### 精准把脉" in content
+    assert "### 破题密码" in content
+    assert "### 暴力扫雷" in content
+    assert "#### 关键机制与边界" in content
+    assert "### 干扰项陷阱" not in content
+    assert "#### 关联知识" in content
+    assert "### 提炼 SOP" in content
+    assert "### 变式拷问" in content
     assert "交互看响应，吞吐看整体。" in content
 
 
 def test_408_explanations_preserve_markdown_structure(vault_root):
     blocks = {
-        "--breakthrough": ("题干突破口", "先确定判断范围。\n\n**核心条件：** 访问时间基本与位置无关。"),
-        "--option-analysis": ("选项逐个辨析", "| 器件 | 方式 |\n|---|---|\n| EPROM | 随机存取 |\n| CDROM | 直接存取 |"),
-        "--dual-track": ("双轨解释", "#### 判断标准\n\n1. 按地址定位。\n2. 检查访问时间。\n\n地址数量示例：\n\n$$\nN=2^n\n$$"),
-        "--trap": ("干扰项陷阱", "> [!note]\n> 只读属性与存取方式要分开判断。"),
-        "--knowledge-link": ("知识网络串联", "- 定位方式\n  - 电子选址\n  - 机械定位"),
-        "--memory-hook": ("记忆钩子", "**只读看能否改，随机看怎样找。**"),
+        "--breakthrough": ("破题密码", "先确定判断范围。\n\n**核心条件：** 访问时间基本与位置无关。"),
+        "--option-analysis": ("暴力扫雷", "| 器件 | 方式 |\n|---|---|\n| EPROM | 随机存取 |\n| CDROM | 直接存取 |"),
+        "--dual-track": ("暴力扫雷", "#### 判断标准\n\n1. 按地址定位。\n2. 检查访问时间。\n\n地址数量示例：\n\n$$\nN=2^n\n$$"),
+        "--trap": ("精准把脉", "> [!note]\n> 只读属性与存取方式要分开判断。"),
+        "--knowledge-link": ("暴力扫雷", "- 定位方式\n  - 电子选址\n  - 机械定位"),
+        "--memory-hook": ("提炼 SOP", "**只读看能否改，随机看怎样找。**"),
     }
     details = required_detail_args("408")
     for flag, (_, body) in blocks.items():
@@ -446,8 +447,11 @@ def test_408_explanations_preserve_markdown_structure(vault_root):
     assert rc == 0, err or out
     content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
     for heading, body in blocks.values():
-        # 验证落盘结果：不能新增列表前缀、丢空行、拆表格或破坏嵌套缩进。
-        assert extract_heading_block(content, heading, level=3).strip() == body
+        # 去掉最外层折叠后，表格、代码、公式、引用与嵌套列表须逐字保留。
+        actual = unfold_callout(extract_heading_block(content, heading, level=3))
+        assert body in actual
+        assert actual.count(body) == 1
+    assert content.count("> [!note]-") == 4
 
 
 def test_create_wrong_card_requires_complete_math_details(vault_root):
@@ -841,7 +845,7 @@ def test_408_figure_section_sits_between_breakthrough_and_option_analysis(vault_
     rc, out, err = create_card(vault_root, "408", qid, "Cache 映射", ["--figure", figure_arg])
     assert rc == 0, out + err
     text = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
-    assert text.index("### 题干突破口") < text.index("### 图示") < text.index("### 选项逐个辨析")
+    assert text.index("### 破题密码") < text.index("### 图示") < text.index("### 暴力扫雷")
 
 
 def test_no_figure_section_when_no_figure_passed(vault_root):
@@ -910,7 +914,7 @@ def test_mermaid_figure_is_inlined_as_code_block(vault_root):
     rc, out, err = create_card(vault_root, "408", qid, "Cache 映射", ["--figure", figure_arg])
     assert rc == 0, err
     body = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
-    section = body.split("### 图示", 1)[1].split("### 选项逐个辨析", 1)[0]
+    section = unfold_callout(extract_heading_block(body, "图示", 3))
     assert "%%图源：错题本/_附图/" in section
     assert "```mermaid\nflowchart LR" in section
     assert 'MAR["MAR"]\n```\n- 图1：取指周期局部数据流向链' in section
@@ -1006,3 +1010,116 @@ def test_create_wrong_card_rejects_408_module_level_chapter_with_leaf_candidates
     assert "02.01 顺序表" in data["message"]
     assert "02.03 线性表的应用" in data["message"]
     assert not (vault_root / "错题本" / "408" / "线性表").exists()
+
+
+def minimal_408_args():
+    return [
+        '--point-location', '模块：操作系统\n章节：06.02 进程的创建终止与信号\n考点：进程创建',
+        '--wrong-reason', '用户只说不会，未提供具体作答过程。',
+        '--breakthrough', '看到创建新进程，先检查是否新增执行实体。',
+        '--answer-analysis', '答案：C。I 和 III 需要新执行实体；II 为已有进程分配设备。',
+        '--next-time', '先判断是否新增执行实体，再区分已有进程的资源或状态变化。',
+        '--check-question', '已有进程申请设备失败而阻塞，进程数量一定增加吗？为什么？',
+    ]
+
+
+def test_408_minimal_card_keeps_observed_finding_and_usable_takeaway(vault_root):
+    from today_wrong_ops import extract_takeaway
+    rc, out, err = run_script('create_wrong_card.py', [
+        str(vault_root), '408', '--chapter', '进程的创建终止与信号',
+        '--topic', '进程创建', '--source', '样例', '--question-id', 'qid-abc123abc123',
+        '--question-type', '选择题', '--question', '哪些操作创建进程？\nI. 登录\nII. 设备分配\nIII. 启动新任务\nA. I、II\nB. II、III\nC. I、III\nD. 全部',
+        *minimal_408_args(), '--today', '2026-10-20',
+    ])
+    assert rc == 0, out + err
+    data = json.loads(out)
+    text = Path(data['path']).read_text()
+    fm, body, _ = parse_frontmatter(text)
+    assert fm['question_type'] == '选择题'
+    assert fm['status'] == '不会' and fm['next_review'] == '2026-10-21'
+    assert '用户只说不会，未提供具体作答过程。' in body
+    assert '### 关键机制与边界' not in body and '### 关联知识' not in body
+    assert '答案：C。' not in extract_heading_block(body, '题目', level=3)
+    assert extract_takeaway(body, '408') == minimal_408_args()[9]
+
+
+def test_408_composite_answer_preserves_subquestions_code_math_and_no_options_needed(vault_root):
+    analysis = '#### 第1问\n\n先扫描数组。\n\n```c\nfor (int i = 0; i < n; ++i) {\n    visit(a[i]);\n}\n```\n\n#### 第2问\n\n每个元素访问一次，时间复杂度为 $O(n)$，额外空间为 $O(1)$。'
+    details = minimal_408_args()
+    details[details.index('--answer-analysis') + 1] = analysis
+    details[details.index('--point-location') + 1] = '模块：数据结构\n章节：01.02 算法与时间空间复杂度\n考点：遍历复杂度'
+    details[details.index('--breakthrough') + 1] = '先确定每个元素访问次数，再统计额外变量。'
+    details[details.index('--next-time') + 1] = '统计循环总执行次数，空间只计新增变量。'
+    rc, out, err = run_script('create_wrong_card.py', [
+        str(vault_root), '408', '--chapter', '01.02 算法与时间空间复杂度',
+        '--topic', '遍历算法', '--source', '样例', '--question-id', 'qid-bcd234bcd234',
+        '--question-type', '综合题', '--question', '（1）给出数组遍历算法。（2）分析其时间与空间复杂度。',
+        *details, '--today', '2026-10-20',
+    ])
+    assert rc == 0, out + err
+    data = json.loads(out)
+    text = Path(data['path']).read_text()
+    assert data['question_type'] == '综合题'
+    assert unfold_callout(extract_heading_block(text, '暴力扫雷', level=3)) == analysis
+    assert '### 选项判断与依据' not in text and '待补充' not in text
+
+
+def test_408_missing_answer_or_next_action_fails_without_demanding_optional_sections(vault_root):
+    rc, out, _ = run_script('create_wrong_card.py', [
+        str(vault_root), '408', '--chapter', '进程的创建终止与信号',
+        '--topic', '进程创建', '--source', '样例', '--question-id', 'qid-cde345cde345',
+        '--question', '何时创建进程？', '--point-location', '考点：进程创建',
+        '--breakthrough', '先看是否增加执行实体。', '--check-question', '阻塞会新建进程吗？',
+    ])
+    assert rc == 1
+    message = json.loads(out)['message']
+    assert '--answer-analysis' in message and '--next-time' in message
+    assert '--mechanism' not in message and '--knowledge-link' not in message
+    assert not list((vault_root / '错题本/408').rglob('*qid-cde345cde345.md'))
+
+
+def test_408_question_type_uses_question_evidence_and_allows_explicit_mixed_question_override():
+    from argparse import Namespace
+    from create_wrong_card import resolve_408_question_type
+    assert resolve_408_question_type(Namespace(question_type=None, question='A．甲\nB．乙'), []) == '选择题'
+    assert resolve_408_question_type(Namespace(question_type=None, question='设数组 A、B，写出算法。'), []) == '综合题'
+    assert resolve_408_question_type(Namespace(question_type='综合题', question='（1）A.甲\nB.乙\n（2）求时间。'), []) == '综合题'
+
+
+def test_408_takeaway_preserves_legacy_prose_hook():
+    from today_wrong_ops import extract_takeaway
+    assert extract_takeaway('### 记忆钩子\n\n先拆时间，再处理提速部分。\n\n### 历史记录\n', '408') == '先拆时间，再处理提速部分。'
+
+
+def test_algorithm_code_is_exempt_but_surrounding_math_still_checked():
+    from create_wrong_card import find_unwrapped_math_excerpt, find_overlong_detail_line
+    code = '```c\nint value = 0;\nif (value < 10) { value = 20; }\n' + '/*' + 'x' * 150 + '*/\n```'
+    assert find_unwrapped_math_excerpt(code) is None
+    assert find_overlong_detail_line('--answer-analysis', code) is None
+    assert find_unwrapped_math_excerpt(code + '\n公式：n=10') == '公式：n=10'
+    assert find_overlong_detail_line('--answer-analysis', code + '\n' + '长解释' * 60) is not None
+
+
+def test_new_408_card_can_receive_figure_and_review_without_losing_answer(vault_root):
+    rc, out, err = run_script('create_wrong_card.py', [
+        str(vault_root), '408', '--chapter', '进程的创建终止与信号',
+        '--topic', '进程创建', '--source', '样例', '--question-id', 'qid-def456def456',
+        '--question-type', '综合题', '--question', '说明进程创建的必要操作。',
+        *minimal_408_args(), '--today', '2026-10-20',
+    ])
+    assert rc == 0, out + err
+    path = Path(json.loads(out)['path'])
+    before = path.read_text()
+    figure_arg = make_figure(vault_root, 'qid-def456def456', caption='图1：进程创建示意')
+    rc, out, err = run_script('update_card.py', [
+        str(path), '--status', '半会', '--comment', '有提示完成',
+        '--figure', figure_arg, '--today', '2026-10-21',
+    ])
+    assert rc == 0, out + err
+    after = path.read_text()
+    assert extract_heading_block(before, '题目', 3) == extract_heading_block(after, '题目', 3)
+    assert extract_heading_block(before, '暴力扫雷', 3) == extract_heading_block(after, '暴力扫雷', 3)
+    assert after.index('### 破题密码') < after.index('### 图示') < after.index('### 暴力扫雷')
+    fm, _, _ = parse_frontmatter(after)
+    assert fm['question_type'] == '综合题' and fm['status'] == '半会'
+    assert '有提示完成' in extract_heading_block(after, '历史记录', 3)

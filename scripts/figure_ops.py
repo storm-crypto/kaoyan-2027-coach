@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Sequence, Tuple
 
 from env_util import json_error
+from cs_card_layout import ANALYSIS, folded_callout, unfold_callout
 
 FIGURE_SPEC_SEPARATOR = "|"
 DEFAULT_FIGURE_WIDTH = 480
@@ -37,9 +38,12 @@ FIGURE_SECTION_RE = re.compile(
 )
 
 # 图示区块统一插在「突破口类小节之后」，等价于「下面这个锚点小节之前」。
-# 数学一：第一步怎么想到 → 图示 → 规范解法；408：题干突破口 → 图示 → 选项逐个辨析。
+# 新旧题卡都把图放在突破口之后、解答之前。
 FIGURE_ANCHOR_HEADINGS = (
+    f"### {ANALYSIS}",
     "### 规范解法",
+    "### 选项判断与依据",
+    "### 逐问解答与关键步骤",
     "### 选项逐个辨析",
     "### 易错点 / 变式提醒",
     "### 历史记录",
@@ -154,11 +158,19 @@ def upsert_figure_section(body: str, specs: Sequence[FigureSpec]) -> str:
         return body
 
     match = FIGURE_SECTION_RE.search(body)
+    folded = f"### {ANALYSIS}\n" in body
     if match:
         existing = match.group(2).strip("\r\n")
-        merged = f"{match.group(1)}{existing}\n\n{block}\n\n"
+        if folded:
+            merged_body = unfold_callout(existing) + "\n\n" + block
+            merged_body = folded_callout(merged_body, "展开解题辅助图")
+        else:
+            merged_body = existing + "\n\n" + block
+        merged = f"{match.group(1)}{merged_body}\n\n"
         return body[: match.start()] + merged + body[match.end():]
 
+    if folded:
+        block = folded_callout(block, "展开解题辅助图")
     new_section = f"{FIGURE_HEADING_LINE}\n{block}\n\n"
     for anchor in FIGURE_ANCHOR_HEADINGS:
         index = body.find(f"\n{anchor}")

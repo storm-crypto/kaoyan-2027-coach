@@ -38,9 +38,10 @@ from create_wrong_card import (
     visual_len,
 )
 from env_util import atomic_write, is_icloud_placeholder, json_error, resolve_obsidian_root
+from cs_card_layout import unfold_callout
 
 # 把多字段挤一行拆开的小节
-LABEL_SPLIT_SECTIONS = ("考点判断", "考点定位")
+LABEL_SPLIT_SECTIONS = ("考点判断", "考点定位", "考点与本次卡点")
 # 修复 `- $$` 块公式破损的小节
 FORMULA_UNWRAP_SECTIONS = ("规范解法",)
 # 只报告「行内公式墙」的小节（无法安全自动拆，提示人工/教练重排）
@@ -50,6 +51,8 @@ OVERLONG_REPORT_SECTIONS = (
     "考点判断", "第一步怎么想到", "规范解法", "错因定位", "易错点", "下次怎么做",
     "考点定位", "题干突破口", "选项逐个辨析", "双轨解释", "干扰项陷阱",
     "知识网络串联", "记忆钩子",
+    "考点与本次卡点", "选项判断与依据", "逐问解答与关键步骤", "关键机制与边界", "关联知识",
+    "精准把脉", "破题密码", "暴力扫雷", "提炼 SOP", "变式拷问",
 )
 # 块公式定界行：可能被错误加了 `- ` 前缀
 DISPLAY_DELIM_RE = re.compile(r"^\s*(?:-\s+)?\$\$\s*$")
@@ -82,7 +85,10 @@ def rewrite_section(
 
 def section_body(text: str, heading: str) -> Optional[str]:
     match = section_block_re(heading).search(text)
-    return match.group(2).rstrip("\n") if match else None
+    if not match:
+        return None
+    content = match.group(2).rstrip("\n")
+    return unfold_callout(content) if content.lstrip().startswith("> [!") else content
 
 
 def split_label_bullet(content: str) -> Optional[List[str]]:

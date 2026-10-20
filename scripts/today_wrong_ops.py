@@ -21,6 +21,7 @@ from create_wrong_card import compute_initial_review_schedule
 from study_ops import iter_review_cards
 from update_card import compute_review_schedule
 from wrong_card_path_map import canonical_chapter_display
+from cs_card_layout import SOP, unfold_callout
 
 
 TODAY_WRONG_HEADING = "今日错题归档"
@@ -29,7 +30,7 @@ PLACEHOLDER_TOKEN = "待补充"
 
 TAKEAWAY_HEADINGS = {
     "数学一": "下次怎么做",
-    "408": "记忆钩子",
+    "408": "下次怎么做",
 }
 GENERIC_TAKEAWAY_HEADING = "正确思路 / 核心结论"
 
@@ -160,6 +161,24 @@ def extract_takeaway(body: str, subject: str) -> str:
     """根据科目从卡片正文里提取迁移总结。无法提取时返回空串。"""
     heading = TAKEAWAY_HEADINGS.get(subject, GENERIC_TAKEAWAY_HEADING)
     block = extract_heading_block(body, heading, level=3)
+    if subject == "408":
+        # 五模块题卡从折叠 SOP 提取动作；保留前两代题卡的栏目兼容。
+        block = extract_heading_block(body, SOP, level=3) or block
+        block = block or extract_heading_block(body, "记忆钩子", level=3)
+        block = unfold_callout(block)
+        for line in block.splitlines():
+            hook = re.match(r"^(?:\*\*)?口令[：:](?:\*\*)?\s*(.+)$", line.strip())
+            if hook:
+                return hook.group(1).strip()
+        # 新卡允许保留短段落；旧卡的口令也可能没有 bullet 前缀。
+        bullet = _first_bullet(block)
+        if bullet:
+            return bullet
+        for line in block.splitlines():
+            value = line.strip()
+            if value and not value.startswith(("#", ">", "|", "```", "$$")) and PLACEHOLDER_TOKEN not in value:
+                return value
+        return ""
     if not block:
         return ""
     return _first_bullet(block)

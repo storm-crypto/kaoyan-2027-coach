@@ -202,7 +202,7 @@ def bucket_overdue_days(overdue_days: int) -> str:
 
 
 def extract_card_history_statuses(body: str) -> List[str]:
-    return [status for _, status in HISTORY_RE.findall(body)]
+    return [status for _, status in HISTORY_RE.findall(extract_heading_block(body, "历史记录", 3))]
 
 
 def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
@@ -240,7 +240,7 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
             "path": str(path),
             "question_id": str(fm.get("question_id", "")),
             "recent_failures": sum(
-                1 for day, result in HISTORY_RE.findall(item["body"])
+                1 for day, result in HISTORY_RE.findall(extract_heading_block(item["body"], "历史记录", 3))
                 if result == "不会" and parse_iso_date(day)
                 and today - timedelta(days=30) <= parse_iso_date(day) <= today
             ),

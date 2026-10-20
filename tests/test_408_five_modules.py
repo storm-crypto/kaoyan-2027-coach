@@ -6,7 +6,7 @@ from pathlib import Path
 from helpers import run_script
 from archive_ops import extract_heading_block
 from card_history import history_entries
-from cs_card_layout import folded_callout, unfold_callout
+from cs_card_layout import folded_callout, unfold_callout, extract_module, heading_name, PENDING_VARIANT
 from dashboard_payload import collect_cards
 from figure_ops import upsert_figure_section
 from frontmatter import parse_frontmatter, serialize_frontmatter
@@ -29,11 +29,13 @@ def make_card(root):
         '--question-type', '选择题', '--question', QUESTION,
         '--point-location', '模块：操作系统\n章节：06.02 进程的创建终止与信号\n考点：进程创建',
         '--wrong-reason', '用户只说不会，未提供误选或推导。',
+        '--solution', 'C，仅 I 和 III。',
         '--diagnosis', '本题容易把已有进程的资源变化与创建新进程混淆。',
         '--breakthrough', '| 字眼 | 底层条件 |\n|---|---|\n| 创建 | 新增执行实体 |',
         '--answer-analysis', '原题答案：C。I、III成立，II只是给已有进程配置资源。',
         '--sop', '1. 看是否新增执行实体。\n2. 区分资源与状态变化。\n3. 核对前后是否同一进程。',
-        '--memory-hook', '先辨实体再看资源', '--variant', VARIANT,
+        '--memory-hook', '先辨实体再看资源',
+        '--core-rule', '判断是否创建进程，要检查是否新增执行实体；资源分配或状态转换本身不能作为充分依据。', '--variant', VARIANT,
         '--today', TODAY.isoformat(),
     ])
     assert rc == 0, out + err
@@ -45,9 +47,9 @@ def test_five_modules_keep_original_prompt_variant_and_review_facts_separate(vau
     fm, body, _ = parse_frontmatter(p.read_text())
     original = extract_heading_block(body, '题目', 3)
     assert '原题答案' not in original and '唤醒' not in original
-    assert extract_heading_block(body, '变式拷问', 3).strip() == VARIANT
-    assert body.count('> [!note]-') == 4
-    assert '**本题易错机制（不等于用户已犯）**' in unfold_callout(extract_heading_block(body, '精准把脉', 3))
+    assert extract_module(body, '变式拷问') == PENDING_VARIANT + '\n\n' + VARIANT
+    assert '> [!note]-' not in body
+    assert '**本题易错机制（不等于用户已犯）**' in extract_module(body, '精准把脉')
     assert fm['question_id'] == QID and fm['question_number'] == '24'
     assert fm['wrong_count'] == '1' and fm['next_review'] == '2026-10-21'
     assert len(history_entries(body)) == 1
@@ -89,7 +91,7 @@ def test_navigation_and_presentation_updates_preserve_attributes_history_stats_a
     assert scan_today_review_stats(vault_root, TODAY) == before_stats
     assert associate_cards(vault_root, '408', '2010年408真题', '2026-10-20') == before_paper
     for heading in ['题目', '精准把脉', '破题密码', '暴力扫雷', '提炼 SOP', '变式拷问', '历史记录']:
-        assert extract_heading_block(before, heading, 3).strip() == extract_heading_block(after, heading, 3).strip()
+        assert extract_module(before, heading) == extract_module(after, heading)
     data = build_metaskills(vault_root, before_cards, lambda *_: None)
     assert data['total_cards'] == 1
     assert data['clusters'][0]['counts'] == {'不会': 1}
@@ -104,17 +106,17 @@ def test_folded_markdown_roundtrips_code_math_mermaid_quotes_and_blank_lines():
     assert unfold_callout(wrapped) == source
 
 
-def test_followup_figure_stays_folded_and_never_enters_variant(vault_root):
+def test_followup_figure_is_visible_and_never_enters_variant(vault_root):
     p = make_card(vault_root)
     fm, body, _ = parse_frontmatter(p.read_text())
     first = [('错题本/_附图/one.svg', '图1：创建', 480, '')]
     second = [('错题本/_附图/two.svg', '图2：资源', 480, '')]
     updated = upsert_figure_section(body, first)
     updated = upsert_figure_section(updated, second)
-    figure = extract_heading_block(updated, '图示', 3)
-    assert figure.count('> [!note]-') == 1
+    figure = extract_module(updated, '图示')
+    assert '> [!note]-' not in figure
     raw = unfold_callout(figure)
     assert raw.count('one.svg') == 1 and raw.count('two.svg') == 1
     assert updated.index('### 破题密码') < updated.index('### 图示') < updated.index('### 暴力扫雷')
-    assert extract_heading_block(updated, '变式拷问', 3).strip() == VARIANT
+    assert extract_module(updated, '变式拷问') == PENDING_VARIANT + '\n\n' + VARIANT
     assert history_entries(updated) == history_entries(body)

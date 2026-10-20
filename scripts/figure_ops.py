@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Sequence, Tuple
 
 from env_util import json_error
-from cs_card_layout import ANALYSIS, folded_callout, unfold_callout
+from cs_card_layout import ANALYSIS, extract_module, heading_name, unfold_callout
 
 FIGURE_SPEC_SEPARATOR = "|"
 DEFAULT_FIGURE_WIDTH = 480
@@ -33,7 +33,7 @@ FIGURE_HEADING_LINE = f"### {FIGURE_HEADING}"
 # 追加到已有图示区块时自己做定位：archive_ops.replace_heading_block 会把区块末尾的空行
 # 规整掉，导致下一个 `### ` 标题贴在图说明后面，卡片读起来就挤成一坨。
 FIGURE_SECTION_RE = re.compile(
-    rf"(^[ \t]{{0,3}}### {FIGURE_HEADING}\r?\n)(.*?)(?=^[ \t]{{0,3}}### |\Z)",
+    rf"(^[ \t]{{0,3}}### {FIGURE_HEADING}(?:（[^）\n]*）)?\r?\n)(.*?)(?=^[ \t]{{0,3}}### |\Z)",
     re.M | re.S,
 )
 
@@ -158,20 +158,16 @@ def upsert_figure_section(body: str, specs: Sequence[FigureSpec]) -> str:
         return body
 
     match = FIGURE_SECTION_RE.search(body)
-    folded = f"### {ANALYSIS}\n" in body
+    is_cs_five = bool(extract_module(body, ANALYSIS))
     if match:
         existing = match.group(2).strip("\r\n")
-        if folded:
-            merged_body = unfold_callout(existing) + "\n\n" + block
-            merged_body = folded_callout(merged_body, "展开解题辅助图")
-        else:
-            merged_body = existing + "\n\n" + block
-        merged = f"{match.group(1)}{merged_body}\n\n"
+        merged_body = unfold_callout(existing) + "\n\n" + block
+        title = f"### {heading_name('图示')}\n" if is_cs_five else match.group(1)
+        merged = f"{title}{merged_body}\n\n"
         return body[: match.start()] + merged + body[match.end():]
 
-    if folded:
-        block = folded_callout(block, "展开解题辅助图")
-    new_section = f"{FIGURE_HEADING_LINE}\n{block}\n\n"
+    title = f"### {heading_name('图示')}" if is_cs_five else FIGURE_HEADING_LINE
+    new_section = f"{title}\n{block}\n\n"
     for anchor in FIGURE_ANCHOR_HEADINGS:
         index = body.find(f"\n{anchor}")
         if index != -1:

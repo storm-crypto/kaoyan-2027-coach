@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from archive_ops import extract_heading_block
 from create_wrong_card import sanitize_tag_value
-from cs_card_layout import unfold_callout
+from cs_card_layout import unfold_callout, extract_module
 from frontmatter import parse_frontmatter
 from helpers import run_script
 
@@ -448,10 +448,10 @@ def test_408_explanations_preserve_markdown_structure(vault_root):
     content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
     for heading, body in blocks.values():
         # 去掉最外层折叠后，表格、代码、公式、引用与嵌套列表须逐字保留。
-        actual = unfold_callout(extract_heading_block(content, heading, level=3))
+        actual = unfold_callout(extract_module(content, heading))
         assert body in actual
         assert actual.count(body) == 1
-    assert content.count("> [!note]-") == 4
+    assert "> [!note]-" not in content
 
 
 def test_create_wrong_card_requires_complete_math_details(vault_root):
@@ -914,7 +914,7 @@ def test_mermaid_figure_is_inlined_as_code_block(vault_root):
     rc, out, err = create_card(vault_root, "408", qid, "Cache 映射", ["--figure", figure_arg])
     assert rc == 0, err
     body = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
-    section = unfold_callout(extract_heading_block(body, "图示", 3))
+    section = unfold_callout(extract_module(body, "图示"))
     assert "%%图源：错题本/_附图/" in section
     assert "```mermaid\nflowchart LR" in section
     assert 'MAR["MAR"]\n```\n- 图1：取指周期局部数据流向链' in section
@@ -1060,7 +1060,7 @@ def test_408_composite_answer_preserves_subquestions_code_math_and_no_options_ne
     data = json.loads(out)
     text = Path(data['path']).read_text()
     assert data['question_type'] == '综合题'
-    assert unfold_callout(extract_heading_block(text, '暴力扫雷', level=3)) == analysis
+    assert unfold_callout(extract_module(text, '暴力扫雷')) == analysis
     assert '### 选项判断与依据' not in text and '待补充' not in text
 
 
@@ -1118,7 +1118,7 @@ def test_new_408_card_can_receive_figure_and_review_without_losing_answer(vault_
     assert rc == 0, out + err
     after = path.read_text()
     assert extract_heading_block(before, '题目', 3) == extract_heading_block(after, '题目', 3)
-    assert extract_heading_block(before, '暴力扫雷', 3) == extract_heading_block(after, '暴力扫雷', 3)
+    assert extract_module(before, '暴力扫雷') == extract_module(after, '暴力扫雷')
     assert after.index('### 破题密码') < after.index('### 图示') < after.index('### 暴力扫雷')
     fm, _, _ = parse_frontmatter(after)
     assert fm['question_type'] == '综合题' and fm['status'] == '半会'

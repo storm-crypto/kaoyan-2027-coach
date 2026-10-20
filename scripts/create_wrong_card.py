@@ -13,6 +13,7 @@
       [--error-tag 标签]
       [--wrong-reason 文本]
       [--diagnosis 文本]        # 408潜在误区，不冒充实际错因
+      [--core-rule 文本]        # 408带适用前提的长期规则
       [--solution 文本]
       [--pitfall 文本]
       [--point-judgment 文本]
@@ -63,7 +64,7 @@ from frontmatter import serialize_frontmatter
 from study_ops import parse_today
 from wrong_card_path_map import resolve_wrong_card_chapter
 from paper_card_links import ERROR_TYPES, question_number, validate_question_number
-from cs_card_layout import DIAGNOSIS, BREAKTHROUGH, ANALYSIS, SOP, VARIANT, folded_callout
+from cs_card_layout import DIAGNOSIS, BREAKTHROUGH, ANALYSIS, SOP, VARIANT, PENDING_VARIANT, heading_name
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
@@ -146,6 +147,7 @@ def parse_args() -> Tuple[Path, argparse.Namespace]:
     parser.add_argument("--mistake-analysis", default="", help="数学详解：错因定位，可多行")
     parser.add_argument("--next-time", "--sop", dest="next_time", default="", help="数学一的下次动作 / 408 的三步 SOP；--sop 为别名")
     parser.add_argument("--diagnosis", default="", help="408：本题诱发的误区与原因；与 --wrong-reason 中的用户实际表现分开")
+    parser.add_argument("--core-rule", default="", help="408：带适用前提的一句话正确规则，写入提炼 SOP")
     parser.add_argument("--point-location", default="", help="408详解：模块、叶子章节与核心考点，可多行")
     parser.add_argument("--breakthrough", default="", help="408详解：题面触发信号、为什么选方法及第一步动作")
     parser.add_argument("--question-type", choices=["选择题", "综合题"], help="408题型；无选项的问答、计算、算法设计题均用综合题。省略时仅按题面选项识别")
@@ -419,6 +421,7 @@ def validate_latex_wrapping(
         ("--option", explicit_options),
         ("--wrong-reason", [args.wrong_reason]),
         ("--diagnosis", [args.diagnosis]),
+        ("--core-rule", [args.core_rule]),
         ("--solution", [args.solution]),
         ("--pitfall", [args.pitfall]),
         ("--point-judgment", [args.point_judgment]),
@@ -534,6 +537,8 @@ def validate_readable_layout(subject: str, args: argparse.Namespace) -> None:
         detail_fields = [
             ("--wrong-reason", args.wrong_reason),
             ("--diagnosis", args.diagnosis),
+            ("--core-rule", args.core_rule),
+            ("--solution", args.solution),
             ("--next-time", args.next_time),
             ("--point-location", args.point_location),
             ("--breakthrough", args.breakthrough),
@@ -632,33 +637,35 @@ def resolve_408_question_type(args: argparse.Namespace, explicit_options: Sequen
 
 def build_408_detail_sections(args: argparse.Namespace, figure_block: str = "") -> str:
     finding = args.wrong_reason.strip() or f"本次表现：{args.status}；未提供具体作答过程。"
-    diagnosis = render_bullet_block(split_nonempty_lines(args.point_location), "待补充")
+    diagnosis = (f"**正确结论：** {args.solution.strip()}\n\n" if args.solution.strip() else "")
+    diagnosis += render_bullet_block(split_nonempty_lines(args.point_location), "待补充")
     diagnosis += f"\n\n**本次表现**\n\n{finding}"
     traps = list(dict.fromkeys(v.strip() for v in (args.diagnosis, args.trap) if v.strip()))
     if traps:
         diagnosis += "\n\n**本题易错机制（不等于用户已犯）**\n\n" + "\n\n".join(traps)
     analysis = args.option_analysis.strip()
     if args.dual_track.strip():
-        analysis += f"\n\n#### 关键机制与边界\n\n{args.dual_track.strip()}"
+        analysis += f"\n\n#### 关键机制与边界（解释为什么、何时成立）\n\n{args.dual_track.strip()}"
     if args.knowledge_link.strip():
-        analysis += f"\n\n#### 关联知识\n\n{args.knowledge_link.strip()}"
+        analysis += f"\n\n#### 关联知识（连接可迁移的考点）\n\n{args.knowledge_link.strip()}"
     # 兼容旧调用：已有 next-time 就用它，缺少时保留口令/陷阱原文作为动作总结。
     sop = args.next_time.strip() or args.memory_hook.strip() or args.trap.strip()
     if args.memory_hook.strip() and args.memory_hook.strip() != sop:
         sop += f"\n\n**口令：** {args.memory_hook.strip()}"
+    if args.core_rule.strip():
+        sop += f"\n\n#### 正确规则（保留适用前提与结论）\n\n{args.core_rule.strip()}"
     sections = (
-        f"### {DIAGNOSIS}\n\n{folded_callout(diagnosis, '展开考点、实际卡点与易错机制')}\n\n"
-        f"### {BREAKTHROUGH}\n\n{folded_callout(args.breakthrough, '展开题干翻译与破题判断轴')}\n\n"
+        f"### {heading_name(DIAGNOSIS)}\n\n{diagnosis}\n\n"
+        f"### {heading_name(BREAKTHROUGH)}\n\n{args.breakthrough.strip()}\n\n"
     )
     if figure_block:
-        sections += f"### 图示\n\n{folded_callout(figure_block, '展开解题辅助图')}\n\n"
-    answer_label = "选项判断与认知误区" if args.question_type == "选择题" else "逐问解答与关键得分步骤"
+        sections += f"### {heading_name('图示')}\n\n{figure_block}\n\n"
     # 变式是完整题面；不能把选项、代码和跨行公式拆成多个编号问题。
     variant = "\n\n".join(v.strip() for v in args.check_question if v.strip())
     sections += (
-        f"### {ANALYSIS}\n\n{folded_callout(analysis, '展开' + answer_label)}\n\n"
-        f"### {SOP}\n\n{folded_callout(sop, '展开三步动作与考场口令')}\n\n"
-        f"### {VARIANT}\n\n{variant}\n"
+        f"### {heading_name(ANALYSIS)}\n\n{analysis}\n\n"
+        f"### {heading_name(SOP)}\n\n{sop}\n\n"
+        f"### {heading_name(VARIANT)}\n\n{PENDING_VARIANT}\n\n{variant}\n"
     )
     return sections
 

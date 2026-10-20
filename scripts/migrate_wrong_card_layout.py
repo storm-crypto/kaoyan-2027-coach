@@ -61,7 +61,7 @@ DISPLAY_DELIM_RE = re.compile(r"^\s*(?:-\s+)?\$\$\s*$")
 def section_block_re(heading: str) -> "re.Pattern[str]":
     """匹配 `### heading` 小节体（到下一个 `### ` 或文末）。group(2) 含尾随空白。"""
     return re.compile(
-        rf"(^[ \t]{{0,3}}### {re.escape(heading)}\r?\n)(.*?)(?=^[ \t]{{0,3}}### |\Z)",
+        rf"(^[ \t]{{0,3}}### {re.escape(heading)}(?:（[^）\n]*）)?\r?\n)(.*?)(?=^[ \t]{{0,3}}### |\Z)",
         re.M | re.S,
     )
 

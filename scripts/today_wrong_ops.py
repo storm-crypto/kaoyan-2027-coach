@@ -21,7 +21,7 @@ from create_wrong_card import compute_initial_review_schedule
 from study_ops import iter_review_cards
 from update_card import compute_review_schedule
 from wrong_card_path_map import canonical_chapter_display
-from cs_card_layout import SOP, unfold_callout
+from cs_card_layout import SOP, extract_module, unfold_callout
 
 
 TODAY_WRONG_HEADING = "今日错题归档"
@@ -162,8 +162,8 @@ def extract_takeaway(body: str, subject: str) -> str:
     heading = TAKEAWAY_HEADINGS.get(subject, GENERIC_TAKEAWAY_HEADING)
     block = extract_heading_block(body, heading, level=3)
     if subject == "408":
-        # 五模块题卡从折叠 SOP 提取动作；保留前两代题卡的栏目兼容。
-        block = extract_heading_block(body, SOP, level=3) or block
+        # 兼容带用途的新标题、旧标题及历史折叠块。
+        block = extract_module(body, SOP) or block
         block = block or extract_heading_block(body, "记忆钩子", level=3)
         block = unfold_callout(block)
         for line in block.splitlines():

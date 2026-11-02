@@ -30,7 +30,8 @@ from figure_ops import parse_figure_specs, upsert_figure_section
 from frontmatter import parse_frontmatter, serialize_frontmatter
 from env_util import atomic_write, json_error, safe_int, safe_float
 from study_ops import parse_today
-from card_history import consecutive_failures
+from card_history import append_history_entry, consecutive_failures
+from card_progress import card_progress, upsert_card_progress
 
 
 QID_SUFFIX_RE = re.compile(r"-qid-[0-9a-f]{12}$")
@@ -191,11 +192,8 @@ def main() -> None:
         body = upsert_figure_section(body, figure_specs)
 
     # 追加历史记录
-    history_line = f"\n- {today} - {args.status} - {args.comment}"
-    if "### 历史记录" in body:
-        body = body.rstrip() + history_line + "\n"
-    else:
-        body = body.rstrip() + "\n\n### 历史记录" + history_line + "\n"
+    body = append_history_entry(body, today, args.status, args.comment)
+    body = upsert_card_progress(body)
 
     serialized = serialize_frontmatter(fm, key_order, body)
 
@@ -212,6 +210,7 @@ def main() -> None:
         "next_review": fm["next_review"],
         "consecutive_failures": failure_streak,
         "repeated_failure_signal": failure_streak >= 3,
+        "progress": card_progress(body),
     }
     if figure_specs:
         result["figure_added"] = len(figure_specs)

@@ -25,6 +25,7 @@ from frontmatter import parse_frontmatter
 from score_record_lib import collect_score_records, top_weakness_from_408_record
 from study_ops import iter_review_cards
 from duration_parser import parse_logged_hours
+from card_progress import card_progress
 
 
 SUBJECT_TO_KM_FILE = {
@@ -239,6 +240,7 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
         cards.append({
             "path": str(path),
             "question_id": str(fm.get("question_id", "")),
+            "progress": card_progress(item["body"]),
             "recent_failures": sum(
                 1 for day, result in HISTORY_RE.findall(extract_heading_block(item["body"], "历史记录", 3))
                 if result == "不会" and parse_iso_date(day)

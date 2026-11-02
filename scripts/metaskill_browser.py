@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from metaskill_index import INDEX_RELPATH
 from metaskill_text import parse_decision, unmarked_math
+from card_progress import card_progress
 
 MARKDOWN_RELPATH = Path("错题本/元技能目录.md")
 STATUSES = ("不会", "半会", "会", "未标注")
@@ -68,6 +69,7 @@ def build_metaskills(root, cards, make_link):
                     "qid": q, "role": role, "missing": card is None,
                     "topic": card["topic"] if card else f"未读到题卡 qid-{q}",
                     "status": card["status"] if card and card["status"] in STATUSES else "未标注",
+                    "progress": card.get("progress", card_progress("")) if card else card_progress(""),
                     "due": bool(card and card["is_due"]),
                     "next_review": card["next_review"] if card else "-",
                     "last_review": card["last_review_at"] if card else "-",
@@ -97,7 +99,8 @@ def build_metaskills(root, cards, make_link):
     rows.sort(key=lambda c: ({"数学一": 0, "408": 1, "英语一": 2, "政治": 3}.get(c["subject"], 4),
                              {"高数": 0, "线代": 1, "概率统计": 2, "计组": 3}.get(c["module"], 4),
                              natural_key(c["chapter"]), natural_key(c["id"])))
-    unclustered = [{"qid": q, "topic": c["topic"], "link": make_link(c["path"], root)}
+    unclustered = [{"qid": q, "topic": c["topic"], "path": c["path"],
+                    "progress": c.get("progress", card_progress("")), "link": make_link(c["path"], root)}
                    for q, c in by_qid.items() if q and q not in primary]
     duplicates = [q for q, ids in primary.items() if len(ids) > 1]
     if duplicates:
@@ -117,6 +120,7 @@ def render_metaskill_markdown(data, today):
     out = ["# 元技能目录", "", f"> 更新于 {today} · {len(rows)} 簇 · {data['total_cards']} 张主归属题卡 · {data['families']} 个方法族。",
            "> 此页自动生成。名称、口诀与归属维护在 `_元技能索引.json`，复习记录维护在题卡；重新生成会覆盖此页。",
            "> 状态统计只汇总主归属卡的现有记录，不代表整个簇已通过迁移验收。", "",
+           "> 🔴 不会 · 🟡 部分完成或提示后完成 · 🟢 独立完成；末尾连续三绿为本题过关，红/黄清零。旧历史按原判定显示，不补造验收证据。", "",
            "- [[#按章节浏览]]", "- [[#按方法浏览]]", "- [[#簇详情]]", ""]
     for label, field in [("按章节浏览", "chapter_group"), ("按方法浏览", "family")]:
         out += [f"## {label}", ""]
@@ -161,17 +165,24 @@ def render_metaskill_markdown(data, today):
         for m in c["members"]:
             if m['role'] != role:
                 role = m['role']
-                out += [f'**{role}题目**', '']
+                out += ['', f'**{role}题目**', '',
+                        '| 题目 | 做题轨迹 | 连绿进度 |',
+                        '|---|---|---|']
             if m["path"]:
                 card_ref = markdown_link(source, m['path'], m['topic'])
             else:
                 card_ref = m["topic"]
-            out += [f"- {m['role']}：{card_ref} · {m['status']} · 最近记录 {m['last_review']} · 到期 {m['next_review']}"]
+            progress = m['progress']
+            out += [f"| {card_ref} | {progress['trajectory'] or '暂无历史记录'} | {progress['summary']} |"]
         siblings = [s for s in rows if s["family"] == c["family"] and s["id"] != c["id"]]
         if siblings:
             out += ["", "同方法族（不等于同簇）：" + "、".join(ref(s) for s in siblings)]
         out.append("")
     if data["unclustered"] or data["warnings"]:
         out += ["## 待核对", "", *[f"- {w}" for w in data["warnings"]]]
-        out += [f"- 未归类：{c['topic']}（qid-{c['qid']}）" for c in data["unclustered"]]
+        if data['unclustered']:
+            out += ['', '**未归类题目**', '', '| 题目 | 做题轨迹 | 连绿进度 |', '|---|---|---|']
+            for c in data['unclustered']:
+                progress = c['progress']
+                out += [f"| {markdown_link(source, c['path'], c['topic'])} | {progress['trajectory'] or '暂无历史记录'} | {progress['summary']} |"]
     return "\n".join(out).rstrip() + "\n"

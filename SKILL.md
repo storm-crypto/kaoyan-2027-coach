@@ -63,6 +63,7 @@ Kaoyan_2027_Prep/
 - `/desk` 或“打开工作台”按 [工作台流程](references/workbench.md) 生成并打开本地工作台。
 - 完成学习数据写入后运行一次 `build_dashboard.py --if-exists` 刷新已有工作台；同一轮多次写入合并执行。页面是快照，浏览器刷新不会扫描学习库。
 - 元技能簇可用 `name` 保存中文短名称；缺失时展示层兼容旧索引。簇归属与口诀仍写 JSON，工作台刷新时自动生成 `错题本/元技能目录.md`，不要在派生目录中手工修改归属。
+- **错题红绿灯**：题卡标题下、元技能目录和工作台成员题目展示历史轨迹与当前连绿进度。🔴=不会，🟡=部分完成或依赖提示，🟢=无提示独立完整做对；每次真实作答记录一次结果，提示后完成最多记 `半会`。末尾连续三次 `会` 显示「✅ 已过关」，红/黄将当前连绿清零；过关后失误恢复待巩固。建议按现有间隔跨天验收，同一天确有不同作答仍逐次保留；重试命令、补解析、看答案后的复述不算新作答。展示从 `### 历史记录` 派生，禁止手工追加灯或从 status/interval 补造次数；缺少历史显示未知，旧记录按原判定映射，不声称补做独立验收。单题过关不替代知识地图的解释与无提示变式验收，也不自动退出复习排期。
 - 题卡末尾的「所属元技能」直达目录中对应簇，簇详情列出全部主归属/次归属题目。建卡、调整归属、簇改名或题卡移动后，运行 `sync_metaskill_links.py` 同步目录与所有题卡入口；它只更新导航，不改掌握度、复习历史或 JSON 归属。未归簇显示「尚未归簇」，不能把预测推荐当成正式归属。
 - 元技能簇的 `skill` 正文按「看到什么：」「怎么做：」分段，步骤用显式编号；「适用边界：」「补充例子：」按需添加，条目用列表。每一步只承载一个动作，不凑步骤数。所有数学表达式用 `$...$`，独立推导用 `$$...$$`；禁止用普通文字拼写递推式、根式或求和式。HTML 与 Markdown 共用该正文的结构解析，不另存手工维护的展示稿。
 - 阅读工作台、写入学习记录或从工作台发起复习时按需读取上述流程，不额外维护浏览器里的完成状态。
@@ -223,6 +224,7 @@ Kaoyan_2027_Prep/
 | `find_card.py` | 搜索已有错题卡；`question_id` 精确匹配会跨科全库检索，关键词仍只在当前科目下兼容检索 | `python3 scripts/find_card.py [$OBSIDIAN_ROOT] [科目] --question-id [qid] [关键词...] [--legacy-fallback]` |
 | `find_related_cards.py` | 查同元技能的相关题并回写 `### 相关题目` wikilink。数据源是 `错题本/_元技能索引.json`；qid 已在索引里走 `lookup`（同簇兄弟，不足 2 张时按 family 扩一跳），不在索引里走 `predict`（考点词元 + 同叶子章节 + 题面相似度加权，并给出 `suggest_cluster`）。刻意不使用 `error_tags`（该字段在本库 300 张卡上有 539 个标签、529 个只出现一次，无判别力）。写入幂等 | `python3 scripts/find_related_cards.py [$OBSIDIAN_ROOT] --question-id [qid] [--topic 考点] [--chapter 章节] [--question 题面] [--limit 4] [--write] [--backfill] [--dry-run]` |
 | `update_card.py` | 更新错题卡及 consecutive_failures（连续不会+1，半会/会清零，最短间隔仍1天）；`--figure` 可在复习时补图（已有 `### 图示` 追加而不覆盖） | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid] [--figure "vault相对路径\|图N：说明"]` |
+| `sync_card_progress.py` | 为旧题卡生成/重建红绿灯区块；幂等，仅改展示，不改历史、状态和排期，默认只预览 | `python3 scripts/sync_card_progress.py [$OBSIDIAN_ROOT] [--apply]` |
 | `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 聚合七项每日计划候选数据，不排序、选题、分预算或生成正文；`--write` 只保存 `周计划/_候选池-YYYY-MM-DD.json` | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--today YYYY-MM-DD] [--write]` |
@@ -513,7 +515,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 1. 按 [工作台流程的复习规则](references/workbench.md) 分离题面与解析；先独立作答，再按需提示。指定题卡时只复习该题，定位不唯一才确认。
 2. 未指定题卡时，运行 `scan_due_reviews.py --plain` 获取到期列表；到期量大时使用 `--by-cluster` 按元技能组织。结合当前重点、反复失分和可用时间选择一组，不以清卡数量作为唯一目标。
 3. 同簇题可以连做；解题口令在独立作答后用于讲解和总结。需要验证迁移时另出无提示变式，不提前告知方法。
-4. 每题按真实表现调用 `update_card.py`，复习备注保留是否使用提示。再调用 `update_knowledge_map.py` 回写；仍有卡点时追加 `--finding-add`，复习会了也要回写。
+4. 每题按真实表现调用 `update_card.py`，复习备注保留是否使用提示。脚本自动追加历史并刷新红绿灯，只有无提示独立完整做对可记 `会`；每次实际作答只调用一次，正文整理不增加次数。再调用 `update_knowledge_map.py` 回写；仍有卡点时追加 `--finding-add`，复习会了也要回写。
 5. 用户卡在空间、结构或时序想象时，按配图规则补图；辅助图放在解析区，展示过提示或辅助图后不把结果当作独立验收。
 6. 全部记录写完后刷新已有工作台。知识地图的历史“会”不追溯改判，也不声称已完成无提示验收。
 

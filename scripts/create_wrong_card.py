@@ -65,6 +65,7 @@ from study_ops import parse_today
 from wrong_card_path_map import resolve_wrong_card_chapter
 from paper_card_links import ERROR_TYPES, question_number, validate_question_number
 from cs_card_layout import DIAGNOSIS, BREAKTHROUGH, ANALYSIS, SOP, VARIANT, PENDING_VARIANT, heading_name
+from card_progress import upsert_card_progress
 
 QUESTION_ID_RE = re.compile(r"^qid-[0-9a-f]{12}$")
 INVALID_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]+')
@@ -842,6 +843,7 @@ def main() -> None:
         comment=args.comment,
         today=today,
     )
+    body = upsert_card_progress(body)
     rendered_card = serialize_frontmatter(frontmatter, key_order, body)
     ensure_no_placeholder_tokens(rendered_card)
     atomic_write(output_path, rendered_card)

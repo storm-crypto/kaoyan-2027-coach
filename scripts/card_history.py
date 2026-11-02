@@ -22,6 +22,16 @@ def history_entries(body):
     return entries
 
 
+def append_history_entry(body, today, status, comment):
+    """写入历史小节内部，兼容其后还有所属元技能等小节的旧卡。"""
+    line = f"- {today} - {status} - {' '.join(comment.splitlines())}"
+    section = re.search(r"^### 历史记录[ \t]*\r?$.*?(?=^#{1,3} |\Z)", body, re.M | re.S)
+    if section:
+        return (body[:section.start()] + section.group().rstrip() + "\n" + line + "\n"
+                + ("\n" if body[section.end():] else "") + body[section.end():])
+    return body.rstrip() + "\n\n### 历史记录\n" + line + "\n"
+
+
 def first_wrong_day(card):
     try:
         return date.fromisoformat(str(card["frontmatter"].get("first_wrong_at", "")))

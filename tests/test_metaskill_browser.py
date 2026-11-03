@@ -54,6 +54,26 @@ def test_missing_cards_and_unknown_status_remain_visible(vault_root):
     assert data['total_cards'] == 1
 
 
+def test_relative_card_paths_produce_same_modules_and_links(vault_root):
+    put_index(vault_root, [cluster('m01-01', ['111111111111'])])
+    relative = Path('错题本/数学一/概率论与数理统计/题.md')
+    path = vault_root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('题目', encoding='utf-8')
+    card = {'question_id': 'qid-111111111111', 'path': str(relative),
+            'subject': '数学一', 'topic': '题', 'status': '会', 'is_due': False,
+            'chapter': '概率论', 'last_review_at': '-', 'next_review': '-'}
+    # 回调与真实工作台一样，要求拿到可直接使用的文件路径。
+    link = lambda p, root: str(Path(p).resolve()) if Path(p).is_file() else None
+    relative_data = build_metaskills(vault_root, [card], link)
+    absolute_data = build_metaskills(vault_root, [{**card, 'path': str(path)}], link)
+    assert relative_data == absolute_data
+    assert render_metaskill_markdown(relative_data, '2026-11-03') == render_metaskill_markdown(
+        absolute_data, '2026-11-03'
+    )
+    assert card['path'] == str(relative)
+
+
 def test_derived_markdown_updates_without_changing_sources(sample_archive, sample_card, vault_root):
     path = put_index(vault_root, [cluster('m01-01', ['f728c5b18974'])])
     before = {p: p.read_bytes() for p in [path, sample_card, vault_root / '我的学习者档案.md']}

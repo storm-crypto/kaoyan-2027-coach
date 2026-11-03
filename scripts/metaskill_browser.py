@@ -33,7 +33,7 @@ def natural_key(value):
 
 
 def build_metaskills(root, cards, make_link):
-    root = Path(root)
+    root = Path(root).resolve()
     warnings = []
     try:
         index = json.loads((root / INDEX_RELPATH).read_text(encoding="utf-8"))
@@ -45,7 +45,15 @@ def build_metaskills(root, cards, make_link):
     except (ValueError, OSError) as exc:
         index = {"clusters": []}
         warnings.append(f"元技能索引无法读取：{exc}")
-    by_qid = {str(c.get("question_id", "")).removeprefix("qid-"): c for c in cards}
+    by_qid = {}
+    for card in cards:
+        path = Path(card["path"])
+        if not path.is_absolute():
+            path = root / path
+        # 统一浏览投影的路径，章节识别与两种视图的链接使用同一基准；不改调用方数据。
+        by_qid[str(card.get("question_id", "")).removeprefix("qid-")] = {
+            **card, "path": str(path.resolve())
+        }
     primary = defaultdict(list)
     secondary = defaultdict(list)
     for c in index["clusters"]:

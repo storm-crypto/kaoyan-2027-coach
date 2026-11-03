@@ -100,6 +100,21 @@ def test_create_wrong_card_keeps_inline_options_inside_question_block(vault_root
     assert "### 选项（如有）" not in content
 
 
+def test_question_operators_are_preserved_verbatim(vault_root):
+    question = "求以下表达式的值：\n* p;\n+ x;\n- y;"
+    rc, out, err = run_script("create_wrong_card.py", [
+        str(vault_root), "408", "--chapter", "单链表",
+        "--topic", "指针操作", "--source", "测试",
+        "--question-id", "qid-abcdef123456", "--question", question,
+        *required_detail_args("408"), "--today", "2026-11-03",
+    ])
+    assert rc == 0, err
+    content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
+    block = extract_heading_block(content, "题目", level=3)
+    for line in question.splitlines():
+        assert f"- {line}" in block
+
+
 def test_create_wrong_card_uses_env_var_root_when_cli_root_omitted(vault_root):
     rc, out, _ = run_script("create_wrong_card.py", [
         "408",
@@ -660,10 +675,12 @@ def test_create_wrong_card_accepts_structured_multiline_point_judgment(vault_roo
 def test_create_wrong_card_formal_solution_preserves_block_math_without_bullets(vault_root):
     """规范解法保留 Markdown 原文：多行块公式不被加 `- `，Obsidian 才能渲染。"""
     formal = (
+        "#### 步骤 1：整体换元\n"
         "先令 $t=\\arctan x$，则 $x=\\tan t$。\n"
         "$$\n"
         "I=\\int t\\cot^2t\\,dt.\n"
         "$$\n"
+        "#### 步骤 2：使用恒等式\n"
         "再用 $\\cot^2t=\\csc^2t-1$ 继续。"
     )
     rc, out, _ = run_script("create_wrong_card.py", [
@@ -687,6 +704,8 @@ def test_create_wrong_card_formal_solution_preserves_block_math_without_bullets(
     assert rc == 0
     content = Path(json.loads(out)["path"]).read_text(encoding="utf-8")
     formal_block = extract_heading_block(content, "规范解法", level=3)
+    assert "#### 步骤 1：整体换元\n\n先令" in formal_block
+    assert "#### 步骤 2：使用恒等式\n\n再用" in formal_block
     assert "- $$" not in formal_block
     assert "$$\nI=\\int t\\cot^2t\\,dt.\n$$" in formal_block
     assert "I=\\int t\\cot^2t\\,dt." in formal_block
@@ -1123,3 +1142,26 @@ def test_new_408_card_can_receive_figure_and_review_without_losing_answer(vault_
     fm, _, _ = parse_frontmatter(after)
     assert fm['question_type'] == '综合题' and fm['status'] == '半会'
     assert '有提示完成' in extract_heading_block(after, '历史记录', 3)
+
+
+def test_render_bullet_and_numbered_blocks_strip_redundant_markers():
+    from create_wrong_card import clean_bullet_line, clean_numbered_line, render_bullet_block, render_numbered_block
+
+    assert clean_bullet_line("- 题型：高数") == "题型：高数"
+    assert clean_bullet_line("- - 题型：高数") == "题型：高数"
+    assert clean_bullet_line("* 考点：极限") == "考点：极限"
+    assert clean_bullet_line("+ 考点：极限") == "考点：极限"
+    assert clean_bullet_line("考点：极限") == "考点：极限"
+
+    bullet_res = render_bullet_block(["- 题型：高数", "- - 考点：极限", "难度：中等"], "待补充")
+    assert bullet_res == "- 题型：高数\n- 考点：极限\n- 难度：中等"
+
+    assert clean_numbered_line("1. 为什么") == "为什么"
+    assert clean_numbered_line("1. 1. 为什么") == "为什么"
+    assert clean_numbered_line("(1) 为什么") == "为什么"
+    assert clean_numbered_line("为什么") == "为什么"
+    assert clean_bullet_line("$-x$ 是负数") == "$-x$ 是负数"
+    assert clean_numbered_line("1.5 倍") == "1.5 倍"
+
+    numbered_res = render_numbered_block(["1. 为什么", "2. 2. 怎么做", "第三问"], "待补充")
+    assert numbered_res == "1. 为什么\n2. 怎么做\n3. 第三问"

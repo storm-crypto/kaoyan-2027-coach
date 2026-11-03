@@ -254,9 +254,15 @@ def build_question_lines(question_text: str, explicit_options: Sequence[str]) ->
     return question_lines, "none"
 
 
-def render_bullet_block(lines: Sequence[str], fallback: str) -> str:
+def clean_bullet_line(line: str) -> str:
+    """去除已有列表标记（-、*、+ 以及嵌套的 `- - `），避免重复包装产生双圆点。"""
+    stripped = line.strip()
+    return re.sub(r"^(?:[-*+]\s+)+", "", stripped).strip()
+
+
+def render_bullet_block(lines: Sequence[str], fallback: str, *, normalize_markers: bool = True) -> str:
     items = list(lines) or [fallback]
-    return "\n".join(f"- {line}" for line in items)
+    return "\n".join(f"- {clean_bullet_line(line) if normalize_markers else line}" for line in items)
 
 
 def render_preserved_markdown_block(text: str, fallback: str) -> str:
@@ -304,9 +310,15 @@ def render_markdown_block(text: str, fallback: str) -> str:
     return "\n\n".join(units)
 
 
+def clean_numbered_line(line: str) -> str:
+    """去除已有编号符号（1.、1)、(1) 以及双编号 `1. 1. ` 等），避免产生重复编号。"""
+    stripped = line.strip()
+    return re.sub(r"^(?:\(?\d+[\.\)、]\s+)+", "", stripped).strip()
+
+
 def render_numbered_block(lines: Sequence[str], fallback: str) -> str:
     items = list(lines) or [fallback]
-    return "\n".join(f"{index}. {line}" for index, line in enumerate(items, start=1))
+    return "\n".join(f"{index}. {clean_numbered_line(line)}" for index, line in enumerate(items, start=1))
 
 
 def merge_repeated_lines(values: Sequence[str]) -> List[str]:
@@ -713,7 +725,8 @@ def build_card_body(
     topic_tag = sanitize_tag_value(topic)
     source_tag = sanitize_tag_value(source)
     subject_tag = SUBJECT_TAGS[subject]
-    question_block = render_bullet_block(question_lines, "待补题干")
+    # 题面里的星号/正负号可能是代码或运算符，保持原文，不按详解列表去重。
+    question_block = render_bullet_block(question_lines, "待补题干", normalize_markers=False)
     if question_figure_block:
         question_block = f"{question_block}\n\n{question_figure_block}"
 

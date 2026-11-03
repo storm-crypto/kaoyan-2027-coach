@@ -11,6 +11,7 @@
   （在标签处切，不在句号处切，所以突破口里带 LaTeX 和句号的长值整段保留）
 - `规范解法` 里被 render_bullet_block 加了 `- ` 的块公式（`- $$` 破损）→ 去掉前缀，
   让 `$$` 块公式独立成行，Obsidian 才能渲染
+- 详解列表的重复圆点/编号 → 去掉重复标记，保留缩进、代码围栏与块公式
 
 只报告不改（语义拆分不安全，分析明确警告别按句号机械拆）：
 - 任意详解小节里散文 > MAX_DETAIL_LINE_LENGTH 字的 bullet → 列出路径+小节+摘要，供人工处理
@@ -44,6 +45,16 @@ from cs_card_layout import unfold_callout
 LABEL_SPLIT_SECTIONS = ("考点判断", "考点定位", "考点与本次卡点")
 # 修复 `- $$` 块公式破损的小节
 FORMULA_UNWRAP_SECTIONS = ("规范解法",)
+# 修复误被多次包装产生的 `- - ` 双列表符和 `1. 1. ` 双编号的小节
+NESTED_BULLET_CLEAN_SECTIONS = (
+    "考点判断", "第一步怎么想到", "规范解法", "错因定位", "易错点", "下次怎么做",
+    "检查你是否真的懂了",
+    "考点定位", "题干突破口", "选项逐个辨析", "双轨解释", "干扰项陷阱",
+    "知识网络串联", "记忆钩子",
+    "考点与本次卡点", "选项判断与依据", "逐问解答与关键步骤", "关键机制与边界", "关联知识",
+    "精准把脉", "破题密码", "暴力扫雷", "提炼 SOP", "变式拷问",
+    "错误原因", "正确思路 / 核心结论", "易错点 / 变式提醒",
+)
 # 只报告「行内公式墙」的小节（无法安全自动拆，提示人工/教练重排）
 INLINE_WALL_REPORT_SECTIONS = ("规范解法",)
 # 只报告超长散文行的小节（数学一 + 408 详解小节）
@@ -166,6 +177,39 @@ def unwrap_bulleted_block_math(block: str) -> Optional[str]:
     return "\n".join(out) if changed else None
 
 
+def clean_nested_bullets_and_numbers(block: str) -> Optional[str]:
+    """只清理正文列表的重复标记，保留缩进及代码/公式中的原始字符。"""
+    lines = block.split("\n")
+    out: List[str] = []
+    changed = False
+    fence = None
+    in_math = False
+    for line in lines:
+        stripped = line.lstrip()
+        if fence:
+            out.append(line)
+            if re.fullmatch(re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*", stripped):
+                fence = None
+            continue
+        fence_match = re.match(r"(`{3,}|~{3,})", stripped) if not in_math else None
+        if fence_match:
+            fence = fence_match.group(1)
+            out.append(line)
+            continue
+        math_delims = len(re.findall(r"(?<!\\)\$\$", line))
+        if in_math or math_delims:
+            out.append(line)
+            if math_delims % 2:
+                in_math = not in_math
+            continue
+        new_line = re.sub(r"^([ \t]*)-(?:[ \t]+-)+[ \t]+", r"\1- ", line)
+        new_line = re.sub(r"^([ \t]*\d+[\.\)、][ \t]+)(?:\(?\d+[\.\)、][ \t]+)+", r"\1", new_line)
+        if new_line != line:
+            changed = True
+        out.append(new_line)
+    return "\n".join(out) if changed else None
+
+
 def find_overlong_bullets(block: str) -> List[str]:
     flags: List[str] = []
     for line in block.split("\n"):
@@ -206,14 +250,19 @@ def find_inline_wall_lines(block: str) -> List[str]:
 
 
 def migrate_card(text: str) -> Tuple[str, Dict]:
-    """返回 (new_text, report)。report 含 label_splits / formula_unwraps / overlong_flags / inline_wall_flags。"""
+    """返回 (new_text, report)。report 含 label_splits / formula_unwraps / nested_bullet_cleans / overlong_flags / inline_wall_flags。"""
     report: Dict = {
         "label_splits": [],
         "formula_unwraps": [],
+        "nested_bullet_cleans": [],
         "overlong_flags": [],
         "inline_wall_flags": [],
     }
     new_text = text
+    for heading in NESTED_BULLET_CLEAN_SECTIONS:
+        new_text, changed = rewrite_section(new_text, heading, clean_nested_bullets_and_numbers)
+        if changed:
+            report["nested_bullet_cleans"].append(heading)
     for heading in LABEL_SPLIT_SECTIONS:
         new_text, changed = rewrite_section(new_text, heading, transform_label_section)
         if changed:
@@ -270,6 +319,7 @@ def main() -> None:
                     "path": rel,
                     "label_splits": report["label_splits"],
                     "formula_unwraps": report["formula_unwraps"],
+                    "nested_bullet_cleans": report["nested_bullet_cleans"],
                 })
             if report["overlong_flags"]:
                 overlong_files.append({"path": rel, "flags": report["overlong_flags"]})

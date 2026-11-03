@@ -239,3 +239,70 @@ def test_multistep_formal_solution_not_flagged_as_inline_wall(vault_root):
     data = json.loads(out)
     assert data["summary"]["inline_wall_count"] == 0
     assert data["inline_wall_manual_review"] == []
+
+
+DOUBLE_BULLET_AND_NUMBER_CARD = """---
+source: 超越
+question_id: qid-112233445566
+topic: 双列表符与双编号
+status: 不会
+---
+
+#subject/math1 #topic/双列表符与双编号 #status/不会 #source/超越
+
+## 双列表符与双编号 — 超越 — qid-112233445566
+
+### 题目
+- 题目描述。
+
+### 考点判断
+- - 题型：选择题
+- - 章节：第一章
+
+### 检查你是否真的懂了
+1. 1. 为什么不能这样？
+2. 2. 下次怎么做？
+
+### 历史记录
+- 2026-11-03 - 不会 - 首次
+"""
+
+
+def test_cleans_nested_bullets_and_double_numbers(vault_root):
+    card = _write_card(vault_root, "双列表符-超越-qid-112233445566.md", DOUBLE_BULLET_AND_NUMBER_CARD)
+
+    rc, out, _ = run_script("migrate_wrong_card_layout.py", [str(vault_root), "--apply"])
+
+    assert rc == 0
+    data = json.loads(out)
+    assert "nested_bullet_cleans" in data["changed"][0]
+    content = card.read_text(encoding="utf-8")
+    assert "- - " not in content
+    assert "- 题型：选择题" in content
+    assert "- 章节：第一章" in content
+    assert "1. 1. " not in content
+    assert "2. 2. " not in content
+    assert "1. 为什么不能这样？" in content
+    assert "2. 下次怎么做？" in content
+
+
+def test_duplicate_marker_cleanup_preserves_question_history_and_frontmatter():
+    from migrate_wrong_card_layout import migrate_card
+
+    original = DOUBLE_BULLET_AND_NUMBER_CARD.replace(
+        "- 题目描述。", "- - 原始题面。\n1. 1. 原始选项。"
+    ).replace("- 2026-11-03 - 不会 - 首次", "- - 2026-11-03 - 不会 - 首次")
+    migrated, _ = migrate_card(original)
+    assert migrated.split("### 考点判断")[0] == original.split("### 考点判断")[0]
+    assert migrated.split("### 历史记录")[1] == original.split("### 历史记录")[1]
+    assert migrate_card(migrated)[0] == migrated
+
+
+def test_duplicate_marker_cleanup_preserves_indent_code_and_math():
+    from migrate_wrong_card_layout import clean_nested_bullets_and_numbers
+
+    protected = "```text\n- - token\n1. 1. code\n```\n\n$$\n1. 1. + x\n$$"
+    original = "  - - 子步骤\n    2. 2. 子问题\n\n" + protected
+    assert clean_nested_bullets_and_numbers(original) == (
+        "  - 子步骤\n    2. 子问题\n\n" + protected
+    )

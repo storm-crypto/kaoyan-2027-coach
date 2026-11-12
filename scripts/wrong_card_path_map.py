@@ -19,7 +19,7 @@ WHITESPACE_RE = re.compile(r"\s+")
 
 def _normalize_alias(text: str) -> str:
     """别名归一化：去掉全部空白并忽略大小写（Cache/cache、TCP/tcp 视为同一个键）。"""
-    return "".join(text.split()).lower()
+    return "".join(text.replace(r"\|", "|").split()).lower()
 
 
 @dataclass(frozen=True)
@@ -113,6 +113,185 @@ WRONG_CARD_PATH_MAP: Dict[str, Dict[str, str]] = {
         "两个正态总体的假设检验": "概率论与数理统计/08 第八章 假设检验/02 第二节 两个正态总体的假设检验",
     }
 }
+
+
+# 数学一规范叶子目录；保留李林现有章序，模板由全量对照测试约束。
+# 旧别名仍保留在上表；只有明确的叶子名进入这里的新目录，不迁移历史题卡。
+_MATH1_OUTLINE = (
+    ('高等数学', (
+        ('01 第一章 函数、极限、连续', (
+            '01 第一节 函数',
+            '02 第二节 函数极限',
+            '03 第三节 数列极限',
+            '04 第四节 函数的连续性',
+        )),
+        ('02 第二章 导数与微分', (
+            '01 第一节 导数与微分的相关概念',
+            '02 第二节 导数与微分的计算',
+        )),
+        ('03 第三章 微分中值定理与泰勒公式', (
+            '01 第一节 罗尔定理',
+            '02 第二节 拉格朗日中值定理',
+            '03 第三节 柯西中值定理',
+            '04 第四节 泰勒公式',
+        )),
+        ('04 第四章 导数的应用', (
+            '01 第一节 单调性与极值',
+            '02 第二节 凹凸性与拐点',
+        )),
+        ('05 第五章 不定积分', (
+            '01 第一节 不定积分的概念和性质',
+            '02 第二节 不定积分的计算',
+        )),
+        ('06 第六章 定积分及其应用', (
+            '01 第一节 定积分的计算',
+            '02 第二节 积分变限函数的求导问题',
+            '03 第三节 积分不等式与积分等式',
+            '04 第四节 反常积分',
+            '05 第五节 定积分的应用',
+        )),
+        ('08 第八章 多元函数微分学', (
+            '01 第一节 多元函数微分学的基本概念',
+            '02 第二节 复合函数的偏导数和全微分',
+            '03 第三节 隐函数微分法',
+            '04 第四节 极值与最值',
+            '05 第五节 方向导数与梯度',
+            '06 第六节 多元函数微分学的几何应用',
+        )),
+        ('09 第九章 微分方程', (
+            '01 第一节 微分方程的基本概念',
+            '02 第二节 一阶微分方程',
+            '03 第三节 可降阶的高阶微分方程',
+            '04 第四节 高阶线性微分方程',
+        )),
+        ('10 第十章 二重积分', (
+            '01 第一节 二重积分的概念与性质',
+            '02 第二节 二重积分的计算',
+            '03 第三节 二重积分的对称性',
+            '04 第四节 二重积分的应用',
+        )),
+        ('11 第十一章 空间解析几何', (
+            '01 第一节 向量代数',
+            '02 第二节 平面方程与直线方程',
+            '03 第三节 曲面方程',
+        )),
+        ('12 第十二章 无穷级数', (
+            '01 第一节 常数项级数',
+            '02 第二节 幂级数',
+            '03 第三节 傅里叶级数',
+        )),
+        ('13 第十三章 三重积分及第一型曲线、曲面积分', (
+            '01 第一节 三重积分',
+            '02 第二节 第一型曲线积分',
+            '03 第三节 第一型曲面积分',
+        )),
+        ('14 第十四章 第二型曲线、曲面积分', (
+            '01 第一节 第二型曲线积分',
+            '02 第二节 第二型曲面积分',
+            '03 第三节 第二型曲线、曲面积分的奇偶对称性',
+            '04 第四节 场论简介',
+        )),
+    )),
+    ('线性代数', (
+        ('01 第一章 行列式', (
+            '01 第一节 行列式的概念与性质',
+            '02 第二节 克拉默法则',
+            '03 第三节 讨论 \\|A\\|=0 的问题',
+        )),
+        ('02 第二章 矩阵', (
+            '01 第一节 矩阵的概念与运算',
+            '02 第二节 伴随矩阵',
+            '03 第三节 可逆矩阵',
+            '04 第四节 矩阵的秩',
+            '05 第五节 初等矩阵',
+            '06 第六节 矩阵方程',
+        )),
+        ('03 第三章 向量', (
+            '01 第一节 向量及其运算',
+            '02 第二节 向量组的线性相关性和线性表示',
+            '03 第三节 相关性常用结论',
+            '04 第四节 n 维向量空间',
+        )),
+        ('04 第四章 线性方程组', (
+            '01 第一节 齐次线性方程组',
+            '02 第二节 非齐次线性方程组',
+            '03 第三节 线性方程组的综合应用',
+        )),
+        ('05 第五章 相似矩阵', (
+            '01 第一节 特征值与特征向量',
+            '02 第二节 矩阵相似',
+            '03 第三节 实对称矩阵',
+            '04 第四节 确定参数',
+        )),
+        ('06 第六章 二次型', (
+            '01 第一节 二次型的概念及其标准形',
+            '02 第二节 正定二次型与正定矩阵',
+        )),
+    )),
+    ('概率论与数理统计', (
+        ('01 第一章 随机事件及其概率', (
+            '01 第一节 随机事件及其运算',
+            '02 第二节 概率的定义及其计算',
+            '03 第三节 概率计算公式',
+            '04 第四节 独立性和综合应用',
+        )),
+        ('02 第二章 一维随机变量及其分布', (
+            '01 第一节 离散型随机变量及其概率分布',
+            '02 第二节 连续型随机变量及其分布',
+            '03 第三节 一维随机变量的函数分布',
+        )),
+        ('03 第三章 多维随机变量及其分布', (
+            '01 第一节 二维随机变量',
+            '02 第二节 独立性',
+            '03 第三节 多维随机变量的函数分布',
+        )),
+        ('04 第四章 随机变量的数字特征', (
+            '01 第一节 随机变量的数学期望与方差',
+            '02 第二节 协方差和相关系数',
+        )),
+        ('05 第五章 大数定律与中心极限定理', (
+            '01 第一节 大数定律',
+            '02 第二节 中心极限定理',
+        )),
+        ('06 第六章 数理统计的基本概念', (
+            '01 第一节 基本概念与统计量',
+            '02 第二节 抽样分布',
+        )),
+        ('07 第七章 参数估计', (
+            '01 第一节 点估计',
+            '02 第二节 估计量的评判标准',
+            '03 第三节 区间估计',
+        )),
+        ('08 第八章 假设检验', (
+            '01 第一节 显著性检验',
+            '02 第二节 两个正态总体的假设检验',
+        )),
+    )),
+)
+
+
+def iter_math1_knowledge_map_rows() -> List[Tuple[str, str, str]]:
+    """产出数学一规范 (子科目, 章节标题, 叶子名称)，保留 Markdown 转义。"""
+    return [(module, chapter, f"{chapter.split()[0]}.{section}")
+            for module, chapters in _MATH1_OUTLINE
+            for chapter, sections in chapters for section in sections]
+
+
+def _build_math1_leaf_map() -> Tuple[Dict[str, str], Dict[str, str]]:
+    paths, displays = {}, {}
+    for module, chapter, display in iter_math1_knowledge_map_rows():
+        section = display.split(".", 1)[1]
+        # 知识地图的 \|A\| 是 Markdown 名称，不是文件路径。
+        # 展示名和安全目录各自保存，避免去掉竖线后改变地图行名。
+        safe_section = INVALID_PATH_CHARS_RE.sub("", section)
+        relative_dir = f"{module}/{chapter}/{safe_section}"
+        paths[display] = relative_dir
+        displays[_normalize_alias(relative_dir)] = display
+    return paths, displays
+
+
+_MATH1_LEAF_PATHS, _MATH1_DISPLAY_BY_DIR = _build_math1_leaf_map()
+WRONG_CARD_PATH_MAP["数学一"].update(_MATH1_LEAF_PATHS)
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +709,8 @@ def _aliases_for_entry(key: str, relative_dir: str) -> List[str]:
     aliases = [key, relative_dir, _materialized_relative_dir(relative_dir)]
     if parts:
         leaf = parts[-1].strip()
-        leaf_without_num = re.sub(r"^\d{1,3}\s*", "", leaf).strip()
+        leaf_without_num = _chapter_display_from_relative_dir(relative_dir)
+        leaf_without_num = re.sub(r"^\d{1,3}\.\d{1,3}\s*", "", leaf_without_num)
         leaf_without_section = _strip_section_prefix(leaf_without_num)
         aliases.extend([leaf, leaf_without_num, leaf_without_section])
         chapter_num = _leading_number(parts[-2]) if len(parts) >= 2 else None
@@ -549,6 +729,9 @@ def _leading_number(text: str) -> Optional[str]:
 
 
 def _chapter_display_from_relative_dir(relative_dir: str) -> str:
+    math_display = _MATH1_DISPLAY_BY_DIR.get(_normalize_alias(relative_dir))
+    if math_display is not None:
+        return math_display
     parts = list(Path(relative_dir).parts)
     if not parts:
         return ""

@@ -23,7 +23,7 @@ from constants import (
     SRS_EASE_FLOOR,
     SRS_EASE_PENALTY_FACTOR,
     SRS_EASE_REWARD_STEP,
-    SRS_GRADUATED_INTERVAL_DAYS,
+    SRS_MAX_INTERVAL_DAYS,
     SRS_HALF_KNOWN_INTERVAL_MULTIPLIER,
 )
 from figure_ops import parse_figure_specs, upsert_figure_section
@@ -90,11 +90,12 @@ def compute_review_schedule(status: str, old_interval: int, old_ease: float) -> 
         return 1, max(old_ease * SRS_EASE_PENALTY_FACTOR, SRS_EASE_FLOOR)
     if status == "半会":
         return (
-            max(int(old_interval * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), old_interval + 1),
+            min(max(int(old_interval * SRS_HALF_KNOWN_INTERVAL_MULTIPLIER), old_interval + 1),
+                SRS_MAX_INTERVAL_DAYS),
             old_ease,
         )
     return (
-        min(max(int(old_interval * old_ease), 1), SRS_GRADUATED_INTERVAL_DAYS),
+        min(max(int(old_interval * old_ease), 1), SRS_MAX_INTERVAL_DAYS),
         old_ease + SRS_EASE_REWARD_STEP,
     )
 

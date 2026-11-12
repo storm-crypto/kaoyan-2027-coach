@@ -4,6 +4,7 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
+import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from knowledge_findings import (
@@ -228,7 +229,7 @@ def test_parse_render_roundtrip():
 
 # ---- sync_mastered_status ----
 
-def _make_card(vault_root, qid, interval, last_review):
+def _make_card(vault_root, qid, interval, last_review, history=None, status="不会"):
     card_dir = vault_root / "错题本" / "数学一" / "高等数学"
     card_dir.mkdir(parents=True, exist_ok=True)
     card = card_dir / f"test-{qid}.md"
@@ -241,7 +242,7 @@ def _make_card(vault_root, qid, interval, last_review):
         first_wrong_at: 2026-04-01
         last_review_at: {last_review}
         wrong_count: 1
-        status: 不会
+        status: {status}
         next_review: 2026-05-15
         review_interval: {interval}
         ease_factor: 2.50
@@ -251,22 +252,64 @@ def _make_card(vault_root, qid, interval, last_review):
 
         ## 测试
     """), encoding="utf-8")
+    if history:
+        with card.open("a", encoding="utf-8") as stream:
+            stream.write("\n### 历史记录\n" + "\n".join(
+                f"- {day} - {result} - 真实作答{i + 1}"
+                for i, (day, result) in enumerate(history)
+            ) + "\n")
     return card
 
 
-def test_sync_marks_mastered_when_interval_meets_threshold(vault_root):
-    _make_card(vault_root, "qid-aaaa11112222", interval=15, last_review="2026-05-10")
+def test_sync_uses_three_greens_even_when_interval_is_short(vault_root):
+    card = _make_card(vault_root, "qid-aaaa11112222", interval=2, last_review="2026-05-31", history=[
+        ("2026-05-01", "不会"), ("2026-05-02", "会"),
+        ("2026-05-05", "会"), ("2026-05-10", "会"),
+    ])
+    before = card.read_bytes()
     findings = [Finding(qid="qid-aaaa11112222", first_exposed=date(2026, 4, 1), description="A")]
     synced = sync_mastered_status(findings, Path(vault_root), threshold_days=14)
     assert synced[0].mastered_at == date(2026, 5, 10)
+    assert card.read_bytes() == before
 
 
-def test_sync_skips_below_threshold(vault_root):
-    _make_card(vault_root, "qid-bbbb22223333", interval=10, last_review="2026-05-10")
-    findings = [Finding(qid="qid-bbbb22223333", first_exposed=date(2026, 4, 1), description="B")]
-    synced = sync_mastered_status(findings, Path(vault_root), threshold_days=14)
+@pytest.mark.parametrize("status,interval", [("会", 90), ("半会", 15), ("不会", 1)])
+def test_sync_does_not_infer_evidence_from_status_interval_or_legacy_date(vault_root, status, interval):
+    _make_card(vault_root, "qid-bbbb22223333", interval=interval, last_review="2026-05-10", status=status)
+    findings = [Finding(qid="qid-bbbb22223333", first_exposed=date(2026, 4, 1),
+                        description="B", mastered_at=date(2026, 5, 1))]
+    synced = sync_mastered_status(findings, Path(vault_root), threshold_days=1)
     assert synced[0].mastered_at is None
     assert synced[0].tombstone is False
+
+
+@pytest.mark.parametrize("statuses", [
+    ["半会"] * 8,
+    ["会", "会"],
+    ["会", "会", "会", "不会"],
+    ["会", "会", "会", "半会"],
+    ["会", "会", "会", "不会", "会", "会"],
+])
+def test_sync_reopens_when_current_history_has_not_passed(vault_root, statuses):
+    history = [(f"2026-05-{i + 1:02d}", status) for i, status in enumerate(statuses)]
+    card = _make_card(vault_root, "qid-aaaa11112222", interval=90, last_review="2026-05-31", history=history)
+    before = card.read_bytes()
+    findings = [Finding(qid="qid-aaaa11112222", first_exposed=date(2026, 4, 1),
+                        description="A", mastered_at=date(2026, 5, 3))]
+    assert sync_mastered_status(findings, Path(vault_root))[0].mastered_at is None
+    assert card.read_bytes() == before
+
+
+def test_sync_repass_uses_current_run_and_keeps_prior_attempts(vault_root):
+    statuses = ["会", "会", "会", "半会", "会", "会", "会", "会"]
+    history = [(f"2026-05-{i + 1:02d}", status) for i, status in enumerate(statuses)]
+    card = _make_card(vault_root, "qid-aaaa11112222", interval=2, last_review="2026-05-08", history=history)
+    before = card.read_bytes()
+    findings = [Finding(qid="qid-aaaa11112222", first_exposed=date(2026, 4, 1),
+                        description="A", mastered_at=date(2026, 5, 3))]
+    synced = sync_mastered_status(findings, Path(vault_root))
+    assert synced[0].mastered_at == date(2026, 5, 7)
+    assert card.read_bytes() == before
 
 
 def test_sync_marks_tombstone_when_card_missing(vault_root):
@@ -291,7 +334,10 @@ def test_sync_skips_grill_source(vault_root):
 
 
 def test_sync_preserves_already_mastered(vault_root):
-    _make_card(vault_root, "qid-aaaa11112222", interval=20, last_review="2026-06-01")
+    _make_card(vault_root, "qid-aaaa11112222", interval=20, last_review="2026-06-01", history=[
+        ("2026-04-15", "会"), ("2026-04-20", "会"),
+        ("2026-05-01", "会"), ("2026-06-01", "会"),
+    ])
     findings = [
         Finding(
             qid="qid-aaaa11112222",
@@ -301,5 +347,5 @@ def test_sync_preserves_already_mastered(vault_root):
         ),
     ]
     synced = sync_mastered_status(findings, Path(vault_root), threshold_days=14)
-    # 不会被 sync 覆盖掉
+    # 后续继续答对不挪动当前这轮的通过日期。
     assert synced[0].mastered_at == date(2026, 5, 1)

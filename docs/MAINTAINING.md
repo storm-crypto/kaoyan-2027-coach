@@ -222,7 +222,7 @@ python3 -m pytest tests/ -v
 
 stdout 为合法 JSON，七项候选池来自 `build_candidate_pool`：
 
-- `due_clusters`：原扫描脚本 `--by-cluster` 的 `clusters` 原样保留（包括题面、预计分钟和顺序）；该扫描仍执行原有超期降级。索引缺失时为空，不生成替代计划。
+- `due_clusters`：原扫描脚本 `--by-cluster` 的 `clusters` 原样保留（包括题面、预计分钟和顺序）；扫描默认只读，不改写排期。索引缺失或题卡未归簇时返回 `unclustered`，保留到期题；不生成替代计划。
 - `breakthroughs`：只含档案中进行中的突破单。字段为 `id / goal / source / plan / criteria / status / day / total_days / created_date / note`。
 - `yesterday_unfinished` / `yesterday_completion_rate`：仅计算昨日归档「任务清单」区，未归档为 `[] / null`，空清单完成率为 0。
 - `focus_items`：保留档案聚焦条目及顺序。
@@ -232,3 +232,11 @@ stdout 为合法 JSON，七项候选池来自 `build_candidate_pool`：
 第八项 `archive_summary` 复用 `load_context.build_archive_summary`，包含阶段、日期、目标、各科状态、短板、错误模式、下一步建议、单科成绩以及最近日志和报告的事实字段。原 `/load` 的行为保留；计划入口不使用它的优先级、风险与第一步决策。
 
 AI 负责写计划正文；通过 `plan_ops.py --content-file 文件` 写入现有固定路径，归档与同日完成状态保留集中在该函数中。候选池 `--write` 只生成调试 JSON，不改变今日计划。所有测试使用临时 vault，不对真实学习数据写入。
+
+## 复习与小测的数据契约
+
+- `study_ops.review_schedule_state` 是只读到期判断的共同入口，90 天只限制排期间隔。显式超期重排在扫描 CLI 的 `--apply-overdue` 分支执行，不改变作答历史。
+- 卡点解决由题卡历史末尾三连绿决定，复发后重新激活；旧 `--mastery-threshold-days` 仅兼容，不再参与判定。
+- 历史统计的复习热力图从真实历史按“同卡同日计一次”聚合，排除首次归档；不从 `last_review_at` 补造历史。
+- 精确复验走 `build_knowledge_test.py --topic-id`，默认选弱项与指定叶子复验分开。`record_knowledge_test.py` 在知识地图末尾保存独立测试记录，并与掌握度同次原子写入；新作答使用新测试 ID，重试沿用原 ID。
+- 知识地图行用 `knowledge_map_parser.split_knowledge_row` 解析，保留转义竖线；不要直接按 `|` 拆分行列式等考点。

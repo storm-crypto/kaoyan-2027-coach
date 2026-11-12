@@ -20,12 +20,14 @@ from archive_ops import (
     parse_subject_score_rows,
     migrate_archive_schemas,
 )
-from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS, SUBJECT_META
+from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_MAX_INTERVAL_DAYS, SUBJECT_META
 from frontmatter import parse_frontmatter
 from score_record_lib import collect_score_records, top_weakness_from_408_record
-from study_ops import iter_review_cards
+from study_ops import iter_review_cards, review_schedule_state
 from duration_parser import parse_logged_hours
 from card_progress import card_progress
+from card_history import history_entries
+from knowledge_map_parser import split_knowledge_row
 
 
 SUBJECT_TO_KM_FILE = {
@@ -216,7 +218,7 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
         if item["icloud_placeholder"]:
             continue
         fm = item["frontmatter"]
-        if not fm or not fm.get("first_wrong_at"):
+        if not fm or not any(fm.get(key) for key in ("question_id", "first_wrong_at", "next_review")):
             continue
         path = item["path"]
         try:
@@ -230,11 +232,14 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
         next_review = item["next_review"]
         review_interval = item["review_interval"] or 0
         status = str(fm.get("status", "")).strip()
-        overdue_days = None
-        is_due = False
-        if next_review is not None and review_interval < SRS_GRADUATED_INTERVAL_DAYS:
-            overdue_days = (today - next_review).days
-            is_due = next_review <= today
+        schedule = review_schedule_state(next_review, item["review_interval"], today)
+        overdue_days = schedule["overdue_days"]
+        entries = history_entries(item["body"])
+        # 首次归档不是复习；同卡同日多次真实作答在热力图中计一道。
+        if entries and entries[0]["date"] == created_at:
+            entries = entries[1:]
+        review_dates = sorted({entry["date"].isoformat() for entry in entries
+                               if created_at is None or entry["date"] >= created_at})
         history_statuses = extract_card_history_statuses(item["body"])
         promoted = any(history in {"半会", "会"} for history in history_statuses)
         cards.append({
@@ -251,13 +256,17 @@ def collect_cards(obsidian_root: Path, today: date) -> List[Dict[str, object]]:
             "chapter": chapter,
             "created_at": format_date(created_at),
             "last_review_at": format_date(last_review_at),
+            "review_dates": review_dates,
             "next_review": format_date(next_review),
             "review_interval": review_interval,
             "status": status or "未标注",
-            "is_due": is_due,
+            "is_due": schedule["due"],
+            "overdue_reset_pending": schedule["overdue_reset_pending"],
             "overdue_days": overdue_days,
             "overdue_bucket": bucket_overdue_days(overdue_days) if overdue_days is not None else "未排期",
-            "graduated": review_interval >= SRS_GRADUATED_INTERVAL_DAYS,
+            # 旧字段保留兼容，长间隔不再代表退出排期。
+            "graduated": False,
+            "long_interval": review_interval >= SRS_MAX_INTERVAL_DAYS,
             "promoted": promoted,
         })
     return cards
@@ -288,7 +297,7 @@ def collect_knowledge_maps(obsidian_root: Path) -> Dict[str, Dict[str, object]]:
             stripped = line.strip()
             if not stripped.startswith("|"):
                 continue
-            cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+            cells = split_knowledge_row(stripped)
             if len(cells) < 4 or cells[0] == "考点" or set(cells[0]) == {"-"}:
                 continue
             topic_cell = cells[0]
@@ -522,6 +531,7 @@ def build_review_payload(cards: Sequence[Mapping[str, object]]) -> Dict[str, obj
     return {
         "due_total": len(due_cards),
         "graduated_total": graduated_total,
+        "long_interval_total": sum(1 for card in cards if card.get("long_interval")),
         "by_subject": [{"label": subject, "value": by_subject.get(subject, 0)} for subject in PLAN_SUBJECTS],
         "by_status": [{"label": status, "value": by_status.get(status, 0)} for status in STATUS_ORDER],
         "overdue_buckets": [
@@ -567,7 +577,11 @@ def build_activity_payload(
     log_dates = [entry["date"] for entry in logs]
     log_counts = Counter(log_dates)
     created_counts = Counter(parse_iso_date(card["created_at"]) for card in cards if parse_iso_date(card["created_at"]))
-    reviewed_counts = Counter(parse_iso_date(card["last_review_at"]) for card in cards if parse_iso_date(card["last_review_at"]))
+    reviewed_counts = Counter(
+        day for card in cards
+        for day in {parse_iso_date(value) for value in card.get("review_dates", [])}
+        if day is not None
+    )
 
     latest_log = max(log_dates) if log_dates else None
     active_days_14 = sum(1 for day in set(log_dates) if today - timedelta(days=13) <= day <= today)

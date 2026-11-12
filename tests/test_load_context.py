@@ -5,6 +5,8 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from helpers import run_script
 
 
@@ -12,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from load_context import build_archive_summary, build_priorities, latest_log_info, parse_report_sort_date
 from archive_ops import replace_heading_block
+from constants import SCORE_SUBJECTS
 
 
 def test_parse_report_sort_date_supports_old_and_ranged_weekly_names():
@@ -113,6 +116,26 @@ def test_load_context_happy_path(sample_archive, vault_root):
     assert data["latest_report_path"].endswith("2026-10-10-模考分析.md")
     assert any("最近一次408模拟还没消化" in item for item in data["risks"])
     assert "考试倒计时" in data["markdown"]
+
+
+@pytest.mark.parametrize("subject", SCORE_SUBJECTS)
+def test_latest_score_of_every_subject_enters_load_priorities(sample_archive, vault_root, subject):
+    """四科共用成绩入口；较新的政治卷不能被数学/408 的旧成绩遮掉。"""
+    rc, out, err = run_script("record_paper_score.py", [
+        str(vault_root), subject, "--paper", "最新专项模拟卷",
+        "--paper-type", "模拟", "--total", "65", "--date", "2026-10-15",
+        "--issues", "需要核对适用条件", "--note", "独立限时完成",
+    ])
+    assert rc == 0, (out, err)
+    rc, out, err = run_script("load_context.py", [str(vault_root), "--today", "2026-10-16"])
+    assert rc == 0, (out, err)
+    data = json.loads(out)
+    assert subject in data["priorities"][0]
+    assert "2026-10-15 最新专项模拟卷" in data["priorities"][0]
+    assert "需要核对适用条件" in data["priorities"][0]
+    assert any(subject in item and "需要核对适用条件" in item for item in data["risks"])
+    summary = build_archive_summary(vault_root, date(2026, 10, 16))
+    assert any(row["paper"] == "最新专项模拟卷" for row in summary["subject_scores"][subject])
 
 
 def test_priorities_preserve_all_sources_and_deduplicate():

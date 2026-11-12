@@ -1,6 +1,7 @@
 """test update_knowledge_map.py"""
 import json
 import textwrap
+from datetime import date, timedelta
 import pytest
 from helpers import run_script
 
@@ -147,7 +148,7 @@ def test_write_back_keeps_clean_pipe_spacing(lilang_knowledge_map, vault_root):
 
 # ---- 结构化卡点（finding）模式 ----
 
-def _make_wrong_card(vault_root, qid, interval, last_review="2026-05-14"):
+def _make_wrong_card(vault_root, qid, interval, last_review="2026-05-14", results=()):
     """在错题本里造一张数学一卡片，给 sync_mastered_status 用。"""
     card_dir = vault_root / "错题本" / "数学一" / "高等数学"
     card_dir.mkdir(parents=True, exist_ok=True)
@@ -171,6 +172,13 @@ def _make_wrong_card(vault_root, qid, interval, last_review="2026-05-14"):
 
         ## 测试
     """), encoding="utf-8")
+    if results:
+        last_day = date.fromisoformat(last_review)
+        with card.open("a", encoding="utf-8") as stream:
+            stream.write("\n### 历史记录\n" + "\n".join(
+                f"- {last_day - timedelta(days=2 * (len(results) - i - 1))} - {result} - 实际作答"
+                for i, result in enumerate(results)
+            ) + "\n")
     return card
 
 
@@ -259,9 +267,10 @@ def test_finding_add_keep_legacy_note(knowledge_map, vault_root):
     assert "想留下的老备注" in target_line
 
 
-def test_finding_sync_auto_strikes_when_interval_ge_threshold(knowledge_map, vault_root):
-    """对应错题卡 review_interval ≥ 14 时，重跑脚本应自动划掉对应 finding。"""
-    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=20, last_review="2026-05-14")
+def test_finding_sync_strikes_from_three_actual_greens(knowledge_map, vault_root):
+    """三次真实会才解决卡点；短间隔不影响证据。"""
+    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=2, last_review="2026-05-14",
+                     results=("会", "会", "会"))
     rc, out, _ = run_script("update_knowledge_map.py", [
         str(vault_root), "数学一", "二重积分", "会",
         "--finding-add", "qid-aaaa11112222|2026-04-01|本来不会现在掌握",
@@ -274,11 +283,12 @@ def test_finding_sync_auto_strikes_when_interval_ge_threshold(knowledge_map, vau
     assert "~~[2026-04-01 → 2026-05-14] 本来不会现在掌握 (qid-aaaa11112222)~~" in target_line
 
 
-def test_finding_sync_does_not_strike_below_threshold(knowledge_map, vault_root):
-    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=5, last_review="2026-05-14")
+def test_finding_sync_does_not_strike_from_long_interval_without_history(knowledge_map, vault_root):
+    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=90, last_review="2026-05-14")
     rc, out, _ = run_script("update_knowledge_map.py", [
         str(vault_root), "数学一", "二重积分", "不会",
         "--finding-add", "qid-aaaa11112222|2026-05-01|还卡着",
+        "--mastery-threshold-days", "1",
     ])
     assert rc == 0
     data = json.loads(out)
@@ -290,10 +300,10 @@ def test_finding_sync_does_not_strike_below_threshold(knowledge_map, vault_root)
 
 def test_finding_fold_threshold_triggers_details_block(knowledge_map, vault_root):
     """已掌握 ≥ fold_threshold 时应包 <details>。"""
-    # 4 张已掌握的卡（interval=30）+ 1 张未掌握的（interval=2）
+    # 4 张三连绿卡 + 1 张无验收历史卡。
     qids_mastered = ["qid-aa11aa11aa11", "qid-bb22bb22bb22", "qid-cc33cc33cc33", "qid-dd44dd44dd44"]
     for qid in qids_mastered:
-        _make_wrong_card(vault_root, qid, interval=30, last_review="2026-05-14")
+        _make_wrong_card(vault_root, qid, interval=30, last_review="2026-05-14", results=("会", "会", "会"))
     _make_wrong_card(vault_root, "qid-ee55ee55ee55", interval=2, last_review="2026-05-14")
 
     args = [str(vault_root), "数学一", "二重积分", "会"]
@@ -317,14 +327,15 @@ def test_finding_fold_threshold_triggers_details_block(knowledge_map, vault_root
 
 def test_finding_sync_runs_even_without_finding_add(knowledge_map, vault_root):
     """已经有 findings 的考点，再次调用脚本（不带 --finding-add）也应触发 sync。"""
-    # 第一次：建一条未划的 finding，对应的卡 interval=5（未到阈值）
+    # 第一次：没有独立作答历史的 finding 保持未解决。
     _make_wrong_card(vault_root, "qid-aaaa11112222", interval=5, last_review="2026-05-01")
     run_script("update_knowledge_map.py", [
         str(vault_root), "数学一", "二重积分", "不会",
         "--finding-add", "qid-aaaa11112222|2026-04-01|新卡点",
     ])
-    # 第二次：错题卡 interval 已经长到 18，不带新 finding，只是想触发同步划掉
-    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=18, last_review="2026-05-14")
+    # 第二次：错题卡已三连绿，不带新 finding 也同步当前解决状态。
+    _make_wrong_card(vault_root, "qid-aaaa11112222", interval=18, last_review="2026-05-14",
+                     results=("会", "会", "会"))
     rc, out, _ = run_script("update_knowledge_map.py", [
         str(vault_root), "数学一", "二重积分", "会"
     ])
@@ -334,6 +345,34 @@ def test_finding_sync_runs_even_without_finding_add(knowledge_map, vault_root):
     content = (knowledge_map / "数学一.md").read_text(encoding="utf-8")
     target_line = next(line for line in content.splitlines() if "05.5 二重积分" in line)
     assert "~~[2026-04-01 → 2026-05-14] 新卡点 (qid-aaaa11112222)~~" in target_line
+
+
+@pytest.mark.parametrize("new_result", ["半会", "不会"])
+def test_real_review_after_pass_reactivates_finding_without_erasing_history(knowledge_map, vault_root, new_result):
+    card = _make_wrong_card(vault_root, "qid-aaaa11112222", interval=90,
+                            results=("会", "会", "会"))
+    rc, out, err = run_script("update_knowledge_map.py", [
+        str(vault_root), "数学一", "二重积分", "会",
+        "--finding-add", "qid-aaaa11112222|2026-04-01|旧卡点",
+    ])
+    assert rc == 0, out + err
+    assert json.loads(out)["mastered_count"] == 1
+    prior_history = card.read_text().split("### 历史记录\n", 1)[1].strip()
+    rc, out, err = run_script("update_card.py", [
+        str(card), "--status", new_result, "--today", "2026-05-15", "--comment", "复发检查",
+    ])
+    assert rc == 0, out + err
+    rc, out, err = run_script("update_knowledge_map.py", [
+        str(vault_root), "数学一", "二重积分", new_result,
+    ])
+    assert rc == 0, out + err
+    assert json.loads(out)["mastered_count"] == 0
+    target_line = next(line for line in (knowledge_map / "数学一.md").read_text().splitlines()
+                       if "05.5 二重积分" in line)
+    assert "~~" not in target_line
+    assert "[2026-04-01] 旧卡点" in target_line
+    assert prior_history in card.read_text()
+    assert f"- 2026-05-15 - {new_result} - 复发检查" in card.read_text()
 
 
 def test_finding_add_invalid_format_returns_error(knowledge_map, vault_root):

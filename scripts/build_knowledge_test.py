@@ -5,11 +5,13 @@ import json
 import re
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from archive_ops import load_template_markdown
 from env_util import json_error, resolve_obsidian_root
 from breakthrough_ops import parse_breakthroughs
-from wrong_card_path_map import resolve_wrong_card_chapter
+from knowledge_test_records import identify_topics, select_topic
+from knowledge_map_parser import split_knowledge_row
 
 SUBJECT_MAP = {
     "数学一": ("数学一", "数学一.md"),
@@ -142,11 +144,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="生成知识测试题单")
     parser.add_argument("subject", help="科目，如 数学一 / 408 / 政治 / 英语一")
     parser.add_argument("--chapter", default="", help="章节/模块/考点关键词，可选")
+    parser.add_argument("--topic-id", help="精确复验单个叶子考点，允许已标会；不能与 --chapter/--breakthrough-id 混用")
     parser.add_argument("--count", type=int, default=5, help="题量，建议 3-5")
     parser.add_argument("--breakthrough-id", help="突破单验收：优先抽疗程 topic_ids，包含已标会的考点")
     args = parser.parse_args(raw_args)
     if args.count <= 0:
         json_error("题量必须大于 0")
+    if args.topic_id and (args.chapter or args.breakthrough_id):
+        json_error("--topic-id 精确复验不能与 --chapter/--breakthrough-id 混用")
     return obsidian_root_arg, args
 
 
@@ -170,12 +175,19 @@ def mastery_priority(text):
     return 2
 
 
-def parse_knowledge_map(path):
+def parse_knowledge_map(path, *, text=None):
     rows = []
     current_module = ""
     current_chapter = ""
 
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    text = path.read_text(encoding="utf-8") if text is None else text
+    # 证据记录不是考点表。保留换行数，保证 line_no 仍指向原文件。
+    if "<!-- kaoyan:knowledge-tests:start -->" in text:
+        start = text.index("<!-- kaoyan:knowledge-tests:start -->")
+        end_marker = "<!-- kaoyan:knowledge-tests:end -->"
+        end = text.index(end_marker, start) + len(end_marker) if end_marker in text[start:] else len(text)
+        text = text[:start] + "\n" * text[start:end].count("\n") + text[end:]
+    for line_no, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if stripped.startswith("## "):
             current_module = stripped[3:].strip()
@@ -183,7 +195,7 @@ def parse_knowledge_map(path):
         if "|" not in line:
             continue
 
-        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        cells = split_knowledge_row(line)
         if len(cells) != 4:
             continue
         topic = normalize_topic(cells[0])
@@ -215,6 +227,7 @@ def build_question(item, subject, index):
     blueprint = QUESTION_BLUEPRINTS[subject][index % len(QUESTION_BLUEPRINTS[subject])]
     return {
         "index": index + 1,
+        "test_id": "test-" + uuid4().hex,
         "question_type": blueprint["type"],
         "module": item["module"],
         "chapter": item["chapter"],
@@ -272,16 +285,7 @@ def main():
     if not knowledge_map_path.exists():
         json_error(f"知识地图不存在: {knowledge_map_path}")
 
-    rows = parse_knowledge_map(knowledge_map_path)
-    for row in rows:
-        # 优先用地图的完整目录信息，避免同名叶子在不同模块间串号。
-        module = re.split(r'[（(]', row['module'], maxsplit=1)[0].strip()
-        numbered = re.match(r'^\d+\.(\d+)\s+(.+)$', row['topic'])
-        leaf = f"{int(numbered.group(1)):02d} {numbered.group(2)}" if numbered else row['topic']
-        resolution = resolve_wrong_card_chapter(canonical_subject, f"{module}/{row['chapter']}/{leaf}", strict=False)
-        if not resolution.is_canonical:
-            resolution = resolve_wrong_card_chapter(canonical_subject, row['topic'], strict=False)
-        row['topic_id'] = resolution.chapter_id if resolution.is_canonical else ''
+    rows = identify_topics(canonical_subject, parse_knowledge_map(knowledge_map_path))
     target_ids = []
     if args.breakthrough_id:
         try:
@@ -322,6 +326,11 @@ def main():
         targets = [row for row in rows if row['topic_id'] in target_ids]
         targets.sort(key=lambda row: (target_ids.index(row['topic_id']), row['line_no']))
         candidates = targets + [row for row in candidates if row['topic_id'] not in target_ids]
+    if args.topic_id:
+        try:
+            candidates = [select_topic(rows, args.topic_id)]
+        except ValueError as exc:
+            json_error(str(exc))
 
     if not candidates:
         scope = chapter_filter or canonical_subject
@@ -332,18 +341,20 @@ def main():
 
     print(json.dumps({
         "subject": canonical_subject,
+        "topic_id": args.topic_id,
         "chapter_filter": chapter_filter or None,
         "chapter_filter_resolved": chapter_filter_used or None,
         "knowledge_map_path": str(knowledge_map_path),
         "candidate_total": len(candidates),
         "question_count": len(questions),
-        "selection_rule": ("优先突破单疗程考点（含已标会），不足再补普通弱项" if target_ids else
+        "selection_rule": ("仅复验指定考点（含已标会），不补其他考点" if args.topic_id else
+                           "优先突破单疗程考点（含已标会），不足再补普通弱项" if target_ids else
                            "优先选择掌握度为空/不会的叶子考点，再选择半会考点"),
         "breakthrough_id": args.breakthrough_id,
         "target_topic_ids": target_ids,
         "unmatched_topic_ids": [topic_id for topic_id in target_ids if not any(row['topic_id'] == topic_id for row in rows)],
         "questions": questions,
-        "markdown": render_markdown(canonical_subject, f"突破单 {args.breakthrough_id}" if target_ids else args.chapter, questions),
+        "markdown": render_markdown(canonical_subject, f"精确复验 {args.topic_id}" if args.topic_id else f"突破单 {args.breakthrough_id}" if target_ids else args.chapter, questions),
     }, ensure_ascii=False, indent=2))
 
 

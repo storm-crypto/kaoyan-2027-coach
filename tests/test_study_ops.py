@@ -4,11 +4,12 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from study_ops import collect_due_cards, count_due_reviews, iter_review_cards
+from study_ops import collect_due_cards, count_due_reviews, iter_review_cards, review_schedule_state
 
 
 def _write_card(vault_root, subject, filename, next_review, interval):
@@ -48,16 +49,31 @@ def test_iter_review_cards_marks_icloud_placeholder(vault_root):
     assert placeholder["review_interval"] is None
 
 
-def test_collect_due_cards_skips_placeholder_and_graduated(vault_root):
+def test_collect_due_cards_skips_placeholder_but_keeps_long_interval(vault_root):
     due_card = _write_card(vault_root, "数学一", "due.md", "2026-03-20", interval=2)
-    _write_card(vault_root, "408", "graduated.md", "2026-03-20", interval=90)
+    long_interval = _write_card(vault_root, "408", "long-interval.md", "2026-03-20", interval=90)
     cloud_target = _write_card(vault_root, "英语一", "cloud.md", "2026-03-20", interval=2)
     (cloud_target.parent / f".{cloud_target.name}.icloud").write_text("", encoding="utf-8")
 
     due_cards = collect_due_cards(vault_root, date(2026, 3, 23))
 
-    assert len(due_cards) == 1
-    assert {item["filename"] for item in due_cards} == {due_card.stem}
+    assert len(due_cards) == 2
+    assert {item["filename"] for item in due_cards} == {due_card.stem, long_interval.stem}
+
+
+@pytest.mark.parametrize("next_review,interval,due,days,pending", [
+    (None, 90, False, None, False),
+    (date(2026, 3, 24), 90, False, -1, False),
+    (date(2026, 3, 23), 90, True, 0, False),
+    (date(2026, 3, 16), 90, True, 7, False),
+    (date(2026, 3, 15), 90, True, 8, True),
+    (date(2026, 3, 15), 1, True, 8, False),
+    (date(2026, 3, 15), None, True, 8, False),
+    (date(2026, 3, 23), 96, True, 0, False),
+])
+def test_schedule_is_date_based_and_overdue_reset_is_separate(next_review, interval, due, days, pending):
+    state = review_schedule_state(next_review, interval, date(2026, 3, 23))
+    assert state == {"due": due, "overdue_days": days, "overdue_reset_pending": pending}
 
 
 def test_count_due_reviews_returns_subject_breakdown(vault_root):

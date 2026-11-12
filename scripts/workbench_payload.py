@@ -9,6 +9,7 @@ from build_knowledge_test import parse_knowledge_map
 from constants import DAILY_PLAN_RELATIVE_PATH, PLAN_SUBJECTS
 from daily_plan_state import parse_daily_plan
 from knowledge_findings import parse_findings
+from knowledge_test_records import identify_topics, read_test_records
 from log_layout import log_path_for
 from metaskill_index import group_due_by_cluster, load_index
 from metaskill_browser import build_metaskills
@@ -97,8 +98,15 @@ def collect_knowledge(root, cards):
     for subject in PLAN_SUBJECTS:
         path = root / "知识地图" / f"{subject}.md"
         chapters = {}
+        warnings = []
         if path.is_file():
-            for row in parse_knowledge_map(path):
+            text = read_text(path)
+            try:
+                tests = read_test_records(text)
+            except ValueError as exc:
+                tests = []
+                warnings.append(str(exc))
+            for row in identify_topics(subject, parse_knowledge_map(path, text=text)):
                 key = (row["module"], row["chapter"] or "未分章")
                 chapter = chapters.setdefault(key, {"module": key[0], "name": key[1], "topics": []})
                 findings, legacy = parse_findings(row["note"])
@@ -115,11 +123,13 @@ def collect_knowledge(root, cards):
                 chapter["topics"].append({
                     "name": row["topic"], "status": row["mastery"] if row["mastery"] in {"会", "半会", "不会"} else "待测",
                     "evidence": evidence, "note": legacy,
-                    "command": f"/test {subject} {row['module']} {row['topic']}",
+                    "topic_id": row["topic_id"],
+                    "tests": sorted([item for item in reversed(tests) if item["subject"] == subject and item["topic_id"] == row["topic_id"]], key=lambda item: item["date"], reverse=True),
+                    "command": f"/test {subject} --topic-id {row['topic_id']}",
                 })
         for chapter in chapters.values():
             chapter["counts"] = dict(Counter(topic["status"] for topic in chapter["topics"]))
-        subjects.append({"subject": subject, "link": make_link(path, root), "chapters": list(chapters.values())})
+        subjects.append({"subject": subject, "link": make_link(path, root), "chapters": list(chapters.values()), "warnings": warnings})
     return subjects
 
 

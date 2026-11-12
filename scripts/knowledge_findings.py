@@ -12,10 +12,13 @@ from datetime import date
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 
+from card_history import history_entries
+from card_progress import TARGET, card_progress
 from study_ops import iter_review_cards
 
 
 FINDING_DESC_MAX_LEN = 40
+# 旧调用方兼容值；间隔不再作为掌握证据。
 DEFAULT_MASTERY_THRESHOLD_DAYS = 14
 DEFAULT_FOLD_THRESHOLD = 3
 
@@ -160,15 +163,18 @@ def sync_mastered_status(
     obsidian_root: Path,
     threshold_days: int = DEFAULT_MASTERY_THRESHOLD_DAYS,
 ) -> List[Finding]:
-    """根据每条 finding 对应错题卡的 review_interval 自动维护 mastered_at。
+    """根据对应题卡的真实历史维护该卡点的当前解决状态。
 
     规则：
     - source='grill' 跳过（无真实错题卡可参考）
-    - source='wrong_card' 且 review_interval ≥ threshold_days → 设 mastered_at = card.last_review_at
-    - 已经划掉的（mastered_at 已设）不再动
+    - 历史末尾连续三次“会”才解决；日期为当前连绿首次达到三次的日期
+    - 黄/红使卡点重新激活；缺少历史时不从 status、间隔或旧解决日期补造证据
     - 卡片找不到 → 设 tombstone=True
+
+    threshold_days 只保留旧调用兼容，不参与判定。这里只派生当前状态，
+    不修改卡片及历史；过往通过和复发记录仍可从原卡追溯。
     """
-    card_index: dict[str, Tuple[int, Optional[date]]] = {}
+    card_index: dict[str, Optional[date]] = {}
     for card in iter_review_cards(obsidian_root):
         if card["icloud_placeholder"]:
             continue
@@ -176,29 +182,22 @@ def sync_mastered_status(
         qid = str(fm.get("question_id", "")).strip()
         if not qid:
             continue
-        interval = card["review_interval"]
-        if interval is None:
-            continue
-        last_review_str = str(fm.get("last_review_at", "")).strip()
-        last_review: Optional[date] = None
-        if last_review_str:
-            try:
-                last_review = date.fromisoformat(last_review_str)
-            except ValueError:
-                last_review = None
-        card_index[qid] = (interval, last_review)
+        entries = history_entries(card["body"])
+        progress = card_progress(card["body"])
+        passed_at = None
+        if progress["passed"]:
+            # 第三次绿灯是本轮通过日期，后续继续答对不挪动此日期。
+            passed_at = entries[len(entries) - progress["green_streak"] + TARGET - 1]["date"]
+        card_index[qid] = passed_at
 
     for finding in findings:
         if finding.source == "grill":
             continue
-        if finding.mastered_at is not None:
-            continue
         if finding.qid not in card_index:
             finding.tombstone = True
             continue
-        interval, last_review = card_index[finding.qid]
-        if interval >= threshold_days and last_review is not None:
-            finding.mastered_at = last_review
+        finding.tombstone = False
+        finding.mastered_at = card_index[finding.qid]
 
     return findings
 

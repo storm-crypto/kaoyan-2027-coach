@@ -22,6 +22,20 @@ CHAPTER_ROW_RE = re.compile(r"\|\s*\*\*\s*(\d{1,3})\s+(.+?)\s*\*\*\s*\|")
 SUBGROUP_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
 
 
+def split_knowledge_row(line: str) -> List[str]:
+    """拆 Markdown 表格行，保留转义竖线；返回值不含首尾分隔符。"""
+    line = line.strip()
+    if not line.startswith("|") or not line.endswith("|"):
+        return []
+    cells, start, backslashes = [], 1, 0
+    for index, char in enumerate(line[1:], start=1):
+        if char == "|" and backslashes % 2 == 0:
+            cells.append(line[start:index].strip())
+            start = index + 1
+        backslashes = backslashes + 1 if char == "\\" else 0
+    return cells if start == len(line) else []
+
+
 @dataclass(frozen=True)
 class ChapterEntry:
     subgroup: str       # 高等数学 / 数据结构 / ...
@@ -48,7 +62,8 @@ def parse_knowledge_map(path: Path) -> List[ChapterEntry]:
         if heading:
             current_subgroup = _strip_section_size_suffix(heading.group(1))
             continue
-        m = CHAPTER_ROW_RE.search(line)
+        cells = split_knowledge_row(line)
+        m = re.fullmatch(r"\*\*\s*(\d{1,3})\s+(.+?)\s*\*\*", cells[0]) if cells else None
         if not m:
             continue
         chapter_num = int(m.group(1))
@@ -95,4 +110,5 @@ __all__ = [
     "load_all_maps",
     "total_chapters",
     "chapters_index",
+    "split_knowledge_row",
 ]

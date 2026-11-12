@@ -99,6 +99,7 @@ def render_knowledge(data):
         counts = {status: sum(c['counts'].get(status, 0) for c in subject['chapters']) for status in ('待测','不会','半会','会')}
         badges = ''.join(f'<span class="state state-{status}">{status} {count}</span>' for status,count in counts.items())
         out += f'<details class="knowledge-subject chapter" data-subject="{esc(subject["subject"])}"><summary><span>{esc(subject["subject"])}</span><span class="status-counts">{badges}</span></summary><div class="actions">{link(subject["link"], "打开知识地图")}</div>'
+        out += ''.join(f'<p class="notice">{esc(warning)}</p>' for warning in subject.get('warnings', []))
         if not subject['chapters']:
             out += '<p class="muted">尚无知识地图数据。</p>'
         for chapter in subject['chapters']:
@@ -110,6 +111,12 @@ def render_knowledge(data):
             for topic in chapter['topics']:
                 out += f'<div class="topic"><div class="section-heading"><span>{esc(topic["name"])}</span><span class="state state-{topic["status"]}">{topic["status"]}</span></div>'
                 out += '<details><summary>证据与下一步</summary>'
+                for test in topic.get('tests', []):
+                    condition = '提示后作答' if test['hinted'] else '无提示作答'
+                    out += f'<details><summary>知识测试 · {esc(test["date"])} · {condition} · {esc(test["result"])}</summary>'
+                    for key, title in [('question', '题目'), ('answer', '作答'), ('judgment', '判定依据')]:
+                        out += f'<p><strong>{title}</strong></p><p class="note-text">{esc(test[key])}</p>'
+                    out += link(subject['link'], '查看测试记录') + '</details>'
                 for item in topic['evidence']:
                     out += f'<p>{esc(item["description"])}<span class="muted"> · 暴露于 {esc(item["date"])}</span></p>'
                     out += muted('关联卡最近记录：' + item['last_review'] if item['last_review'] else '未找到关联题卡的验证日期')
@@ -117,11 +124,11 @@ def render_knowledge(data):
                         out += muted('备注标记解决于：' + item['resolved'])
                     out += link(item['link'], '查看证据原卡')
                 if topic['note']:
-                    # 备注中的 HTML/Markdown 只作为文字，完整公式由 Obsidian 渲染。
+                    # 备注先转义，公式由本地 KaTeX 渲染；不执行用户 HTML。
                     out += f'<p class="note-text">{esc(topic["note"])}</p>'
-                if not topic['evidence']:
-                    out += muted('缺少可关联的测试日期与题卡；可通过小测补充证据。')
-                out += command(topic['command'], '复制小测指令') + '</details></div>'
+                if not topic['evidence'] and not topic.get('tests'):
+                    out += muted('缺少可关联的测试记录与题卡；可通过复验补充证据。')
+                out += command(topic['command'], '复制考点复验指令') + '</details></div>'
             out += '</details>'
         out += '</details>'
     return out + '</div>'
@@ -163,6 +170,7 @@ function navigate(name){if(!pages.includes(name))name='today';for(const page of 
 document.querySelectorAll('[data-page],[data-go]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page||button.dataset.go)));
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));
 navigate(location.hash.slice(1));
+if(window.renderMathInElement)window.renderMathInElement(document.getElementById('page-knowledge'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false,trust:false,strict:'ignore'});
 document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const status=document.getElementById('copy-status');try{await navigator.clipboard.writeText(button.dataset.copy);status.textContent='已复制，请粘贴到教练对话中执行。';}catch(error){status.textContent='浏览器未允许复制。请选中按钮旁的指令，手动复制到教练对话。';}}));
 let reviewLimit=12;
 function filterList(select){const list=document.getElementById(select.dataset.filter);let count=0;list.querySelectorAll('[data-subject]').forEach(item=>{const matches=!select.value||item.dataset.subject===select.value;item.hidden=!matches||(select.dataset.filter==='review-list'&&count>=reviewLimit);if(matches)count++;if(select.dataset.filter==='knowledge-list'&&select.value)item.open=matches;});const empty=list.querySelector('.filter-empty');if(empty)empty.hidden=count>0;if(select.dataset.filter==='review-list')document.getElementById('more-reviews').hidden=count<=reviewLimit;}

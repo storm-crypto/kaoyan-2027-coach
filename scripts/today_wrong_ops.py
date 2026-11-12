@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from archive_ops import extract_heading_block
-from constants import PLAN_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
+from constants import PLAN_SUBJECTS
 from create_wrong_card import compute_initial_review_schedule
-from study_ops import iter_review_cards
+from study_ops import iter_review_cards, review_schedule_state
 from update_card import compute_review_schedule
 from wrong_card_path_map import canonical_chapter_display
 from cs_card_layout import SOP, extract_module, unfold_callout
@@ -303,7 +303,7 @@ def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffective
     - 今日新增（new_today）= first_wrong_at == today；不计入复习池
     - 今日复习（reviewed_today）= 历史记录里 date == today 的条目（取最后一条 status）
     - 仍到期未复习（due_remaining）= 当天未复习 + 重放历史得到的 next_review ≤ today
-      + interval < 90（未毕业）
+      长间隔题仍按 next_review 到期，不因达到 90 天退出排期。
     """
     stats = ReviewEffectiveness()
 
@@ -345,7 +345,7 @@ def scan_today_review_stats(obsidian_root: Path, today: date) -> ReviewEffective
         if prior_state is None:
             continue
         next_review_at, interval_at = prior_state
-        if next_review_at <= today and interval_at < SRS_GRADUATED_INTERVAL_DAYS:
+        if review_schedule_state(next_review_at, interval_at, today)["due"]:
             stats.due_remaining += 1
 
     return stats

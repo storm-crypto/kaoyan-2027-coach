@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple, TypedDict
 
-from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_GRADUATED_INTERVAL_DAYS
+from constants import PLAN_SUBJECTS, SCORE_SUBJECTS, SRS_OVERDUE_DEGRADE_DAYS
 from env_util import is_icloud_placeholder, safe_int
 from frontmatter import Frontmatter, parse_frontmatter
 
@@ -29,6 +29,32 @@ class DueCard(TypedDict):
     body: str
     key_order: List[str]
     filename: str
+
+
+class ReviewScheduleState(TypedDict):
+    due: bool
+    overdue_days: Optional[int]
+    overdue_reset_pending: bool
+
+
+def review_schedule_state(
+    next_review: Optional[date], review_interval: Optional[int], today: date,
+) -> ReviewScheduleState:
+    """只计算排期，不写卡片，也不从间隔推断掌握度。
+
+    overdue_days 保留带符号的日期差：未来为负，无日期为 None。
+    任何已排期卡片到期后都进入复习，包括达到最大间隔的卡片。
+    超期重排是独立的显式操作，不影响只读入口的到期集合。
+    """
+    days = (today - next_review).days if next_review is not None else None
+    return {
+        "due": days is not None and days >= 0,
+        "overdue_days": days,
+        "overdue_reset_pending": (
+            days is not None and days > SRS_OVERDUE_DEGRADE_DAYS
+            and review_interval is not None and review_interval > 1
+        ),
+    }
 
 
 def parse_today(value: Optional[str]) -> date:
@@ -94,7 +120,7 @@ def collect_due_cards(obsidian_root: Path, today: date) -> List[DueCard]:
     for item in iter_review_cards(obsidian_root):
         if item["icloud_placeholder"] or item["next_review"] is None or item["review_interval"] is None:
             continue
-        if item["next_review"] <= today and item["review_interval"] < SRS_GRADUATED_INTERVAL_DAYS:
+        if review_schedule_state(item["next_review"], item["review_interval"], today)["due"]:
             due_cards.append({
                 "path": str(item["path"]),
                 "subject": item["subject"],

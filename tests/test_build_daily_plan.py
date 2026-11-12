@@ -92,10 +92,16 @@ def test_raw_textbook_rows_and_yesterday_unfinished(sample_archive, vault_root):
     ]
 
 
-def test_missing_index_passes_empty_clusters_no_fallback(sample_archive, sample_card, vault_root):
+def test_missing_index_keeps_due_cards_in_unclustered_bucket(sample_archive, sample_card, vault_root):
+    before = sample_card.read_bytes()
     rc, out, err = run_script('build_daily_plan.py', [str(vault_root), '--today', '2026-03-23'])
     assert rc == 0, err
-    assert json.loads(out)['due_clusters'] == []
+    groups = json.loads(out)['due_clusters']
+    assert len(groups) == 1
+    assert groups[0]['cluster_id'] == 'unclustered'
+    assert groups[0]['due_count'] == 1
+    assert groups[0]['cards'][0]['path'] == str(sample_card)
+    assert sample_card.read_bytes() == before
 
 
 def test_hours_env_and_validation(sample_archive, vault_root):

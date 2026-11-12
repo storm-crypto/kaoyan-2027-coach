@@ -4,6 +4,7 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
+import pytest
 from helpers import run_script
 
 TODAY = "2026-03-23"
@@ -55,17 +56,20 @@ def test_ease_floor(sample_card):
     assert float(data["ease_factor"]) >= 1.3
 
 
-def test_interval_cap(sample_card):
-    """会的 interval 上限为 90 天"""
+@pytest.mark.parametrize("status", ["会", "半会"])
+@pytest.mark.parametrize("old_interval", [80, 90, 96])
+def test_interval_cap(sample_card, status, old_interval):
+    """会与半会的间隔都不超过 90 天，包括历史超长间隔。"""
     # 先手动把 interval 设高
     text = sample_card.read_text()
-    text = text.replace("review_interval: 4", "review_interval: 80")
+    text = text.replace("review_interval: 4", f"review_interval: {old_interval}")
     sample_card.write_text(text)
 
-    rc, out, _ = run_script("update_card.py", [str(sample_card), "--status", "会", "--today", TODAY])
+    rc, out, _ = run_script("update_card.py", [str(sample_card), "--status", status, "--today", TODAY])
     assert rc == 0
     data = json.loads(out)
-    assert data["interval"] <= 90
+    assert data["interval"] == 90
+    assert data["next_review"] == "2026-06-21"
 
 
 def test_zero_interval_is_treated_as_new_card_baseline(sample_card):

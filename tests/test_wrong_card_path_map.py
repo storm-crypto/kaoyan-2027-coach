@@ -1,5 +1,6 @@
 """单测 wrong_card_path_map：章节解析、别名碰撞守卫、历史卡反解展示名。"""
 import sys
+import re
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from wrong_card_path_map import (  # noqa: E402
     _build_alias_map,
     canonical_chapter_display,
     iter_408_knowledge_map_rows,
+    iter_math1_knowledge_map_rows,
     resolve_knowledge_map_keyword,
     resolve_wrong_card_chapter,
 )
@@ -95,13 +97,12 @@ def test_math1_late_chapter_14_sections_resolve_to_canonical_dirs(
 # --------------------------- 408：老汤大纲 ---------------------------
 
 
-def _template_408_rows():
-    """从模板里抽出 知识地图/408.md 代码块的 (模块, 章节行, 叶子行) 序列。"""
-    import re
+def _template_rows(subject):
+    """读取原始模板叶子；转义竖线仍属于考点名称。"""
     import textwrap
 
     text = (SKILL_ROOT / "templates" / "学习者档案与知识地图模板.md").read_text(encoding="utf-8")
-    anchor = "### `知识地图/408.md`"
+    anchor = f"### `知识地图/{subject}.md`"
     start = text.index("```markdown", text.index(anchor)) + len("```markdown\n")
     block = text[start:text.index("```", start)]
     rows = []
@@ -115,7 +116,8 @@ def _template_408_rows():
         if chapter_match:
             chapter = chapter_match.group(1).strip()
             continue
-        leaf_match = re.match(r"^\|\s*(\d{2}\.\d{2}\s+[^|]+?)\s*\|", line)
+        cells = re.split(r"(?<!\\)\|", line)
+        leaf_match = re.fullmatch(r"\s*(\d{2}\.\d{2}\s+.+?)\s*", cells[1]) if len(cells) >= 5 else None
         if leaf_match:
             rows.append((module, chapter, leaf_match.group(1).strip()))
     return rows
@@ -127,7 +129,54 @@ def test_408_template_matches_path_map_outline():
     两处不同步的后果：/wrong 建卡的 chapter_display 找不到知识地图行，
     update_knowledge_map --finding-add 直接报「未找到叶子考点行」。
     """
-    assert _template_408_rows() == iter_408_knowledge_map_rows()
+    assert _template_rows("408") == iter_408_knowledge_map_rows()
+
+
+def test_math1_template_matches_complete_outline():
+    assert _template_rows("数学一") == iter_math1_knowledge_map_rows()
+    leaves = [leaf for _, _, leaf in iter_math1_knowledge_map_rows()]
+    assert len(leaves) == len(set(leaves))
+    assert len({resolve_wrong_card_chapter("数学一", leaf).chapter_id for leaf in leaves}) == len(leaves)
+
+
+@pytest.mark.parametrize("module,chapter,leaf", _template_rows("数学一"))
+def test_every_math1_template_leaf_resolves_to_its_own_section(module, chapter, leaf):
+    """逐个走真实解析入口，防止有地图却无法建卡，或被悄悄挂靠到邻节。"""
+    resolution = resolve_wrong_card_chapter("数学一", leaf)
+    assert resolution.is_canonical
+    assert resolution.chapter_display == leaf
+    parts = Path(resolution.relative_dir).parts
+    assert parts[:2] == (module, chapter)
+    assert parts[-1].startswith(leaf.split(".", 1)[1].split()[0] + " ")
+    assert len(parts) == 3
+    assert all(not re.search(r'[\\:*?"<>|]', part) for part in Path(resolution.chapter_path).parts)
+    assert canonical_chapter_display("数学一", resolution.chapter_path) == leaf
+
+
+@pytest.mark.parametrize("alias,expected_path", [
+    ("二重积分", "高等数学/10第十章二重积分/02第二节二重积分的计算"),
+    ("齐次方程组", "线性代数/04第四章线性方程组"),
+    ("非齐次方程组", "线性代数/04第四章线性方程组"),
+    ("方程组综合应用", "线性代数/04第四章线性方程组"),
+    ("向量空间", "线性代数/03第三章向量/04第四节$n$维向量空间(仅数学一要求)"),
+    ("区间估计与假设检验", "概率论与数理统计/07第七章参数估计/03第三节区间估计(仅数学一要求)"),
+])
+def test_math1_legacy_alias_paths_remain_compatible(alias, expected_path):
+    resolution = resolve_wrong_card_chapter("数学一", alias)
+    assert resolution.chapter_path == expected_path
+    old_path_resolution = resolve_wrong_card_chapter("数学一", expected_path)
+    assert old_path_resolution.chapter_id == resolution.chapter_id
+    assert old_path_resolution.chapter_path == expected_path
+
+
+def test_determinant_leaf_accepts_display_escaping_without_unsafe_filename():
+    display = r"01.03 第三节 讨论 \|A\|=0 的问题"
+    escaped = resolve_wrong_card_chapter("数学一", display)
+    plain = resolve_wrong_card_chapter("数学一", display.replace(r"\|", "|"))
+    assert escaped == plain
+    assert escaped.chapter_display == display
+    assert escaped.chapter_id == "math1:linear:01:03"
+    assert escaped.chapter_path.endswith("03第三节讨论A=0的问题")
 
 
 def test_408_outline_has_four_modules_and_unique_leaves():

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """扫描错题本，返回今日到期的待复习错题（JSON）。
-同时对超期 7 天以上的卡片自动将 review_interval 重置为 1。
+默认只读；显式 --apply-overdue 才将超期 7 天以上卡片的 review_interval 重置为 1。
 
-用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--plain] [--by-cluster]
+用法: python3 scan_due_reviews.py [OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--plain] [--by-cluster] [--apply-overdue]
       环境变量 KAOYAN_OBSIDIAN_ROOT 可替代 CLI 参数
 
 --by-cluster: 额外返回 `clusters` 字段，把到期卡按 `错题本/_元技能索引.json` 的元技能簇
@@ -11,17 +11,15 @@
 """
 import argparse
 import json
-from datetime import timedelta
 from typing import Tuple
 
 from archive_ops import extract_heading_block
-from constants import SRS_GRADUATED_INTERVAL_DAYS, SRS_OVERDUE_DEGRADE_DAYS
 from frontmatter import serialize_frontmatter
 from env_util import atomic_write, resolve_obsidian_root
 from figure_ops import replace_figure_embeds_for_cli
 from latex_to_unicode import latex_to_unicode
 from metaskill_index import group_due_by_cluster, load_index
-from study_ops import iter_review_cards, parse_today
+from study_ops import iter_review_cards, parse_today, review_schedule_state
 
 from constants import QUESTION_PREVIEW_LINE_LIMIT
 
@@ -72,13 +70,15 @@ def main() -> None:
                         help="将 LaTeX 公式转为 Unicode 可读文本（适用于 CLI 环境）")
     parser.add_argument("--by-cluster", dest="by_cluster", action="store_true",
                         help="额外按元技能簇分组并按每小时清卡数排序")
+    parser.add_argument("--apply-overdue", action="store_true",
+                        help="显式应用超期重排：间隔重置为 1，复习日设为今天；不改变掌握度或历史")
     args = parser.parse_args()
 
     obsidian_root = resolve_obsidian_root(args.obsidian_root)
     today = parse_today(args.today)
-    threshold = today - timedelta(days=SRS_OVERDUE_DEGRADE_DAYS)
     due = []
     degraded = 0
+    pending_overdue = 0
     icloud_warnings = []
 
     for item in iter_review_cards(obsidian_root):
@@ -94,17 +94,20 @@ def main() -> None:
         if not fm or next_review is None or interval is None:
             continue
 
-        # 超期降级：interval 重置为 1，next_review 设为今天
-        if next_review < threshold and interval > 1:
+        schedule = review_schedule_state(next_review, interval, today)
+        # 仅显式请求才重排；普通扫描不改变任何学习记录。
+        if schedule["overdue_reset_pending"] and args.apply_overdue:
             fm["review_interval"] = "1"
             fm["next_review"] = today.isoformat()
             interval = 1
             next_review = today
             atomic_write(item["path"], serialize_frontmatter(fm, key_order, body))
             degraded += 1
+            schedule = review_schedule_state(next_review, interval, today)
+        if schedule["overdue_reset_pending"]:
+            pending_overdue += 1
 
-        # 筛选到期且未毕业（interval < 90）
-        if next_review <= today and interval < SRS_GRADUATED_INTERVAL_DAYS:
+        if schedule["due"]:
             topic = fm.get("topic", "")
             question_text, options_text, question_preview = build_question_payload(body, topic)
             if args.plain:
@@ -117,6 +120,9 @@ def main() -> None:
                 "topic": topic,
                 "status": fm.get("status", ""),
                 "review_interval": interval,
+                "next_review": next_review.isoformat(),
+                "overdue_days": schedule["overdue_days"],
+                "overdue_reset_pending": schedule["overdue_reset_pending"],
                 "filename": item["path"].stem,
                 "question_text": question_text,
                 "options_text": options_text,
@@ -124,16 +130,19 @@ def main() -> None:
             })
 
     due.sort(key=lambda x: (x["review_interval"], x["subject"]))
-    result = {"due": due, "degraded": degraded}
+    result = {"due": due, "degraded": degraded, "pending_overdue": pending_overdue}
+    if pending_overdue:
+        result["overdue_warning"] = (
+            f"{pending_overdue} 张卡超期超过 7 天，当前扫描未改写排期；"
+            "如需将间隔重置为 1 天，请显式使用 --apply-overdue。"
+        )
     if args.by_cluster:
         index = load_index(obsidian_root)
-        if index.get("clusters"):
-            result["clusters"] = group_due_by_cluster(due, index)
-        else:
-            result["clusters"] = []
+        result["clusters"] = group_due_by_cluster(due, index)
+        if not index.get("clusters"):
             result["cluster_warning"] = (
-                "未找到 错题本/_元技能索引.json，已退化为扁平模式；"
-                "先建索引再用 --by-cluster"
+                "未找到可用的 错题本/_元技能索引.json，"
+                "到期题已保留在未归簇分组；补齐索引后可按元技能浏览。"
             )
     if icloud_warnings:
         result["icloud_placeholders"] = icloud_warnings

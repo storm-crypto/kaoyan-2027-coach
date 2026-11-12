@@ -19,7 +19,7 @@ from textbook_progress import load_week_textbook_rows
 
 
 def scan_due_clusters(obsidian_root: Path, today: date) -> list:
-    """直接调用原扫描入口，保留题面 payload、SRS 行为和簇原始顺序。"""
+    """只读扫描，保留完整题面与簇顺序；未归簇题仍进入候选池。"""
     result = subprocess.run([
         sys.executable, str(Path(__file__).with_name('scan_due_reviews.py')),
         str(obsidian_root), '--today', today.isoformat(), '--by-cluster',

@@ -1358,7 +1358,7 @@ def render_statistics_html(payload: Mapping[str, object], workbench_href: str = 
           {render_heatmap(activity["card_created_heatmap_30"], "还没有错题创建记录。")}
         </div>
         <div class="mini-panel">
-          <h3>最近 30 天错题复习</h3>
+          <h3>最近 30 天复习题数（同题同日计一次）</h3>
           {render_heatmap(activity["card_reviewed_heatmap_30"], "还没有错题复习记录。")}
         </div>
         <div class="mini-panel">

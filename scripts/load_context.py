@@ -16,9 +16,9 @@ from archive_ops import (
     parse_subject_score_rows,
     parse_subject_targets,
 )
-from constants import LOAD_COUNTDOWN_WINDOW_DAYS, LOAD_DUE_BACKLOG_WARNING_THRESHOLD
+from constants import LOAD_COUNTDOWN_WINDOW_DAYS, LOAD_DUE_BACKLOG_WARNING_THRESHOLD, SCORE_SUBJECTS
 from env_util import resolve_obsidian_root
-from study_ops import SCORE_SUBJECTS, count_due_reviews, parse_today
+from study_ops import count_due_reviews, parse_today
 
 
 class LatestLogInfo(TypedDict):
@@ -153,7 +153,7 @@ def latest_report_info(obsidian_root: Path) -> Optional[LatestReportInfo]:
 
 def latest_subject_score_info(archive_text: str) -> Optional[LatestSubjectScoreInfo]:
     latest: Optional[LatestSubjectScoreInfo] = None
-    for subject in ("数学一", "408", "英语一"):
+    for subject in SCORE_SUBJECTS:
         for row in parse_subject_score_rows(archive_text, subject):
             try:
                 row_day = date.fromisoformat(row["date"])

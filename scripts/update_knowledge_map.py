@@ -18,7 +18,7 @@
 
 备注字段（cells[4]）写入规则（ccce449 之后再次升级）：
 - 优先解析为结构化 Finding 列表（每条 = qid + 暴露日期 + 描述 + 掌握日期?）
-- `--finding-add` 按 qid 去重合并；同时自动扫错题本，把 review_interval ≥ 阈值的条目划掉
+- `--finding-add` 按 qid 去重合并；按题卡历史末尾三连绿划掉对应卡点，复发后重新激活
 - 老的自由文本备注默认在首次写新格式时丢弃；`--keep-legacy-note` 可保留
 - 没有任何 `--finding-add` 时：仍跑一次自动划掉同步，不动结构
 - 位置参数里的 NOTE（旧用法）仅在没有任何 `--finding-add` 且没有现有 findings 时生效，整段覆盖
@@ -39,6 +39,7 @@ from knowledge_findings import (
     sync_mastered_status,
 )
 from study_ops import parse_today
+from knowledge_map_parser import split_knowledge_row
 
 SUBJECT_MAP = {
     "数学一": "数学一.md", "数学": "数学一.md",
@@ -46,6 +47,20 @@ SUBJECT_MAP = {
     "政治": "政治.md",
     "英语一": "英语一.md", "英语": "英语一.md",
 }
+
+
+def replace_mastery_row(text, line_no, mastery, *, expected_topic, note=None):
+    """只替换已精确定位的叶子行；测试记录与旧 CLI 共用同一写回格式。"""
+    lines = text.split("\n")
+    if line_no < 1 or line_no > len(lines):
+        raise ValueError("知识地图行号已失效，未写入")
+    cells = ["", *split_knowledge_row(lines[line_no - 1]), ""]
+    if len(cells) != 6 or cells[1] != expected_topic or not is_leaf_row(cells[1]):
+        raise ValueError("知识地图目标行已变化或不是叶子考点，未写入")
+    if mastery not in {"不会", "半会", "会", "待测"}:
+        raise ValueError("掌握度必须为 不会 / 半会 / 会 / 待测")
+    lines[line_no - 1] = f"| {cells[1]} | {mastery} | {cells[3]} | {cells[4] if note is None else note} |"
+    return "\n".join(lines)
 
 
 def is_leaf_row(topic_cell):
@@ -71,6 +86,7 @@ def _split_optionals(argv):
         "--mastery-threshold-days",
         type=int,
         default=DEFAULT_MASTERY_THRESHOLD_DAYS,
+        help="旧参数兼容；不再用复习间隔推断掌握证据",
     )
     parser.add_argument("--today", help="用于测试的日期 YYYY-MM-DD")
     known, remaining = parser.parse_known_args(argv)
@@ -141,7 +157,7 @@ def main():
         for i, line in enumerate(lines):
             if "|" not in line:
                 continue
-            cells = [c.strip() for c in line.split("|")]
+            cells = ["", *split_knowledge_row(line), ""]
             if len(cells) < 5:
                 continue
             topic_cell = cells[1]
@@ -214,8 +230,13 @@ def main():
         # 旧行为：直接用位置参数 NOTE 整段覆盖
         new_note = note if note else existing_note
 
-    lines[idx] = f"| {topic} | {new_mastery} | {confidence} | {new_note} |"
-    atomic_write(filepath, "\n".join(lines))
+    try:
+        updated_text = replace_mastery_row("\n".join(lines), idx + 1, new_mastery,
+                                          expected_topic=topic, note=new_note)
+    except ValueError as exc:
+        print(json.dumps({"error": True, "message": str(exc)}, ensure_ascii=False))
+        sys.exit(1)
+    atomic_write(filepath, updated_text)
     print(json.dumps({
         "updated": topic_cell.strip(),
         "mastery": mastery,

@@ -180,7 +180,7 @@ Kaoyan_2027_Prep/
 
 - **每条卡点格式**：`N. [YYYY-MM-DD] 一句话描述 (qid-xxxxxxxxxxxx)`，描述 ≤ 40 字符
 - **已掌握的条目**：自动加删除线 + 解决日期，形如 `~~[2026-04-01 → 2026-05-01] 描述 (qid-xxx)~~`
-- **掌握判定**：错题卡 `review_interval ≥ 14 天` 时，对应 finding 自动划掉
+- **卡点解决判定**：仅当对应题卡历史末尾连续三次 `会`，才划掉该 finding，解决日期取本轮第三次绿灯；之后出现 `半会/不会` 时重新激活。无历史不从状态或复习间隔推断。这里只解决该题暴露的卡点，不自动证明整个考点已掌握。
 - **qid 主键**：每条卡点绑定具体错题卡 qid（章节拷打条目用 `qid-grill-xxxxxxxxxx` 区分），用于跨次去重和联动划线
 - **写入入口**：永远走 `update_knowledge_map.py --finding-add "qid|YYYY-MM-DD|描述"`，**禁止再传 free-form NOTE 位置参数**（旧用法仍向后兼容，但会覆盖结构）
 - **长尾折叠**：同一考点已掌握 ≥ 3 条时，自动包 `<details><summary>已掌握 N 条</summary>...</details>` 折叠
@@ -190,8 +190,8 @@ Kaoyan_2027_Prep/
 ### 间隔复习（改进版 SRS）
 
 由脚本自动处理，含 ease_factor：
-- `scan_due_reviews.py`：扫描到期卡片 + 超期 7 天自动降级
-- `update_card.py`：不会→1天(ease×0.8)，半会→×1.2(ease不变)，会→×ease_factor(上限90天,ease+0.1)
+- `scan_due_reviews.py`：默认只读扫描；只要 `next_review` 到期就入队，90 天是间隔上限，不代表退出复习。超期超过 7 天只返回待重排提示；仅明确需要重排时加 `--apply-overdue`，重置间隔为 1 天、复习日为今天，不改掌握度或作答历史。
+- `update_card.py`：不会→1天(ease×0.8)，半会→×1.2(至少+1天，上限90天，ease不变)，会→×ease_factor(上限90天,ease+0.1)
 
 详见 `templates/错题追踪卡模板.md`
 
@@ -219,7 +219,7 @@ Kaoyan_2027_Prep/
 | `generate_question_id.py` | 生成题卡主键 | `python3 scripts/generate_question_id.py [来源] [题号/摘要...]` |
 | `create_wrong_card.py` | 新建错题卡，并保留完整题面原文；已配置规范目录的科目会把章节解析为稳定 `chapter_id/chapter_path/chapter_display` | `python3 scripts/create_wrong_card.py [$OBSIDIAN_ROOT] [科目] --chapter [具体章节/叶子节别名] --topic [关键词] --source [来源] --question-id [qid] --question [题面] [--question-number 卷面题号] [--error-type 没思路\|遗忘\|计算失误\|思路偏差\|时间不够] [--options 多行选项] [--option 单个选项] [--status 不会\|半会\|会] [--figure "vault相对路径\|图N：说明"] [--question-figure "..."]` |
 | `create_figure.py` | 生成并校验配图，返回 `figure_arg`。数学及 408 位置/比例/过程图用 `python`：执行可信绘图源码（定义 `fig`），预渲染 SVG，保留 `.py` 与 `.preview.png`；查看预览再归档。手写 SVG / TikZ / Mermaid 保留原静态校验。详见 [Python 配图参考](references/python-figure-guide.md) | `python3 scripts/create_figure.py [$OBSIDIAN_ROOT] --question-id [qid] --slug [短名] --caption [图N：说明] [--kind python\|svg\|tikz\|mermaid] [--index N] [--width 480] [--source-file PATH] [--allow-fixed-theme] [--dry-run]`（不传源码路径时从 stdin 读；Python dry-run 只查语法） |
-| `scan_due_reviews.py` | 扫描到期错题+超期降级；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster]` |
+| `scan_due_reviews.py` | 只读扫描到期错题；显式 `--apply-overdue` 才重排超期卡；`--plain` 可把 LaTeX 公式转成更适合 CLI/对话框阅读的文本；`--by-cluster` 额外返回按元技能簇分组并按「每小时清卡数」排序的 `clusters`（到期 > 30 道时必用） | `python3 scripts/scan_due_reviews.py [$OBSIDIAN_ROOT] [--plain] [--by-cluster] [--apply-overdue]` |
 | `check_breakthrough_triggers.py` | 按 chapter_id/topic 汇总近期同考点 ≥3 错、模块得分率 <60% 和连续翻车强信号；不自动开单 | `python3 scripts/check_breakthrough_triggers.py [$OBSIDIAN_ROOT] [--days 3] [--today YYYY-MM-DD]` |
 | `build_fragment_cards.py` | 按今日计划相关簇、SRS 短间隔及到期日期选卡，仅将 qid 与原始题面写入 `碎片刷题/YYYY-MM-DD.md`；同日保留已有文件，不改 SRS | `python3 scripts/build_fragment_cards.py [$OBSIDIAN_ROOT] [--date YYYY-MM-DD] [--count 5]` |
 | `open_in_obsidian.py` | 把 vault 内文件用 `obsidian://open` 唤到 Obsidian 前台，让用户读渲染好的 LaTeX 原文而不是 CLI 降级文本。vault 根从目标文件向上找 `.obsidian/` 判定，跨子目录也不会错。**macOS 沙箱会拦 `open`（报 `procNotFound`），这条命令必须绕过沙箱执行** | `python3 scripts/open_in_obsidian.py [$OBSIDIAN_ROOT] (--path 文件路径 \| --question-id qid-xxxx) [--background] [--print-only]` |
@@ -227,7 +227,7 @@ Kaoyan_2027_Prep/
 | `find_related_cards.py` | 查同元技能的相关题并回写 `### 相关题目` wikilink。数据源是 `错题本/_元技能索引.json`；qid 已在索引里走 `lookup`（同簇兄弟，不足 2 张时按 family 扩一跳），不在索引里走 `predict`（考点词元 + 同叶子章节 + 题面相似度加权，并给出 `suggest_cluster`）。刻意不使用 `error_tags`（该字段在本库 300 张卡上有 539 个标签、529 个只出现一次，无判别力）。写入幂等 | `python3 scripts/find_related_cards.py [$OBSIDIAN_ROOT] --question-id [qid] [--topic 考点] [--chapter 章节] [--question 题面] [--limit 4] [--write] [--backfill] [--dry-run]` |
 | `update_card.py` | 更新错题卡及 consecutive_failures（连续不会+1，半会/会清零，最短间隔仍1天）；`--figure` 可在复习时补图（已有 `### 图示` 追加而不覆盖） | `python3 scripts/update_card.py [路径] --status [不会/半会/会] [--comment 简评] [--question-id qid] [--figure "vault相对路径\|图N：说明"]` |
 | `sync_card_progress.py` | 为旧题卡生成/重建红绿灯区块；幂等，仅改展示，不改历史、状态和排期，默认只预览 | `python3 scripts/sync_card_progress.py [$OBSIDIAN_ROOT] [--apply]` |
-| `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，脚本会自动按 SRS interval 划掉已掌握的条目 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
+| `update_knowledge_map.py` | 更新知识地图掌握度；推荐通过 `--finding-add` 把卡点结构化写入备注，按真实历史三连绿解决该卡点，复发重新激活；旧间隔阈值参数仅兼容 | `python3 scripts/update_knowledge_map.py [$OBSIDIAN_ROOT] [科目] [关键词] [掌握度] [--finding-add "qid\|YYYY-MM-DD\|描述"] [--keep-legacy-note] [--fold-threshold N] [--mastery-threshold-days N]` |
 | `load_context.py` | 生成 `/load` 上下文摘要 | `python3 scripts/load_context.py [$OBSIDIAN_ROOT]` |
 | `build_daily_plan.py` | 聚合七项每日计划候选数据，不排序、选题、分预算或生成正文；`--write` 只保存 `周计划/_候选池-YYYY-MM-DD.json` | `python3 scripts/build_daily_plan.py [$OBSIDIAN_ROOT] [今日可用时长] [--today YYYY-MM-DD] [--write]` |
 | `get_plan_context.py` | 每日 6 点 worker 的唯一上下文入口：候选池 + `load_context.py` 的档案事实摘要；先归档当前计划再算昨日完成率 | `python3 scripts/get_plan_context.py [$OBSIDIAN_ROOT] [--today YYYY-MM-DD] [--available-hours 时长]` |
@@ -238,7 +238,8 @@ Kaoyan_2027_Prep/
 | `update_textbook_progress.py` | 更新本周计划里某本教材的「当前」进度页码 | `python3 scripts/update_textbook_progress.py [$OBSIDIAN_ROOT] --textbook 教材 --current pXX` |
 | `build_recap.py` | 生成周/月复盘 | `python3 scripts/build_recap.py [$OBSIDIAN_ROOT] [--period week\|month]` |
 | `build_dashboard.py` | 生成工作台与历史统计；只读学习数据。用法见 references/workbench.md | `python3 scripts/build_dashboard.py [$OBSIDIAN_ROOT] [--output path] [--today YYYY-MM-DD] [--open] [--if-exists]` |
-| `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5] [--breakthrough-id 突破单ID]` |
+| `build_knowledge_test.py` | 从知识地图生成 `/test` 题单和判定要点 | `python3 scripts/build_knowledge_test.py [$OBSIDIAN_ROOT] [科目] [--chapter 章节关键词] [--count 3\|4\|5] [--breakthrough-id 突破单ID] [--topic-id 考点ID]` |
+| `record_knowledge_test.py` | 将单次小测证据与掌握度原子写入知识地图；同 ID 重试不重复，提示后不得记会 | `python3 scripts/record_knowledge_test.py [$OBSIDIAN_ROOT] 科目 --topic-id ID --test-id ID --question 题目 --answer 作答 --judgment 判定依据 --hinted yes\|no --result 不会\|半会\|会 [--today YYYY-MM-DD]` |
 | `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩、自动汇总今日错题归档，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `record_paper_score.py` | 记录整卷或数学选填专项，自动关联错题；选填独立成表并隔离整卷趋势 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [得分] [--section 整卷\|选填] [--issues 主要问题] [--date YYYY-MM-DD] [--wrong-questions "3:没思路;8:算错"] [--question-topics "3:二重积分;8:泰勒展开"] [科目细分参数...]` |
@@ -431,7 +432,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 每日计划采用「算 / 想 / 记」三层：脚本只计算、读写；AI 决定先后顺序、预算、科目与题量；vault 是唯一事实源。
 
 1. 运行 `get_plan_context.py`（可传 `--available-hours`），获得 `due_clusters / breakthroughs / yesterday_unfinished / yesterday_completion_rate / focus_items / textbook_progress / available_hours / archive_summary` 八项 JSON 数据。每日 6 点 worker 也只调用此入口取上下文。它先归档当前计划，避免昨天的勾选状态在生成新计划时丢失。
-2. AI 根据原始数据排计划，说明取舍依据。`due_clusters` 保留 `scan_due_reviews.py --by-cluster` 的全部簇与顺序，脚本不再挑题或强制时长配比。`textbook_progress` 保留教材名、起点、终点、当前与备注，不自动指定今日页数。索引缺失时簇为空，需要补索引时由 AI 决定，候选池不做 fallback。
+2. AI 根据原始数据排计划，说明取舍依据。`due_clusters` 保留 `scan_due_reviews.py --by-cluster` 的全部簇与顺序，脚本不再挑题或强制时长配比。`textbook_progress` 保留教材名、起点、终点、当前与备注，不自动指定今日页数。索引缺失或卡片未归簇时，到期题保留在 `unclustered` 分组；不得把未归簇当作没有复习任务，也不把该分组当作正式元技能归属。候选池仍不替 AI 安排计划。
 3. 调用 `check_breakthrough_triggers.py --days 3` 获取同科 chapter_id/topic 的近期 ≥3 错证据 `triggered`，同时读 `strong_signals` 中的模块得分率 <60% 和单卡连续复习“不会”≥3 次信号（连续翻车不受 3 天窗口限制）。`unmapped` 表示缺少结构化考点，不从自由文本补猜。首次归档、重复历史行和同卷同日期的卡片/成绩重复事件去重。是否开单由 AI 判断；通过 `manage_breakthrough.py` 写入档案，疗程叶子考点用重复的 `--topic-id` 保存。进行中最多 3 个，其余由 AI 决定排队；长期关注/已攻克/已放弃不参与每日置顶。
 4. AI 生成符合 `templates/今日计划模板.md` 的 Markdown，任务放在 `## 任务清单` 下并用 `- [ ]`。完成后把正文存到临时文件，通过 `plan_ops.py --content-file 文件` 落盘到 `周计划/_今日计划.md`。该入口调用 `archive_ops.archive_daily_plan(obsidian_root, today)` 后再写入；同日重排保留已完成任务和备注，新一天不继承勾选状态。
 5. 归档为 `周计划/_今日计划-YYYY-MM-DD.md`，日期优先取旧文件标题，取不到则用当天；同日期只有一份，同内容重复调用不再次复制，勾选内容变化刷新同名快照，自动清理 30 天前的归档。昨日完成率只统计昨日归档 `## 任务清单` 的 checkbox，无归档为 null，空清单为 0。
@@ -554,11 +555,11 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 
 ### `/test [章节]` — 知识测试
 
-1. 先确定科目；用户只给章节时，可以结合上下文推断，但不确定时先确认科目
-2. 运行 `build_knowledge_test.py`，从知识地图里优先抽取"不会/空白"叶子考点，再补"半会"考点，生成 3-5 题题单和判定要点。突破单验收由 Muse 显式传 `--breakthrough-id`：优先抽疗程 topic_ids（含已标会），不足再补普通弱项；缺 id 或全部不匹配报错，部分不匹配看 unmatched_topic_ids。
-3. 按脚本返回的题单逐题发问，优先围绕判断轴、核心方法、易错点和变式理解来测
-4. 逐题判对错后，按脚本里的判定要点将结果归为 `不会 / 半会 / 会`，再调用 `update_knowledge_map.py` 回写。`/test` 不绑定具体错题卡 qid，所以**不传 `--finding-add`**，只更新掌握度
-5. `/test` 只回写知识地图，不创建错题卡
+1. 确定科目后运行 `build_knowledge_test.py`。默认从空白/不会叶子考点优先选题，再补半会；题目不足时按实际数量返回，不凑题。脚本产出选题蓝图、`topic_id` 和 `test_id`，不是已经完成验算的考题。
+2. 工作台的精确复验指令带 `--topic-id`：只测这个叶子，允许已标会，不混入其他弱项。普通 `--chapter` 仍按范围选弱项，两者不混用。突破单仍用 `--breakthrough-id` 优先测疗程考点（含已标会），不足再补弱项。
+3. 教练根据蓝图生成条件完整、可判分的具体题目，先自行求解并准备题目专属判定依据，再逐题发问。不能只问“删掉一个条件会怎样”而不给出具体条件。方法复述与无提示完成变式分开判断，不因说出方法名就记会。
+4. 用户作答后，沿用本题返回的 `topic_id/test_id` 调用 `record_knowledge_test.py`，传入实际题目、作答、判定依据、是否提示及结果。提示后完成最多记半会。测试证据保存在该知识地图末尾，与掌握度在同一次原子写入中保存；同一作答重试使用同一 `test_id`，真正的新作答才用新 ID。
+5. 不绑定错题 qid，不传 `--finding-add`，不创建题卡；工作台据该记录显示测试日期、结果及作答条件。若旧地图考点不匹配或有歧义，先核对标识，不用模糊关键词强行回写。完成后统一刷新已有工作台。
 
 ### `/recalibrate 政治=62 数学一=118 英语一=80 408=95` — 模考记录+策略校准
 

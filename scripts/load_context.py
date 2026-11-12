@@ -101,6 +101,10 @@ def parse_report_sort_date(filename: str) -> Optional[date]:
     if mock_match:
         return date.fromisoformat(mock_match.group(1))
 
+    paper_match = re.match(r"(\d{4}-\d{2}-\d{2})-.+-套卷分析\.md$", filename)
+    if paper_match:
+        return date.fromisoformat(paper_match.group(1))
+
     week_match = re.match(r"(\d{4})-W(\d{2})(?:-\d{4}-\d{4})?-周复盘\.md$", filename)
     if week_match:
         year = int(week_match.group(1))

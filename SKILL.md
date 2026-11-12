@@ -34,7 +34,7 @@ Kaoyan_2027_Prep/
 ├── 错题本/[科目]/[章节]/      ← /wrong 写入
 ├── 错题本/_附图/[qid]/       ← 图与源码；Python 生成 .svg / .py / .preview.png
 ├── 知识笔记/                 ← 可选
-└── 复盘报告/                 ← /recalibrate /recap 写入
+└── 复盘报告/                 ← /recalibrate /recap /paper 写入
 ```
 
 ---
@@ -243,6 +243,7 @@ Kaoyan_2027_Prep/
 | `import_chapter_grill.py` | 导入 Gemini Voyager 聊天记录，生成 408 章节掌握报告并回写知识地图 | `python3 scripts/import_chapter_grill.py [$OBSIDIAN_ROOT] [voyager_json_path] [--today YYYY-MM-DD]` |
 | `log_progress.py` | 写学习日志、记录单科/模块训练成绩、自动汇总今日错题归档，并按需回写档案 | `python3 scripts/log_progress.py [$OBSIDIAN_ROOT] --topic [概述] [--hours 时长] [--learned 内容] [--blocker 卡点] [--score 科目|类型|来源|得分|满分|备注] [--subject-score 数学一\|卷子\|成绩\|主要问题\|备注 或 408\|卷子\|DS\|CO\|OS\|CN\|总分\|主要问题\|备注] [--weakness 短板|科目|严重度|证据|当前状态|下一步] [--archive-next-step 建议]` |
 | `record_paper_score.py` | 记录整卷或数学选填专项，自动关联错题；选填独立成表并隔离整卷趋势 | `python3 scripts/record_paper_score.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] --paper [卷子] --paper-type [真题\|模拟] --total [得分] [--section 整卷\|选填] [--issues 主要问题] [--date YYYY-MM-DD] [--wrong-questions "3:没思路;8:算错"] [--question-topics "3:二重积分;8:泰勒展开"] [科目细分参数...]` |
+| `build_paper_report.py` | 生成单套试卷（或选填专项）深度复盘报告并写入 `复盘报告/`：聚合 `/wrong` 错题卡详情与 `/score` 粗心题、拆解分科与模块得分率、核算硬伤/冤枉失分账本、穿透历史惯犯/初犯与同元技能簇、输出考前复盘口诀清单与突破单立项建议 | `python3 scripts/build_paper_report.py [$OBSIDIAN_ROOT] [数学一\|408\|英语一\|政治] [--paper 卷名] [--date YYYY-MM-DD] [--section 整卷\|选填] [--total 总分 ...] [--dry-run]` |
 | `analyze_paper.py` | 只读整卷全序列：总分、模块分/得分率、topic错题数；无 AI 解读 | `python3 scripts/analyze_paper.py [$OBSIDIAN_ROOT] --subject 科目 [--section 整卷\|选填] [--paper 卷名] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]` |
 | `record_subject_score.py` | 数学一/408 旧版兼容入口；内部转调新的卷子级成绩记录逻辑 | `python3 scripts/record_subject_score.py [$OBSIDIAN_ROOT] [数学一\|数学\|408] --paper [卷子] [--score 分数\|--ds/--co/--os/--cn/--total 数值] --issues [主要问题] [--note 备注] [--date YYYY-MM-DD]` |
 | `analyze_mock_exam.py` | 记录模考+策略校准 | `python3 scripts/analyze_mock_exam.py [$OBSIDIAN_ROOT] 政治=62 数学一=118 英语一=80 408=95` |
@@ -276,6 +277,7 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
    - `/plan_week`：本周总时长
    - `/progress`：`今天学了什么 + 卡住了什么 + 做了什么题/测试`，有成绩补成绩，有时长补时长
    - `/score`：`科目 + 卷型 + 卷子 + 总分 + 主要问题`，细分规则见 `/help score`
+   - `/paper`：`科目 + 卷子`（对已完成 `/score` 和 `/wrong` 归档的套卷做深度复盘；若有拿不准过程分的大题可先发题判分）
    - `/recap`：`week|month`
    - `/grill`：`latest` 或 JSON 路径
    - `/test`：章节，必要时再补科目
@@ -513,6 +515,33 @@ OBSIDIAN_ROOT 参数可省略，脚本会读取 `KAOYAN_OBSIDIAN_ROOT` 环境变
 6. 选填模式以 `--total` 作为选填得分，同步 `score_objective`，不存 `score_big`，frontmatter 保存 `section: 选填` 与满分。旧制真题满分 56，其他真题及模拟卷 80；档案只写「数学一选填专项成绩追踪」七列表，不修改整卷表。其他零散专项训练仍走 `/progress`。
 7. 默认按科目、`--paper` 和练习日期（`--date`，缺省今日）自动关联已归档错题，提取题号、topic、chapter_id、qid 和 error_type；`--issues` 可选。归档整卷错题时传 `--question-number`。数学整卷题号上限：模拟卷 22，真题明确年份 ≤2020 为 23，其他为 22；选填旧制真题上限 14，其他上限 16；408 整卷为 47。数学卡片字段可容纳旧制第 23 题，写成绩时手动参数与自动关联统一按卷型及 section 校验；来源匹配支持末尾“选填”。旧卡仅从明确来源后缀或题面开头提取题号，不能反推 qid；缺失/冲突返回 `link_warnings`。
 8. `--wrong-questions "3:没思路;23:算错"` 保留为手动覆盖，`--question-topics` 可补明确考点；空字符串清空。成绩的 `## 卷子错题` 保存 JSON，查询接口仍为 `paper_wrong_questions.query_wrong_questions`。做整卷纵向分析时调用 `analyze_paper.py`，读取每套总分/模块分与 topic 错题数序列；Muse 负责解释趋势、分流和编排。[字段、信号及满分口径](references/paper-workflow.md) 见整卷数据契约。
+
+### `/paper [科目] [卷子]` — 套卷深度复盘与整卷错题二刷
+
+保持 `/score` 负责轻量记分，`/paper` 根据目标试卷是否已有复盘报告自动切换为**「新建套卷复盘（`mode=analyze`）」**或**「本卷错题二刷复习（`mode=review`）」**双模式：
+
+**1. 智能定位与双模式路由：**
+- 运行 `build_paper_report.py [$OBSIDIAN_ROOT] [科目] [--paper 卷名]`：
+  - 若省略 `--paper`：脚本优先定位该科目下**最新一套尚未生成复盘报告的试卷**进入 `analyze` 模式；若所有已记录试卷均已生成过报告，则定位最新一套试卷进入 `review` 模式。
+  - **情况 A（尚未复盘过，`mode=analyze`）**：新建 `复盘报告/YYYY-MM-DD-[科目]-[卷名]-套卷分析.md`，输出完整试卷诊断，调用 `open_in_obsidian.py --path [report_path]` 打开报告，并询问是否按 `breakthrough_recommendations` 立项 3 天突破单。
+  - **情况 B（已经复盘过，`mode=review`）**：自动刷新报告中的最新题卡红绿灯状态（`🔴/🟡/🟢`），同时读取返回的 `review_summary` 与 `review_queue`（按 `不会 → 半会 → 会但未三连绿 → 已过关` 排序，且含无泄题的纯题面 `question_text`），向用户汇报本卷错题消化进度，并按题号逐题发起本卷错题二刷！每题作答后按 `/review` 规范调用 `update_card.py` 与 `update_knowledge_map.py`，全部完成后再跑一次 `build_paper_report.py` 刷新报告状态。
+
+**2. 首次复盘（`analyze`）推荐闭环流程：**
+1. **自改对答案 + 分流处理错题**：
+   - 用户做完卷子先对照标准答案批改算分；若某道大题拿不准步骤分/过程分，可先把该题题面或整卷 PDF + 作答发给教练局部判分
+   - **真不会 / 思路偏差 / 概念遗忘的核心错题**：先用 `/wrong` 逐道精读并建卡入库（传入 `--source [卷名]`、`--question-number [题号]`、`--error-type [没思路|遗忘|计算失误|思路偏差|时间不够]`）
+   - **纯计算失误 / 抄错且不想专门建卡的小题**：在 `/score` 记分时通过 `--wrong-questions "4:计算失误"`（可选 `--question-topics "4:定积分计算"`）轻量记入
+2. **生成套卷深度复盘报告**：
+   - 运行 `build_paper_report.py [$OBSIDIAN_ROOT] [科目] --paper [卷名]`（若尚未跑 `/score`，也可直接把 `--total` 及模块得分参数传给 `build_paper_report.py` 一步完成记分与复盘）
+   - 脚本自动合并 `成绩记录/` 中的轻量错题与 `错题本/` 中同卷的 `/wrong` 错题卡（支持同日或隔天补录的同卷卡片），并输出结构化 JSON 与 Markdown 报告：
+     - **卷面基本盘与优势阵地**：总分、与上卷趋势对比、模块得分率（选填/大题、408 四科）、数学一按题号/章节自动拆解高数/线代/概率三科错题与选填推算得分。仅展示有据可查的高得分率/0 失误稳固模块与前序高频错点/突破单在本卷未再犯的「阶段止血信号」，**严禁凭空脑补未记录考点已掌握**
+     - **失分账本（硬伤分 vs 方法分 vs 冤枉分）**：按错因归类并计算确定性客观题冤枉失分与修正后的卷面保底潜力分
+     - **错题深度串联（惯犯 vs 初犯）**：穿透全库历史错题卡与前序套卷，识别跨卷惯犯与新暴露初犯，展示每张卡当前掌握红绿灯，直链对应错题卡 wikilink、所属元技能簇及同簇兄弟卡
+     - **本卷考前复盘口诀清单**：自动汇总本卷各张 `/wrong` 错题卡中的 `下次怎么做`（数学）或 `记忆钩子 / 核心规则`（408）
+     - **关键问题与下一步动作**：联动 `check_breakthrough_triggers.py` 输出突破单立项建议（含 `--topic-id`）
+3. **打开报告与后续动作确认**：
+   - 调用 `open_in_obsidian.py --path [返回的 report_path]`（须绕过沙箱）在 Obsidian 中打开报告，并运行 `build_dashboard.py --if-exists` 刷新已有工作台
+   - 若报告中触发了 `breakthrough_recommendations`（同考点近期 ≥3 错、跨卷累计 ≥3 次翻车或模块得分率 <60%），向用户确认是否立即调用 `manage_breakthrough.py create` 开立 3 天突破单；若发现仍有未建卡的硬伤题，提醒用 `/wrong` 补建卡片
 
 ### `/review [question_id|科目 题目]` — 间隔复习
 
